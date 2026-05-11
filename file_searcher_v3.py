@@ -67,8 +67,10 @@ OFFICE_EXT = {".docx", ".xlsx", ".pptx", ".pdf", ".doc", ".xls", ".ppt", ".rtf"}
 
 # 走査対象のグループ分け（UIのチェックボックスと連動）
 FILE_GROUPS: dict[str, set[str]] = {
-    "Office": {".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt", ".rtf"},
-    "PDF": {".pdf"},
+    "Word":       {".docx", ".doc", ".rtf"},
+    "Excel":      {".xlsx", ".xls"},
+    "PowerPoint": {".pptx", ".ppt"},
+    "PDF":        {".pdf"},
     "テキスト/データ": {
         ".txt", ".md", ".markdown", ".rst", ".log",
         ".csv", ".tsv", ".json", ".jsonl", ".xml",
@@ -667,6 +669,31 @@ class Indexer:
             result.append((i, n, db_bytes))
         return result
 
+    def get_contents(self, paths: list[str]) -> dict[str, str]:
+        """複数パスの本文を一括取得。"""
+        if not paths:
+            return {}
+        # シャードごとにグルーピングして一発クエリ
+        by_shard: dict[int, list[str]] = {}
+        for p in paths:
+            by_shard.setdefault(self.shard_for(p), []).append(p)
+        result: dict[str, str] = {}
+        for sidx, sps in by_shard.items():
+            conn = self._connect(sidx)
+            try:
+                # IN クエリの長さ制限を考慮してチャンク
+                for i in range(0, len(sps), 500):
+                    chunk = sps[i:i + 500]
+                    placeholders = ",".join("?" for _ in chunk)
+                    for p, c in conn.execute(
+                        f"SELECT path, content FROM contents WHERE path IN ({placeholders})",
+                        chunk,
+                    ):
+                        result[p] = c or ""
+            finally:
+                conn.close()
+        return result
+
     # --- 検索（全シャード並列） ---
     def search(self, query: str, mode: str = "AND",
                limit: int = SEARCH_LIMIT) -> list[tuple[str, str, str]]:
@@ -958,6 +985,57 @@ def _make_snippet(body: str, term: str, ctx: int = 60) -> str:
     pre = "…" if s > 0 else ""
     suf = "…" if e < len(body) else ""
     return f"{pre}{before}〘{hit}〙{after}{suf}"
+
+
+def _build_ai_markdown(
+    query: str,
+    instruction: str,
+    rows: list[tuple[str, str, str]],
+    contents_map: dict[str, str],
+    max_chars_per_file: int,
+) -> str:
+    """検索結果をAI向けのMarkdownに整形。"""
+    parts = []
+    parts.append("# 検索クエリ\n")
+    parts.append(f"\n```\n{query}\n```\n")
+
+    if instruction:
+        parts.append("\n# AIへの指示\n")
+        parts.append(f"\n{instruction}\n")
+
+    parts.append(f"\n# 検索結果（{len(rows)}件）\n")
+    parts.append(
+        "\n以下に検索でヒットしたファイルを列挙します。"
+        "重要なファイルに言及する際は必ずパスを引用してください。\n"
+    )
+
+    for i, (path, name, snip) in enumerate(rows, 1):
+        body = contents_map.get(path, "") or ""
+        truncated = False
+        if len(body) > max_chars_per_file:
+            body = body[:max_chars_per_file]
+            truncated = True
+
+        parts.append("\n---\n")
+        parts.append(f"\n## [{i}/{len(rows)}] {name}\n")
+        parts.append(f"\n- **パス**: `{path}`\n")
+        if snip:
+            clean_snip = snip.replace("〘", "**").replace("〙", "**")
+            parts.append(f"- **ヒット箇所**: {clean_snip}\n")
+        parts.append("\n### 本文\n")
+        if body.strip():
+            parts.append(f"\n```\n{body}\n")
+            if truncated:
+                parts.append(
+                    f"\n…（先頭 {max_chars_per_file:,} 文字のみ。"
+                    f"実ファイルはより長い）…\n"
+                )
+            parts.append("```\n")
+        else:
+            parts.append("\n（本文取得不可：ファイル名のみインデックス）\n")
+
+    parts.append("\n---\n\n以上です。指示に従って回答してください。\n")
+    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -1290,13 +1368,31 @@ class App(tk.Tk):
         flt.pack(fill="x", padx=8, pady=4)
         self.filter_vars: dict[str, tk.BooleanVar] = {}
         saved_filters = self.cfg.get("filters", {})
-        for name, exts in FILE_GROUPS.items():
+
+        # 2行レイアウト：1行に最大4個（6個なら2行目に2個）
+        COLS = 4
+        items = list(FILE_GROUPS.items())
+        for i, (name, exts) in enumerate(items):
             var = tk.BooleanVar(value=saved_filters.get(name, True))
             self.filter_vars[name] = var
-            label = f"{name}  ({len(exts)}種)"
+            label = f"{name}  ({len(exts)})"
             cb = ttk.Checkbutton(flt, text=label, variable=var,
                                  command=self._save_filters)
-            cb.pack(side="left", padx=8, pady=4)
+            cb.grid(row=i // COLS, column=i % COLS,
+                    padx=10, pady=4, sticky="w")
+        for c in range(COLS):
+            flt.grid_columnconfigure(c, weight=1, uniform="filters")
+
+        # 一括ON/OFFボタン
+        btn_row = ttk.Frame(flt)
+        btn_row.grid(row=(len(items) + COLS - 1) // COLS, column=0,
+                     columnspan=COLS, sticky="w", padx=6, pady=(0, 4))
+        ttk.Button(btn_row, text="全部ON",
+                   command=lambda: self._set_all_filters(True),
+                   width=8).pack(side="left", padx=2)
+        ttk.Button(btn_row, text="全部OFF",
+                   command=lambda: self._set_all_filters(False),
+                   width=8).pack(side="left", padx=2)
 
         # 中：操作バー
         ops = ttk.Frame(self)
@@ -1309,6 +1405,8 @@ class App(tk.Tk):
         self.btn_stop.pack(side="left", padx=(4, 0))
         ttk.Button(ops, text="DBクリア", command=self.clear_db).pack(side="left", padx=(4, 0))
         ttk.Button(ops, text="DB設定…", command=self.open_db_settings).pack(side="left", padx=(4, 0))
+        ttk.Button(ops, text="🤖 AI用テキスト出力…",
+                   command=self.open_ai_export).pack(side="left", padx=(4, 0))
 
         # スキャン中のアニメーション
         self.progress = ttk.Progressbar(ops, mode="indeterminate", length=160)
@@ -1449,6 +1547,11 @@ class App(tk.Tk):
         self.cfg["filters"] = {n: v.get() for n, v in self.filter_vars.items()}
         save_config(self.cfg)
 
+    def _set_all_filters(self, value: bool):
+        for v in self.filter_vars.values():
+            v.set(value)
+        self._save_filters()
+
     def _save_search_mode(self):
         self.cfg["search_mode"] = self.search_mode.get()
         save_config(self.cfg)
@@ -1498,6 +1601,156 @@ class App(tk.Tk):
         self._refresh_stats()
 
     # ---- DB設定 ----
+    # ---- AI用テキスト出力 ----
+    def open_ai_export(self):
+        """検索結果をAI（Copilot/ChatGPT/Claude等）に渡しやすい形式で出力するダイアログ。"""
+        win = tk.Toplevel(self)
+        win.title("AI用テキスト出力")
+        win.geometry("620x520")
+        win.transient(self)
+
+        frm = ttk.Frame(win)
+        frm.pack(fill="both", expand=True, padx=14, pady=12)
+
+        # クエリ
+        ttk.Label(frm, text="検索クエリ（何について知りたいか）:",
+                  font=("", 10, "bold")).pack(anchor="w")
+        query_var = tk.StringVar(value=self.query_var.get())
+        ttk.Entry(frm, textvariable=query_var, font=("", 11)).pack(fill="x", pady=(2, 8))
+
+        # AIへの指示
+        ttk.Label(frm, text="AIへの指示文（質問・要約方針など）:",
+                  font=("", 10, "bold")).pack(anchor="w")
+        instr_text = scrolledtext.ScrolledText(frm, height=5, wrap="word")
+        instr_text.pack(fill="x", pady=(2, 8))
+        instr_text.insert("1.0",
+            "以下は社内ファイルから「{クエリ}」で検索した結果です。\n"
+            "1. これらのファイルから関連情報を抽出して要約してください\n"
+            "2. 最も重要なファイル上位3つを理由付きで挙げてください\n"
+            "3. 矛盾や疑問点があれば指摘してください")
+
+        # 設定
+        opts = ttk.LabelFrame(frm, text="出力オプション")
+        opts.pack(fill="x", pady=8)
+
+        row1 = ttk.Frame(opts)
+        row1.pack(fill="x", padx=8, pady=4)
+        ttk.Label(row1, text="検索モード:").pack(side="left")
+        mode_var = tk.StringVar(value=self.search_mode.get())
+        ttk.Radiobutton(row1, text="AND", value="AND",
+                        variable=mode_var).pack(side="left", padx=4)
+        ttk.Radiobutton(row1, text="OR", value="OR",
+                        variable=mode_var).pack(side="left", padx=4)
+
+        row2 = ttk.Frame(opts)
+        row2.pack(fill="x", padx=8, pady=4)
+        ttk.Label(row2, text="含めるファイル数:").pack(side="left")
+        n_var = tk.IntVar(value=30)
+        ttk.Spinbox(row2, from_=5, to=200, textvariable=n_var,
+                    width=8).pack(side="left", padx=(4, 16))
+        ttk.Label(row2, text="1ファイルあたり最大文字数:").pack(side="left")
+        max_chars_var = tk.IntVar(value=3000)
+        ttk.Spinbox(row2, from_=200, to=20000, increment=500,
+                    textvariable=max_chars_var, width=8).pack(side="left", padx=4)
+
+        # 出力先
+        out_frm = ttk.LabelFrame(frm, text="出力先")
+        out_frm.pack(fill="x", pady=8)
+        out_var = tk.StringVar(value="file")
+        ttk.Radiobutton(out_frm, text="ファイルに保存（.md）",
+                        value="file", variable=out_var).pack(anchor="w", padx=8, pady=2)
+        ttk.Radiobutton(out_frm, text="クリップボードにコピー",
+                        value="clip", variable=out_var).pack(anchor="w", padx=8, pady=2)
+
+        # 推定サイズ表示
+        info_var = tk.StringVar(value="")
+        ttk.Label(frm, textvariable=info_var, foreground="#666").pack(anchor="w")
+
+        def update_estimate(*_):
+            est = n_var.get() * max_chars_var.get()
+            tokens = est // 3  # ざっくり1トークン≒3文字
+            info_var.set(
+                f"推定サイズ: 最大 {est/1000:.0f}K 文字 ≒ {tokens/1000:.0f}K トークン  "
+                f"(Copilot/GPT-4: 〜128K, Claude: 〜200K)"
+            )
+        n_var.trace_add("write", update_estimate)
+        max_chars_var.trace_add("write", update_estimate)
+        update_estimate()
+
+        # 実行ボタン
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(12, 0))
+
+        def do_export():
+            q = query_var.get().strip()
+            if not q:
+                messagebox.showwarning(APP_NAME, "クエリを入力してください。", parent=win)
+                return
+            instruction = instr_text.get("1.0", "end").strip().replace("{クエリ}", q)
+            n_limit = n_var.get()
+            max_chars = max_chars_var.get()
+            mode = mode_var.get()
+
+            # 検索
+            self.status_var.set("AI出力用に検索中…")
+            self.update_idletasks()
+            rows = self.indexer.search(q, mode=mode, limit=n_limit)
+            if not rows:
+                messagebox.showinfo(APP_NAME,
+                                    f"検索結果が0件でした: {q}", parent=win)
+                return
+            # 本文一括取得
+            paths = [r[0] for r in rows]
+            contents_map = self.indexer.get_contents(paths)
+
+            # Markdown生成
+            md = _build_ai_markdown(q, instruction, rows, contents_map, max_chars)
+
+            if out_var.get() == "file":
+                f = filedialog.asksaveasfilename(
+                    parent=win,
+                    title="保存先",
+                    defaultextension=".md",
+                    filetypes=[("Markdown", "*.md"), ("Text", "*.txt"), ("All", "*.*")],
+                    initialfile=f"ai_context_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                )
+                if not f:
+                    return
+                try:
+                    Path(f).write_text(md, encoding="utf-8")
+                except Exception as e:
+                    messagebox.showerror(APP_NAME, f"保存失敗:\n{e}", parent=win)
+                    return
+                win.destroy()
+                if messagebox.askyesno(
+                    APP_NAME,
+                    f"保存しました（{len(md):,}文字）\n\n{f}\n\nファイルを開きますか？",
+                ):
+                    try:
+                        if sys.platform == "win32":
+                            os.startfile(f)
+                        elif sys.platform == "darwin":
+                            subprocess.Popen(["open", f])
+                        else:
+                            subprocess.Popen(["xdg-open", f])
+                    except Exception:
+                        pass
+            else:
+                self.clipboard_clear()
+                self.clipboard_append(md)
+                self.update()  # クリップボードを確実に反映
+                win.destroy()
+                messagebox.showinfo(
+                    APP_NAME,
+                    f"クリップボードにコピーしました\n\n"
+                    f"  サイズ: {len(md):,} 文字\n"
+                    f"  ファイル数: {len(rows)} 件\n\n"
+                    f"AIチャット画面に貼り付けて使ってください。",
+                )
+
+        ttk.Button(btns, text="出力", command=do_export).pack(side="right")
+        ttk.Button(btns, text="キャンセル", command=win.destroy).pack(side="right", padx=(0, 8))
+
     def open_db_settings(self):
         """DBフォルダの確認・変更・デフォルト復元・旧DBからの移行のダイアログ。"""
         if self.worker and self.worker.is_alive():
