@@ -1,0 +1,17 @@
+# Office / PDF / 旧Office を中身まで検索したい場合だけ入れればOK
+# テキスト系（.txt .md .py .json 等）は標準ライブラリだけで動きます
+
+# 新Office (Office 2007+) と PDF
+pypdf>=4.0          # .pdf
+python-docx>=1.1    # .docx
+openpyxl>=3.1       # .xlsx
+python-pptx>=1.0    # .pptx
+
+# 旧Office (Office 97-2003) と RTF
+xlrd>=2.0.1         # .xls (Excel 97-2003) - 完全対応
+olefile>=0.46       # .doc / .ppt のフォールバック用（純Python、ベストエフォート）
+striprtf>=0.0.26    # .rtf - 完全対応
+
+# Windowsで .doc / .ppt を MS Word / PowerPoint 経由で正確に読みたい場合（強く推奨）
+# pywin32 が入っていて、かつ Word / PowerPoint がインストールされていれば自動で COM 経由になります
+pywin32>=306; sys_platform == "win32"
