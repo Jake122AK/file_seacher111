@@ -827,34 +827,95 @@ class Indexer:
 # ---------------------------------------------------------------------------
 
 def migrate_from_legacy(legacy_db: Path, indexer: Indexer,
-                        progress_cb=None, batch_size: int = 200) -> int:
-    """旧 index.db からシャードDBへ全レコードをコピー。完了件数を返す。"""
+                        progress_cb=None, batch_size: int = 500) -> int:
+    """旧 index.db からシャードDBへ全レコードをコピー。完了件数を返す。
+
+    実装ノート: contents は FTS5 で path カラムが UNINDEXED のため、
+    files との JOIN が O(N²) で実質終わらない。代わりに:
+      1) files のメタ情報を全部メモリへロード（dict）
+      2) contents を順次スキャンしながら dict で合体
+      3) contents に無い files 行（ファイル名のみ）を最後に追加
+    これで O(N) で済む。
+    """
     if not legacy_db.exists():
         return 0
     src = sqlite3.connect(str(legacy_db))
     try:
-        total = src.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        # 早めに progress を出して「準備中」状態を抜ける
+        if progress_cb:
+            progress_cb(0, 0)
+
+        # 総件数（COUNT(*) は数秒〜十数秒）
+        try:
+            total = src.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        except sqlite3.OperationalError:
+            total = 0
+        if total == 0:
+            try:
+                total = src.execute("SELECT COUNT(*) FROM contents").fetchone()[0]
+            except sqlite3.OperationalError:
+                total = 0
         if total == 0:
             return 0
-        cursor = src.execute("""
-            SELECT f.path, f.name, f.mtime, f.size, COALESCE(c.content, '')
-            FROM files f LEFT JOIN contents c ON f.path = c.path
-        """)
-        batch = []
+        if progress_cb:
+            progress_cb(0, total)
+
+        # Phase 1: files のメタ情報を全部メモリへ
+        # 100万件でも数百MB程度なのでメモリに乗る
+        files_meta: dict[str, tuple[str, float, int]] = {}
+        try:
+            for path, name, mtime, size in src.execute(
+                "SELECT path, name, mtime, size FROM files"
+            ):
+                files_meta[path] = (name, mtime, size)
+        except sqlite3.OperationalError:
+            pass  # files テーブルが無くても続行
+
+        batch: list = []
         done = 0
-        for row in cursor:
-            batch.append(row)
+        seen_in_contents: set[str] = set()
+
+        # Phase 2: contents を順次スキャン（FTS5 の単純な全件走査は高速）
+        try:
+            for path, name, content in src.execute(
+                "SELECT path, name, content FROM contents"
+            ):
+                seen_in_contents.add(path)
+                meta = files_meta.get(path)
+                if meta:
+                    name_meta, mtime, size = meta
+                    if name_meta:
+                        name = name_meta
+                else:
+                    mtime, size = 0.0, 0
+                batch.append((path, name, mtime, size, content or ""))
+                if len(batch) >= batch_size:
+                    indexer.upsert_batch(batch)
+                    done += len(batch)
+                    batch.clear()
+                    if progress_cb:
+                        progress_cb(done, total)
+        except sqlite3.OperationalError:
+            pass  # contents が無くても続行
+
+        # Phase 3: contents に無く files にだけある行
+        for path, (name, mtime, size) in files_meta.items():
+            if path in seen_in_contents:
+                continue
+            batch.append((path, name, mtime, size, ""))
             if len(batch) >= batch_size:
                 indexer.upsert_batch(batch)
                 done += len(batch)
                 batch.clear()
                 if progress_cb:
                     progress_cb(done, total)
+
         if batch:
             indexer.upsert_batch(batch)
             done += len(batch)
             if progress_cb:
                 progress_cb(done, total)
+
         return done
     finally:
         src.close()
@@ -1568,15 +1629,16 @@ class App(tk.Tk):
         """指定された旧DBから現在のシャードへ移行（モーダル進捗ダイアログ付き）。"""
         dlg = tk.Toplevel(self)
         dlg.title("マイグレーション中")
-        dlg.geometry("460x160")
+        dlg.geometry("480x180")
         dlg.transient(self)
         dlg.grab_set()
         dlg.protocol("WM_DELETE_WINDOW", lambda: None)
         ttk.Label(dlg, text=f"以下のDBから現シャードへ移行中:\n{legacy}",
                   justify="center").pack(pady=10, padx=20)
-        pb = ttk.Progressbar(dlg, length=400, mode="determinate")
+        pb = ttk.Progressbar(dlg, length=420, mode="indeterminate")
         pb.pack(pady=5, padx=20)
-        lbl = ttk.Label(dlg, text="準備中…")
+        pb.start(10)
+        lbl = ttk.Label(dlg, text="旧DBを開いています…")
         lbl.pack()
 
         mq: queue.Queue = queue.Queue()
@@ -1590,21 +1652,30 @@ class App(tk.Tk):
                 mq.put(("error", str(e), None))
         threading.Thread(target=worker, daemon=True).start()
 
+        started = [False]
         def poll():
             try:
                 while True:
                     kind, a, b = mq.get_nowait()
                     if kind == "progress":
-                        pb["maximum"] = b
-                        pb["value"] = a
-                        lbl["text"] = f"{a:,} / {b:,} ({a*100//max(b,1)}%)"
+                        if b > 0 and not started[0]:
+                            pb.stop()
+                            pb.configure(mode="determinate", maximum=b)
+                            started[0] = True
+                        if b > 0:
+                            pb["value"] = a
+                            lbl["text"] = f"{a:,} / {b:,} 件 ({a*100//max(b,1)}%)"
+                        else:
+                            lbl["text"] = "メタ情報を読み込み中…"
                     elif kind == "done":
+                        pb.stop()
                         dlg.destroy()
                         self._refresh_stats()
                         self._log(f"移行完了: {a:,} 件 ({legacy})")
                         messagebox.showinfo(APP_NAME, f"移行完了: {a:,} 件")
                         return
                     elif kind == "error":
+                        pb.stop()
                         dlg.destroy()
                         messagebox.showerror(APP_NAME, f"移行失敗:\n{a}")
                         return
@@ -1665,7 +1736,7 @@ class App(tk.Tk):
         """モーダルダイアログでマイグレーション進行表示。"""
         dlg = tk.Toplevel(self)
         dlg.title("マイグレーション中")
-        dlg.geometry("460x160")
+        dlg.geometry("480x180")
         dlg.transient(self)
         dlg.grab_set()
         dlg.protocol("WM_DELETE_WINDOW", lambda: None)
@@ -1674,10 +1745,14 @@ class App(tk.Tk):
             dlg, text="旧DBから分割シャードDBへデータ移行中…\n（中断不可・ウィンドウを閉じないでください）",
             justify="center"
         ).pack(pady=10, padx=20)
-        pb = ttk.Progressbar(dlg, length=400, mode="determinate")
+        pb = ttk.Progressbar(dlg, length=420, mode="indeterminate")
         pb.pack(pady=5, padx=20)
-        lbl = ttk.Label(dlg, text="準備中…")
+        pb.start(10)  # 進捗カウントが来るまでは不定形アニメ
+        lbl = ttk.Label(dlg, text="旧DBを開いています…")
         lbl.pack()
+        sub = ttk.Label(dlg, text="（10GBクラスでもメタ情報の読み込みに数十秒〜数分かかります）",
+                        foreground="#666", font=("", 9))
+        sub.pack()
 
         mq: queue.Queue = queue.Queue()
 
@@ -1692,15 +1767,24 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+        started = [False]
         def poll():
             try:
                 while True:
                     kind, a, b = mq.get_nowait()
                     if kind == "progress":
-                        pb["maximum"] = b
-                        pb["value"] = a
-                        lbl["text"] = f"{a:,} / {b:,} ファイル ({a*100//max(b,1)}%)"
+                        if b > 0 and not started[0]:
+                            # 総数確定 → 進捗バーを determinate に切り替え
+                            pb.stop()
+                            pb.configure(mode="determinate", maximum=b)
+                            started[0] = True
+                        if b > 0:
+                            pb["value"] = a
+                            lbl["text"] = f"{a:,} / {b:,} 件 ({a*100//max(b,1)}%)"
+                        else:
+                            lbl["text"] = "メタ情報を読み込み中…"
                     elif kind == "done":
+                        pb.stop()
                         dlg.destroy()
                         bak = LEGACY_DB.with_suffix(".db.migrated.bak")
                         try:
@@ -1720,6 +1804,7 @@ class App(tk.Tk):
                         )
                         return
                     elif kind == "error":
+                        pb.stop()
                         dlg.destroy()
                         messagebox.showerror(APP_NAME, f"マイグレーション失敗:\n{a}")
                         return
