@@ -696,7 +696,9 @@ class Indexer:
 
     # --- 検索（全シャード並列） ---
     def search(self, query: str, mode: str = "AND",
-               limit: int = SEARCH_LIMIT) -> list[tuple[str, str, str]]:
+               limit: int = SEARCH_LIMIT,
+               ext_filter: set[str] | None = None,
+               ) -> list[tuple[str, str, str]]:
         if not query.strip():
             return []
         mode = "OR" if mode.upper() == "OR" else "AND"
@@ -715,10 +717,11 @@ class Indexer:
         if not fts_pos and not like_pos:
             return []
 
-        # 各シャードから少し多めに取得して、後でグローバルソート
-        per_shard = max(50, (limit * 3) // self.num_shards + 20)
+        # ext_filter があるとヒット率が下がるため、各シャードから多めに候補を取る
+        mult = 10 if ext_filter else 3
+        per_shard = max(50, (limit * mult) // self.num_shards + 20)
 
-        all_results: list[tuple[float, str, str, str]] = []  # (rank, path, name, snip)
+        all_results: list[tuple[float, str, str, str]] = []
 
         with ThreadPoolExecutor(
             max_workers=min(self.num_shards, 8),
@@ -726,7 +729,8 @@ class Indexer:
         ) as pool:
             futures = [
                 pool.submit(self._search_one_shard, i,
-                            fts_pos, fts_neg, like_pos, like_neg, mode, per_shard)
+                            fts_pos, fts_neg, like_pos, like_neg,
+                            mode, per_shard, ext_filter)
                 for i in range(self.num_shards)
             ]
             for f in futures:
@@ -735,7 +739,6 @@ class Indexer:
                 except Exception:
                     continue
 
-        # rank 昇順（小さいほど関連度高）、rank が無いLIKEヒットは最後に
         all_results.sort(key=lambda r: r[0])
         return [(p, n, s) for _, p, n, s in all_results[:limit]]
 
@@ -744,6 +747,7 @@ class Indexer:
         fts_pos: list[tuple[str, bool]], fts_neg: list[tuple[str, bool]],
         like_pos: list[str], like_neg: list[str],
         mode: str, limit: int,
+        ext_filter: set[str] | None = None,
     ) -> list[tuple[float, str, str, str]]:
         """1シャードの検索。戻り値は (rank, path, name, snippet) のリスト。"""
         conn = self._connect(shard_idx)
@@ -843,6 +847,13 @@ class Indexer:
                     if len(filtered) >= limit:
                         break
                 candidates = filtered
+
+            # 拡張子フィルタ（検索結果絞り込み用）
+            if ext_filter is not None:
+                candidates = [
+                    c for c in candidates
+                    if Path(c[1]).suffix.lower() in ext_filter
+                ]
 
             return candidates[:limit]
         finally:
@@ -1430,7 +1441,7 @@ class App(tk.Tk):
 
         # 2行目：AND/OR モード選択
         row2 = ttk.Frame(sf)
-        row2.pack(fill="x", padx=8, pady=(0, 8))
+        row2.pack(fill="x", padx=8, pady=(0, 4))
         ttk.Label(row2, text="複数キーワード:").pack(side="left")
         self.search_mode = tk.StringVar(value=self.cfg.get("search_mode", "AND"))
         ttk.Radiobutton(row2, text="すべて含む (AND)", value="AND",
@@ -1439,6 +1450,25 @@ class App(tk.Tk):
         ttk.Radiobutton(row2, text="いずれか含む (OR)", value="OR",
                         variable=self.search_mode,
                         command=self._save_search_mode).pack(side="left", padx=(4, 0))
+
+        # 3行目：検索結果のファイル種別フィルタ
+        row3 = ttk.Frame(sf)
+        row3.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Label(row3, text="結果の種類:").pack(side="left")
+        self.search_filter_vars: dict[str, tk.BooleanVar] = {}
+        saved_sf = self.cfg.get("search_filters", {})
+        for name in FILE_GROUPS:
+            var = tk.BooleanVar(value=saved_sf.get(name, True))
+            self.search_filter_vars[name] = var
+            cb = ttk.Checkbutton(row3, text=name, variable=var,
+                                 command=self._on_search_filter_change)
+            cb.pack(side="left", padx=2)
+        ttk.Button(row3, text="全部",
+                   command=lambda: self._set_all_search_filters(True),
+                   width=5).pack(side="left", padx=(8, 2))
+        ttk.Button(row3, text="解除",
+                   command=lambda: self._set_all_search_filters(False),
+                   width=5).pack(side="left", padx=2)
 
         # 結果ペイン（左：ファイル一覧、右：プレビュー）
         # ※ body 自体の pack はメソッド最後に移動（log と status を先に下端固定するため）
@@ -1555,6 +1585,31 @@ class App(tk.Tk):
     def _save_search_mode(self):
         self.cfg["search_mode"] = self.search_mode.get()
         save_config(self.cfg)
+
+    def _on_search_filter_change(self):
+        """検索結果フィルタが変更されたら：保存＋クエリがあれば再検索。"""
+        self.cfg["search_filters"] = {
+            n: v.get() for n, v in self.search_filter_vars.items()
+        }
+        save_config(self.cfg)
+        if self.query_var.get().strip():
+            self.do_search()
+
+    def _set_all_search_filters(self, value: bool):
+        for v in self.search_filter_vars.values():
+            v.set(value)
+        self._on_search_filter_change()
+
+    def _search_ext_filter(self) -> set[str] | None:
+        """検索結果フィルタで許可される拡張子の集合。全部ONなら None（フィルタなし）。"""
+        all_exts: set[str] = set()
+        for exts in FILE_GROUPS.values():
+            all_exts |= exts
+        allowed: set[str] = set()
+        for name, var in self.search_filter_vars.items():
+            if var.get():
+                allowed |= FILE_GROUPS[name]
+        return None if allowed == all_exts else allowed
 
     def _allowed_exts(self) -> set[str]:
         """チェック中のグループに属する拡張子の集合を返す。"""
@@ -2075,13 +2130,19 @@ class App(tk.Tk):
         if not q:
             return
         mode = self.search_mode.get()
+        ext_filter = self._search_ext_filter()
         t0 = time.time()
-        rows = self.indexer.search(q, mode=mode)
+        rows = self.indexer.search(q, mode=mode, ext_filter=ext_filter)
         for path, name, snip in rows:
             iid = self.results.insert("", "end", text=name, values=(path,))
             self._results_data.append((iid, path, snip))
+        filter_info = ""
+        if ext_filter is not None:
+            on_groups = [n for n, v in self.search_filter_vars.items() if v.get()]
+            filter_info = f" [絞込: {', '.join(on_groups)}]"
         self.status_var.set(
-            f"{len(rows)} 件ヒット ({(time.time()-t0)*1000:.0f} ms) [モード:{mode}]"
+            f"{len(rows)} 件ヒット ({(time.time()-t0)*1000:.0f} ms) "
+            f"[モード:{mode}]{filter_info}"
         )
 
     def on_select(self, _):
