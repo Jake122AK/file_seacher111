@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>伏見稲荷 千本鳥居 — 雨上がりの夕暮れ</title>
+<title>日和見 — 伏見稲荷 千本鳥居 / 太陽プロトタイプ</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{width:100%;height:100%;overflow:hidden;background:#05070a;
@@ -39,6 +39,22 @@
     opacity:0;transition:opacity .25s}
   #panel.collapsed ~ #tab{opacity:1}
   @media (max-height:620px){ #panel{padding:8px 11px;width:214px} .row{margin:5px 0} #panel h1{margin-bottom:6px} }
+  .sep{font-size:9px;letter-spacing:.22em;opacity:.34;margin:11px 0 5px;padding-bottom:3px;
+    border-bottom:1px solid rgba(255,255,255,.07)}
+  .sep:first-of-type{margin-top:4px}
+  .btns.tight{gap:4px;margin-top:6px}
+  .btns.tight button{padding:5px 2px;font-size:9.5px;flex:1 1 0}
+  button.on{background:rgba(224,89,44,.34);border-color:rgba(224,89,44,.5);color:#ffe6d8}
+  #sp{width:100%;height:66px;display:block;margin:8px 0 2px;overflow:visible}
+  #sp line#sp_h{stroke:rgba(255,255,255,.20);stroke-width:1}
+  #sp .gg{fill:none;stroke:rgba(255,255,255,.15);stroke-width:1}
+  #sp .cc{fill:none;stroke:#e0592c;stroke-width:1.6;stroke-linejoin:round}
+  #sp .tt{stroke:rgba(255,255,255,.22);stroke-width:1;stroke-dasharray:2 3}
+  #sp .dd{fill:#ffd9a8;stroke:rgba(255,190,120,.42);stroke-width:3.4}
+  #astro{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:2px 6px;
+    font-size:9.5px;margin-top:5px;align-items:baseline}
+  #astro i{font-style:normal;opacity:.42;letter-spacing:.04em}
+  #astro b{font-weight:500;opacity:.9;font-variant-numeric:tabular-nums;text-align:right}
   #fps{position:absolute;top:env(safe-area-inset-top,12px);right:12px;font-size:10px;opacity:.35;
     font-variant-numeric:tabular-nums;pointer-events:none}
   #hint{position:absolute;bottom:calc(env(safe-area-inset-bottom,12px) + 10px);left:0;right:0;text-align:center;
@@ -59,17 +75,40 @@
 <canvas id="gl"></canvas>
 <div id="ui">
   <div id="panel">
-    <h1>伏見稲荷大社・千本鳥居<span>AFTER RAIN / DUSK</span></h1>
+    <h1>日和見 — 千本鳥居<span>SOLAR PROTOTYPE / 34.97&deg;N 135.77&deg;E</span></h1>
     <div class="row"><label>画質<span></span></label>
       <select id="qual"><option value="0">低（軽量）</option><option value="1">中</option><option value="2">高</option></select></div>
     <div class="row"><label>解像度<span id="rscalev">100%</span></label>
       <input type="range" id="rscale" min="0.5" max="1.3" step="0.05" value="1"></div>
-    <div class="row"><label>太陽高度<span id="sunelv"></span></label>
-      <input type="range" id="sunel" min="-0.09" max="0.42" step="0.002"></div>
-    <div class="row"><label>太陽方位<span id="sunazv"></span></label>
-      <input type="range" id="sunaz" min="0" max="6.283" step="0.01"></div>
-    <div class="row"><label>露出<span id="expov"></span></label>
-      <input type="range" id="expo" min="0.3" max="3.0" step="0.01"></div>
+    <div class="sep">暇 と 日</div>
+    <div class="row"><label>節気<span id="sekkiv"></span></label>
+      <input type="range" id="sekki" min="0" max="23" step="1" value="15"></div>
+    <div class="row"><label>時刻<span id="hourv"></span></label>
+      <input type="range" id="hour" min="0" max="24" step="0.0025" value="6.2"></div>
+    <svg id="sp" viewBox="0 0 212 76" preserveAspectRatio="none">
+      <line id="sp_h" x1="3" y1="64" x2="209" y2="64"></line>
+      <polyline id="sp_s" class="gg"></polyline>
+      <polyline id="sp_w" class="gg"></polyline>
+      <polyline id="sp_c" class="cc"></polyline>
+      <line id="sp_t" class="tt"></line>
+      <circle id="sp_d" class="dd" r="3.2" cx="-9" cy="-9"></circle>
+    </svg>
+    <div id="astro">
+      <i>高度</i><b id="a_el">—</b><i>方位</i><b id="a_az">—</b>
+      <i>影長</i><b id="a_sh">—</b><i>南中</i><b id="a_noon">—</b>
+      <i>日の出</i><b id="a_rise">—</b><i>日の入</i><b id="a_set">—</b>
+    </div>
+    <div class="btns tight">
+      <button data-sekki="3">春分</button><button data-sekki="9">夏至</button>
+      <button data-sekki="15">秋分</button><button data-sekki="21">冬至</button>
+    </div>
+    <div class="btns tight">
+      <button data-when="rise">日の出</button><button data-when="noon">南中</button>
+      <button data-when="set">日の入</button><button id="btnlapse">早送り</button>
+    </div>
+    <div class="sep">見え方</div>
+    <div class="row"><label>露出補正<span id="expov"></span></label>
+      <input type="range" id="expo" min="0.4" max="2.4" step="0.01"></div>
     <div class="row"><label>路面の濡れ<span id="wetv"></span></label>
       <input type="range" id="wet" min="0" max="1" step="0.01"></div>
     <div class="row"><label>靄・光条<span id="fogv"></span></label>
@@ -85,10 +124,10 @@
   </div>
   <div id="tab">☰</div>
   <div id="fps"></div>
-  <div id="hint">ドラッグで視線 ／ WASD で歩く ／ H でUI ／ C で自動歩行</div>
+  <div id="hint">ドラッグで視線 ／ WASD で歩く ／ Q・E で時刻 ／ Z・X で節気 ／ T で早送り</div>
 </div>
 <div id="joy"><div id="joyknob"></div></div>
-<div id="loading"><div class="k">千本鳥居</div><div id="status">初期化中…</div></div>
+<div id="loading"><div class="k">日和見</div><div id="status">初期化中…</div></div>
 <div id="err">お使いのブラウザは WebGL2 に対応していません。</div>
 <script>
 (function(){
@@ -741,6 +780,7 @@ const SH_SKY = `
 uniform vec3 uSunDir;
 uniform float uTurbidity;
 uniform float uSkyExposure;
+uniform vec3 uCityDir;      // horizon bearing of Kyoto, world space
 
 const float Re = 6360e3, Ra = 6420e3;
 const vec3 betaR = vec3(5.8e-6, 13.5e-6, 33.1e-6);
@@ -815,6 +855,16 @@ vec3 skyColor(vec3 dir, vec3 sun){
                 + vec3(0.9,0.52,0.30)*pow(sunAmt,9.0)*0.9;
   cloudLit *= 0.35 + 0.65*smoothstep(-0.12,0.14,sun.y);
   col = mix(col, cloudLit, ch*0.82);
+
+  // ---- night: airglow floor, and the city burning on the horizon ----
+  float nightAmt = smoothstep(0.030, -0.105, sun.y);
+  if(nightAmt > 0.001){
+    vec3 airglow = vec3(0.00120,0.00170,0.00330)*(1.0 + 1.7*smoothstep(0.55,-0.05,d.y));
+    vec3 hdir = normalize(vec3(d.x, 0.0, d.z) + vec3(1e-5,0.0,0.0));
+    float city = smoothstep(0.26,-0.03,d.y)*pow(max(dot(hdir, uCityDir),0.0), 3.2);
+    // the cloud deck catches the city and hides the stars
+    col += (airglow + vec3(0.0290,0.0182,0.0092)*city*(0.55+0.9*ch))*nightAmt;
+  }
   return col*uSkyExposure;
 }
 `;
@@ -1383,6 +1433,9 @@ uniform vec3 uAmbTint;
 uniform float uPrefMips;
 uniform float uAmbient;
 uniform float uTime;
+uniform float uStarAmt;
+uniform vec3 uPole;
+uniform float uStarRot;
 uniform int uNumLights;
 uniform vec4 uLightPos[16];   // xyz, radius
 uniform vec4 uLightCol[16];   // rgb, intensity
@@ -1447,6 +1500,27 @@ void main(){
     float disc = smoothstep(0.99965, 0.99992, c);
     float glow = pow(max(c,0.0), 900.0)*0.6 + pow(max(c,0.0), 40.0)*0.06;
     sky += uSunColor*(disc*7.0 + glow)*smoothstep(-0.02,0.06,dir.y);
+    // ---- stars: a fixed field turned about the celestial pole by the hour angle ----
+    if(uStarAmt > 0.002){
+      float ca = cos(uStarRot), sa = sin(uStarRot);
+      vec3 P = uPole;
+      vec3 sd2 = dir*ca + cross(P,dir)*sa + P*dot(P,dir)*(1.0-ca);
+      float st = 0.0;
+      for(int k=0;k<3;k++){
+        float sc = 168.0 + 232.0*float(k);
+        vec3 g = sd2*sc;
+        vec3 idc = floor(g);
+        float h = hash13(idc + vec3(float(k)*31.7));
+        if(h > 0.9805){
+          vec3 jit = vec3(hash13(idc+vec3(5.1)), hash13(idc+vec3(9.7)), hash13(idc+vec3(2.3)));
+          vec3 fr = fract(g) - 0.5 - (jit-0.5)*0.55;
+          float mag = (h-0.9805)/0.0195;
+          st += smoothstep(0.34, 0.0, length(fr))*mag*mag/(1.0+float(k)*1.6);
+        }
+      }
+      vec3 stc = mix(vec3(0.70,0.79,1.06), vec3(1.06,0.88,0.66), hash13(floor(sd2*168.0)+vec3(77.0)));
+      sky += stc*st*uStarAmt*smoothstep(0.005, 0.20, dir.y)*2.6;
+    }
     sky = mix(sky, uHazeColor, smoothstep(0.16, -0.03, dir.y)*uHazeAmt);
     outC = vec4(sky, 1.0);
     return;
@@ -1790,14 +1864,17 @@ void main(){
 /* ------------------------- BLOOM ------------------------- */
 const FS_BRIGHT = SH_COMMON + `
 uniform sampler2D uTex; uniform float uThreshold; uniform float uSoft;
+uniform sampler2D uExpo; uniform float uExpoBias;
 in vec2 vUV; out vec4 outC;
 void main(){
   vec3 c = texture(uTex,vUV).rgb;
   float br = max(c.r,max(c.g,c.b));
-  float knee = uThreshold*uSoft;
-  float soft = clamp(br-uThreshold+knee, 0.0, 2.0*knee);
+  // the threshold is in post-exposure terms, so pull it back into scene linear
+  float thr = uThreshold/max(texture(uExpo, vec2(0.5)).r*uExpoBias, 1e-3);
+  float knee = thr*uSoft;
+  float soft = clamp(br-thr+knee, 0.0, 2.0*knee);
   soft = soft*soft/(4.0*knee+1e-4);
-  float w = max(soft, br-uThreshold)/max(br,1e-4);
+  float w = max(soft, br-thr)/max(br,1e-4);
   outC = vec4(c*w, 1.0);
 }
 `;
@@ -1898,12 +1975,59 @@ void main(){
 }
 `;
 
+/* ------------------------- AUTO EXPOSURE -------------------------
+
+   Metering the sun's elevation is not good enough here. The player spends
+   most of the game under a roofed corridor, where a high sun delivers LESS
+   light to the eye, not more, because the beam is stopped by the kasagi.
+   An open loop estimate stops the lens down exactly when the scene got
+   darker. So measure the frame that was actually rendered.
+
+   Centre weighted log-average, adapted inside a 1x1 target, which keeps
+   the whole loop on the GPU: no readPixels, no pipeline stall.           */
+const FS_METER = SH_COMMON + `
+uniform sampler2D uScene;
+uniform sampler2D uPrev;
+uniform float uDt, uKey, uGamma, uMin, uMax, uValid;
+out vec4 outC;
+void main(){
+  /* A log-average is the textbook choice but it is dominated by the floor
+     here: this scene has large genuinely black regions (the nuki wedges,
+     the wooded slope) and a log mean of mostly-floor barely moves between
+     noon and midnight. Use a Reinhard mean instead - soft clipped on the
+     way in, so neither the black nor a sun disc can own the meter. */
+  float sum = 0.0, wsum = 0.0;
+  for(int y=0;y<13;y++){
+    for(int x=0;x<13;x++){
+      vec2 uv = (vec2(float(x),float(y))+0.5)/13.0;
+      vec2 dd = uv-0.5;
+      float w = exp(-dot(dd,dd)*3.2);        // centre weighted, like a real meter
+      float l = luma(texture(uScene, uv).rgb);
+      sum += (l/(1.0+l))*w;
+      wsum += w;
+    }
+  }
+  float Lc = sum/max(wsum,1e-4);
+  float L = Lc/max(1.0-Lc, 1e-3);            // back out to scene linear
+  /* Deliberately NOT a full normalisation. Inverting L exactly would make
+     midnight and midday equally bright, which is the classic auto exposure
+     mistake. uGamma < 1 leaves part of the real difference on screen: at
+     0.75, night still reads about 70% as bright as dawn. */
+  float target = clamp(uKey*pow(max(L, 1e-4), -uGamma), uMin, uMax);
+  if(uValid < 0.5){ outC = vec4(target,L,0,1); return; }
+  float prev = texture(uPrev, vec2(0.5)).r;
+  float rate = target < prev ? 1.4 : 0.55;   // quick into the light, slow into the dark
+  outC = vec4(prev + (target-prev)*(1.0-exp(-rate*uDt)), L, 0.0, 1.0);
+}
+`;
+
 /* ------------------------- FINAL GRADE ------------------------- */
 const FS_FINAL = SH_COMMON + `
 uniform sampler2D uTex;
 uniform sampler2D uBloom;
 uniform vec2 uRes;
 uniform float uExposure, uBloomAmt, uVignette, uGrain, uCA, uTime, uSat, uContrast;
+uniform sampler2D uExpo;      // 1x1, the adapted exposure
 uniform vec3 uLift, uGamma, uGain;
 in vec2 vUV; out vec4 outC;
 
@@ -1955,7 +2079,7 @@ void main(){
   vec3 bloom = texture(uBloom, uv).rgb;
   col += bloom*uBloomAmt;
 
-  col *= uExposure;
+  col *= uExposure*texture(uExpo, vec2(0.5)).r;
   col = tonemap(col);                       // display-referred linear
   col = lin2srgb(clamp(col,0.0,1.0));       // -> display encoded, grade from here
 
@@ -2607,6 +2731,113 @@ function buildScene(quality) {
   return { draws, shadowDraws, lights, toriiCount: inst.length };
 }
 
+/* ==== c2_astro.js ==== */
+/* =========================================================================
+   SOLAR ASTRONOMY
+
+   The sun is not two free sliders. It is a calendar.
+
+   The player is given two dials — 節気 (which of the 24 solar terms) and
+   時刻 (time of day) — and the sun's elevation and azimuth follow from
+   them by real astronomy at this latitude. Whole regions of the sky are
+   therefore unreachable, which is what makes a shadow puzzle solvable.
+   ========================================================================= */
+
+const SITE = { lat: 34.9671, lon: 135.7727, meridian: 135.0 };   // Fushimi Inari / JST
+const OBLIQ = 23.4397 * PI / 180;
+
+/* Compass bearing of world +Z, which is the direction the approach climbs.
+   The real Senbon Torii ascends ENE, so the sunrise sweeps across the
+   corridor axis over the course of the year. That sweep is the game. */
+const SCENE_BEARING = 75.0;
+
+/* Kyoto sits WNW of the mountain; its glow is on that horizon at night. */
+const CITY_BEARING = 300.0;
+
+/* 二十四節気 — the terms sit at exactly 15 degrees of solar longitude
+   apart starting from 立春 at 315, so declination follows from the index
+   alone with no calendar lookup. */
+const SEKKI = [
+  ['立春', '2月4日'], ['雨水', '2月19日'], ['啓蟄', '3月6日'], ['春分', '3月20日'],
+  ['清明', '4月5日'], ['穀雨', '4月20日'], ['立夏', '5月5日'], ['小満', '5月21日'],
+  ['芒種', '6月6日'], ['夏至', '6月21日'], ['小暑', '7月7日'], ['大暑', '7月23日'],
+  ['立秋', '8月7日'], ['処暑', '8月23日'], ['白露', '9月8日'], ['秋分', '9月23日'],
+  ['寒露', '10月8日'], ['霜降', '10月23日'], ['立冬', '11月7日'], ['小雪', '11月22日'],
+  ['大雪', '12月7日'], ['冬至', '12月22日'], ['小寒', '1月5日'], ['大寒', '1月20日']
+];
+
+function sekkiToLambda(i) { return ((315 + 15 * i) * PI / 180) % TAU; }
+function declination(lam) { return Math.asin(Math.sin(OBLIQ) * Math.sin(lam)); }
+function dayOfYear(lam) { return (79.5 + (lam / TAU) * 365.2422) % 365.2422; }
+
+/* equation of time, in minutes: how far the real sun runs ahead of the clock */
+function equationOfTime(N) {
+  const B = TAU * (N - 81) / 364.0;
+  return 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);
+}
+function clockToHourAngle(hour, N) {
+  const solar = hour + equationOfTime(N) / 60 + (SITE.lon - SITE.meridian) / 15;
+  return (solar - 12) * 15 * PI / 180;
+}
+
+/* sun direction in the local horizontal frame: [east, north, up] */
+function sunENU(lam, hour) {
+  const dec = declination(lam);
+  const H = clockToHourAngle(hour, dayOfYear(lam)), phi = SITE.lat * PI / 180;
+  const cd = Math.cos(dec), sd = Math.sin(dec);
+  const cp = Math.cos(phi), sp = Math.sin(phi);
+  const cH = Math.cos(H), sH = Math.sin(H);
+  return [-cd * sH, -cd * cH * sp + sd * cp, cd * cH * cp + sd * sp];
+}
+
+/* The world is right handed with +Y up, so at SCENE_BEARING 180 this is
+   the textbook mapping: +X east, +Z south. */
+function enuToWorld(v) {
+  const th = SCENE_BEARING * PI / 180, ct = Math.cos(th), st = Math.sin(th);
+  return [-v[0] * ct + v[1] * st, v[2], v[0] * st + v[1] * ct];
+}
+/* the same 2x2 is its own inverse (it is a reflection), hence: */
+function worldToBearing(w) {
+  const th = SCENE_BEARING * PI / 180, ct = Math.cos(th), st = Math.sin(th);
+  const e = -ct * w[0] + st * w[2], nn = st * w[0] + ct * w[2];
+  return ((Math.atan2(e, nn) * 180 / PI) % 360 + 360) % 360;
+}
+function bearingToWorld(deg) {
+  const b = deg * PI / 180;
+  return enuToWorld([Math.sin(b), Math.cos(b), 0]);
+}
+
+/* sunrise / solar noon / sunset in clock hours. -0.833 deg accounts for
+   refraction plus the sun's own radius. */
+function dayLength(lam) {
+  const dec = declination(lam), phi = SITE.lat * PI / 180;
+  const noon = 12 - equationOfTime(dayOfYear(lam)) / 60 - (SITE.lon - SITE.meridian) / 15;
+  const c = (Math.sin(-0.833 * PI / 180) - Math.sin(phi) * Math.sin(dec)) /
+    (Math.cos(phi) * Math.cos(dec));
+  if (c <= -1) return { rise: noon - 11.99, noon, set: noon + 11.99 };
+  if (c >= 1) return { rise: noon, noon, set: noon };
+  const H = Math.acos(c) * 180 / PI / 15;
+  return { rise: noon - H, noon, set: noon + H };
+}
+
+function fmtHM(h) {
+  const m = Math.round((((h % 24) + 24) % 24) * 60);
+  return String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+
+/* Critically damped follow: framerate independent, and it takes the short
+   way round midnight. It snaps once inside eps, because an exponential
+   never actually arrives and a puzzle that asks the player to stand at
+   冬至 has to be able to tell when they are standing at 冬至. */
+function dampWrap(cur, tgt, period, lambda, dt, eps) {
+  let d = (tgt - cur) % period;
+  if (d > period / 2) d -= period;
+  if (d < -period / 2) d += period;
+  if (Math.abs(d) < (eps || 0)) return tgt;
+  const v = cur + d * (1 - Math.exp(-lambda * dt));
+  return ((v % period) + period) % period;
+}
+
 /* ==== d_render.js ==== */
 /* =========================================================================
    RENDERER : passes, camera, controls, main loop
@@ -2621,12 +2852,30 @@ const R = {
   time: 0,
   frame: 0,
   jitterIdx: 0,
+  sunMotion: 0,      // 0..1, how fast the sun is sweeping right now
+  meterIdx: 0,
+  meterValid: false,
+  expoSnap: false,   // set true to adapt instantly (teleports, screenshots)
+  lanternGlow: 1.0,
+  starAmt: 0.0,
+  hourAngle: 0.0,
 };
 
 const CFG = {
+  /* --- the two dials. everything solar is derived from these. --- */
+  sekkiTarget: 15,        // 秋分. index into SEKKI
+  sekki: 15,              // smoothed, follows the target
+  hourTarget: 6.2,        // clock hours, JST
+  hour: 6.2,              // smoothed
+  timelapse: false,
+  lapseSpeed: 0.85,       // hours per second: a full day in ~28s
+  turbidity: 1.0,         // aerosol load, scales the Mie optical depth
+
+  /* --- derived, do not set by hand --- */
   sunAzimuth: 1.33,       // radians
   sunElev: 0.075,         // radians above horizon
-  exposure: 1.05,
+
+  exposure: 1.00,         // user bias on top of the automatic exposure
   wetness: 1.0,
   fogDensity: 0.0125,
   volDensity: 0.015,
@@ -2680,6 +2929,7 @@ function initPrograms() {
   P.up = program(VS_FS, FS_UP, 'up');
   P.dof = program(VS_FS, FS_DOF, 'dof');
   P.taa = program(VS_FS, FS_TAA, 'taa');
+  P.meter = program(VS_FS, FS_METER, 'meter');
   P.final = program(VS_FS, FS_FINAL, 'final');
   P.fxaa = program(VS_FS, FS_FXAA, 'fxaa');
   P.blit = program(VS_FS, FS_BLIT, 'blit');
@@ -2740,8 +2990,7 @@ function makeCube(size, mips) {
 }
 
 function sunDirection() {
-  const e = CFG.sunElev, a = CFG.sunAzimuth;
-  return norm([Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)]);
+  return R.sunDir || norm(enuToWorld(sunENU(sekkiToLambda(CFG.sekki), CFG.hour)));
 }
 
 function bakeSky() {
@@ -2755,6 +3004,8 @@ function bakeSky() {
   let p = use(R.prog.skycube);
   u3f(p, 'uSunDir', sd[0], sd[1], sd[2]);
   u1f(p, 'uSkyExposure', 1.0);
+  const cd = R.cityDir || (R.cityDir = norm(bearingToWorld(CITY_BEARING)));
+  u3f(p, 'uCityDir', cd[0], cd[1], cd[2]);
   gl.viewport(0, 0, SKY.size, SKY.size);
   for (let f = 0; f < 6; f++) {
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, SKY.tex, 0);
@@ -2889,7 +3140,8 @@ function drawGeometry(prog, list, isShadow) {
     if (!isShadow) {
       u1i(prog, 'uDecalMode', d.decal ? 1 : 0);
       const e = d.emissive || [0, 0, 0];
-      u3f(prog, 'uEmissive', e[0], e[1], e[2]);
+      const eg = d.name === 'cores' ? R.lanternGlow : 1.0;
+      u3f(prog, 'uEmissive', e[0] * eg, e[1] * eg, e[2] * eg);
       u1f(prog, 'uNormalStrength', d.normalStrength === undefined ? 1.0 : d.normalStrength);
     }
     if (!d.mesh.instances) umat(prog, 'uModel', IDENT);
@@ -3000,6 +3252,9 @@ function renderFrame(dt) {
   u1f(p_l, 'uAmbient', R.ambient);
   u1f(p_l, 'uTime', R.time);
   u1i(p_l, 'uShadowQuality', R.quality);
+  u1f(p_l, 'uStarAmt', R.starAmt);
+  u3v(p_l, 'uPole', R.pole);
+  u1f(p_l, 'uStarRot', -R.hourAngle);
   u2f(p_l, 'uShadowTexel', 1 / R.shadow[0].size, 1 / R.shadow[0].size);
   // lights
   const lp = new Float32Array(64), lc = new Float32Array(64);
@@ -3008,7 +3263,7 @@ function renderFrame(dt) {
     const L = S.lights[i];
     const fl = 0.86 + 0.14 * Math.sin(R.time * 3.1 + L.flicker) + 0.06 * Math.sin(R.time * 8.7 + L.flicker * 2.3);
     lp.set([L.pos[0], L.pos[1], L.pos[2], L.radius], i * 4);
-    lc.set([L.color[0], L.color[1], L.color[2], L.intensity * fl], i * 4);
+    lc.set([L.color[0], L.color[1], L.color[2], L.intensity * fl * R.lanternGlow], i * 4);
   }
   u1i(p_l, 'uNumLights', nL);
   u4v(p_l, 'uLightPos', lp);
@@ -3108,7 +3363,7 @@ function renderFrame(dt) {
     umat(p, 'uInvViewProj', CAM.invViewProj);
     umat(p, 'uPrevViewProj', CAM.prevViewProj);
     u2f(p, 'uTexel', 1 / R.w, 1 / R.h);
-    u1f(p, 'uBlend', R.histValid ? 0.88 : 0.0);
+    u1f(p, 'uBlend', R.histValid ? 0.88 - 0.34 * R.sunMotion : 0.0);
     drawFS();
     // copy to history
     bindRT(R.rt.hist);
@@ -3134,12 +3389,36 @@ function renderFrame(dt) {
     srcTex = R.rt.dof.tex;
   }
 
+  /* ---- auto exposure: measure this frame, adapt in a 1x1 target ---- */
+  {
+    const cur = R.meter[R.meterIdx], prev = R.meter[R.meterIdx ^ 1];
+    bindRT(cur);
+    const p = use(R.prog.meter);
+    tex(p, 'uScene', 0, srcTex);
+    tex(p, 'uPrev', 1, prev.tex);
+    u1f(p, 'uDt', Math.min(dt, 0.1));
+    // key calibrated so an equinox dawn lands on the exposure this scene
+    // was originally hand graded at (1.05)
+    u1f(p, 'uKey', 0.112);
+    u1f(p, 'uGamma', 0.75);
+    u1f(p, 'uMin', 0.15);
+    u1f(p, 'uMax', 8.0);
+    u1f(p, 'uValid', (R.meterValid && !R.expoSnap) ? 1 : 0);
+    drawFS();
+    R.meterIdx ^= 1;
+    R.meterValid = true;
+    R.expoSnap = false;
+    R.expoTex = cur.tex;
+  }
+
   /* ---- bloom ---- */
   {
     const b0 = R.bloom[0];
     bindRT(b0.a);
     let p = use(R.prog.bright);
     tex(p, 'uTex', 0, srcTex);
+    tex(p, 'uExpo', 1, R.expoTex);
+    u1f(p, 'uExpoBias', CFG.exposure);
     u1f(p, 'uThreshold', 1.55); u1f(p, 'uSoft', 0.65);
     drawFS();
     p = use(R.prog.down);
@@ -3167,6 +3446,7 @@ function renderFrame(dt) {
   tex(p_f, 'uTex', 0, srcTex);
   tex(p_f, 'uBloom', 1, R.bloom.length > 1 ? R.bloom[0].b.tex : R.bloom[0].a.tex);
   u2f(p_f, 'uRes', R.w, R.h);
+  tex(p_f, 'uExpo', 2, R.expoTex);
   u1f(p_f, 'uExposure', CFG.exposure);
   u1f(p_f, 'uBloomAmt', CFG.bloom);
   u1f(p_f, 'uVignette', CFG.vignette);
@@ -3198,26 +3478,96 @@ function renderFrame(dt) {
   drawFS();
 }
 
-/* ---------------- lighting palette from sun elevation ---------------- */
+/* ---------------- lighting derived from the physical beam ----------------
+
+   The sun's colour is not art directed, it is the transmittance of the
+   atmosphere along the beam. Rayleigh plus Mie optical depth at the zenith,
+   times the relative air mass, exponentiated. That single expression gives
+   warm white at noon and deep red on the horizon at every latitude and
+   every season without a hand tuned gradient, which matters here because
+   the player can now stand anywhere on the arc.                            */
+
+const TAU_RAYLEIGH = [0.0464, 0.1079, 0.2646];   // betaR * scale height
+const TAU_MIE = [0.0580, 0.0552, 0.0524];   // betaM * scale height
+
+function airMass(elevRad) {
+  // Kasten-Young. Below about -1.4 deg the beam is gone anyway.
+  const h = Math.max(elevRad * 180 / PI, -1.4);
+  return 1.0 / (Math.sin(h * PI / 180) + 0.50572 * Math.pow(h + 6.07995, -1.6364));
+}
+
 function updateLightingPalette() {
   const e = CFG.sunElev;
-  const k = smoothstep(-0.10, 0.30, e);
-  // sun colour: deep orange at horizon -> warm white higher
-  const warm = [1.00, 0.335, 0.105];
-  const mid = [1.00, 0.70, 0.45];
+  const m = airMass(e), tb = CFG.turbidity;
+  const T = [
+    Math.exp(-(TAU_RAYLEIGH[0] + TAU_MIE[0] * tb) * m),
+    Math.exp(-(TAU_RAYLEIGH[1] + TAU_MIE[1] * tb) * m),
+    Math.exp(-(TAU_RAYLEIGH[2] + TAU_MIE[2] * tb) * m)
+  ];
+  // the disc sets over its own diameter rather than switching off
+  const setFade = smoothstep(-0.0155, 0.0075, e);
+  const K = 11.0 * setFade;
+  R.sunColor = new Float32Array([K * T[0], K * T[1], K * T[2]]);
+
+  const day = smoothstep(-0.16, 0.30, e);
+  const dusk = smoothstep(0.34, -0.02, e);          // 1 when the sun is low or gone
   const t = smoothstep(0.0, 0.22, e);
-  const c = [lerp(warm[0], mid[0], t), lerp(warm[1], mid[1], t), lerp(warm[2], mid[2], t)];
-  const intensity = lerp(3.2, 8.0, smoothstep(-0.05, 0.25, e));
-  R.sunColor = new Float32Array([c[0] * intensity, c[1] * intensity, c[2] * intensity]);
-  R.ambient = lerp(0.24, 0.62, k);
+
+  // the IBL cube already carries the sky's own brightness, so this stays
+  // near constant and only lifts a little to keep twilight readable
+  // a bright midday sky delivers far more skylight into a covered corridor
+  // than a dusk sky does, so this rises with the sun, and only lifts again
+  // at night so that lantern-lit twilight stays readable
+  R.ambient = lerp(0.30, 0.72, day) + 0.26 * smoothstep(-0.02, -0.16, e);
   R.bounce = new Float32Array([0.062 * (1 - t * 0.4), 0.019, 0.009]);
   R.ambTint = new Float32Array([0.74, 0.90, 1.22]);
-  R.fogColor = new Float32Array([0.055, 0.068, 0.098]);
+  R.fogColor = new Float32Array([
+    lerp(0.055, 0.030, day), lerp(0.068, 0.046, day), lerp(0.098, 0.082, day)]);
   R.fogColorSun = new Float32Array([0.72, 0.40, 0.22]);
   R.lift = new Float32Array([0.010, 0.014, 0.028]);
   R.gammaG = new Float32Array([1.00, 1.00, 1.01]);
   R.gain = new Float32Array([1.03, 0.995, 0.965]);
-  R.skyDirty = true;
+
+  // lanterns take over as the sun goes; stars come out after it has gone
+  R.lanternGlow = 0.15 + 1.15 * dusk;
+  R.starAmt = smoothstep(0.020, -0.130, e);
+
+}
+
+/* ---------------- the two dials drive everything ---------------- */
+function updateSun(dt) {
+  if (CFG.timelapse) setHour(CFG.hourTarget + dt * CFG.lapseSpeed, true);
+  if (KEYS['q']) setHour(CFG.hourTarget - dt * 1.7, true);
+  if (KEYS['e']) setHour(CFG.hourTarget + dt * 1.7, true);
+
+  CFG.hour = dampWrap(CFG.hour, CFG.hourTarget, 24, 5.5, dt, 1 / 3600);   // 1 second
+  CFG.sekki = dampWrap(CFG.sekki, CFG.sekkiTarget, 24, 3.2, dt, 1e-4);
+
+  const lam = sekkiToLambda(CFG.sekki);
+  const sd = norm(enuToWorld(sunENU(lam, CFG.hour)));
+  const prev = R.sunDir || sd;
+  R.sunDir = sd;
+  R.hourAngle = clockToHourAngle(CFG.hour, dayOfYear(lam));
+  CFG.sunElev = Math.asin(clamp(sd[1], -1, 1));
+  CFG.sunAzimuth = Math.atan2(sd[0], sd[2]);
+  if (!R.pole) R.pole = norm(enuToWorld([0, Math.cos(SITE.lat * PI / 180), Math.sin(SITE.lat * PI / 180)]));
+
+  // how hard is the sun sweeping? this relaxes TAA and paces the IBL rebake
+  const step = Math.acos(clamp(dot(prev, sd), -1, 1));
+  R.sunMotion = Math.min(1, Math.max(R.sunMotion * Math.exp(-dt * 6.0), step / 0.010));
+
+  updateLightingPalette();
+
+  /* The IBL is low frequency, so it does not need to be rebuilt every frame
+     while the dial is moving. The direct beam does, and that is what the eye
+     actually tracks across a shadow. Rebake on an angular threshold, and at
+     most every other frame while sweeping. */
+  const off = R.bakeSun ? Math.acos(clamp(dot(R.bakeSun, sd), -1, 1)) : 9;
+  if (off > 0.0055 || (off > 1e-6 && step < 2e-5)) {
+    if (R.sunMotion < 0.5 || (R.frame & 1) === 0) { R.skyDirty = true; R.bakeSun = sd.slice(); }
+  }
+
+  if ((R.frame & 3) === 0) refreshLiveReadout();
 }
 
 /* ---------------- camera update ---------------- */
@@ -3446,7 +3796,9 @@ async function boot() {
     R.prefCube = makeCube(128, 6);
     R.shadow = [makeShadowRT(q.shadow), makeShadowRT(q.shadow), makeShadowRT(Math.max(1024, q.shadow >> 1))];
     R.cascadeVP = [M4.create(), M4.create(), M4.create()];
-    updateLightingPalette();
+    R.meter = [makeRT(1, 1, { format: 'rgba16f' }), makeRT(1, 1, { format: 'rgba16f' })];
+    R.expoTex = R.meter[1].tex;
+    updateSun(0);
   });
   await step('千本鳥居を建立中…', () => {
     R.scene = buildScene(R.sceneDetail);
@@ -3475,13 +3827,25 @@ async function boot() {
     R.time += dt;
     acc += dt; frames++;
     if (acc > 0.5) { document.getElementById('fps').textContent = Math.round(frames / acc) + ' fps'; acc = 0; frames = 0; }
+    updateSun(dt);
     updateCamera(dt);
     renderFrame(dt);
     R.frame++;
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  window.__DBG = { CFG, R, CAM, QUALITY, updateLightingPalette, pathPos, resize };
+  /* 1x1 readback, for tests and diagnostics only. never on the hot path. */
+  window.__exposure = function () {
+    if (!R.expoTex || !R.meter) return null;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, R.meter[R.meterIdx ^ 1].fb);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    const b = new Float32Array(4);
+    try { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, b); }
+    catch (e) { gl.bindFramebuffer(gl.FRAMEBUFFER, null); return null; }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { e: b[0], L: b[1] };
+  };
+  window.__DBG = { CFG, R, CAM, QUALITY, updateSun, sunENU, dayLength, pathPos, resize };
   window.__probe = function (rtName, px, py, n) {
     const rt = R.rt[rtName]; if (!rt) return null;
     n = n || 1;
@@ -3508,6 +3872,9 @@ function setupInput() {
     if (e.key === 'Shift') KEYS['shift'] = true;
     if (e.key.toLowerCase() === 'c') { CFG.autoWalk = !CFG.autoWalk; syncUI(); }
     if (e.key.toLowerCase() === 'h') { CFG.showUI = !CFG.showUI; document.getElementById('ui').style.display = CFG.showUI ? '' : 'none'; }
+    if (e.key.toLowerCase() === 't') { CFG.timelapse = !CFG.timelapse; syncUI(); }
+    if (e.key.toLowerCase() === 'z') setSekki(Math.round(CFG.sekkiTarget) - 1, true);
+    if (e.key.toLowerCase() === 'x') setSekki(Math.round(CFG.sekkiTarget) + 1, true);
     if (['w', 'a', 's', 'd'].includes(e.key.toLowerCase())) CFG.autoWalk = false;
   });
   addEventListener('keyup', e => { KEYS[e.key.toLowerCase()] = false; if (e.key === 'Shift') KEYS['shift'] = false; });
@@ -3567,12 +3934,76 @@ function bindSlider(id, get, set, fmt) {
 function syncUI() {
   const b = document.getElementById('btnwalk');
   if (b) b.textContent = CFG.autoWalk ? '自動歩行 ON' : '自動歩行 OFF';
+  const l = document.getElementById('btnlapse');
+  if (l) { l.textContent = CFG.timelapse ? '停止' : '早送り'; l.classList.toggle('on', CFG.timelapse); }
+}
+
+function sekkiName(v) {
+  const i = ((Math.round(v) % 24) + 24) % 24;
+  return SEKKI[i][0] + '\u2009' + SEKKI[i][1];
+}
+function setSekki(v, snap) {
+  CFG.sekkiTarget = ((v % 24) + 24) % 24;
+  const el = document.getElementById('sekki');
+  if (el && snap) { el.value = Math.round(CFG.sekkiTarget); }
+  refreshDials();
+}
+function setHour(v, snap) {
+  CFG.hourTarget = ((v % 24) + 24) % 24;
+  const el = document.getElementById('hour');
+  if (el && snap) el.value = CFG.hourTarget;
+  refreshDials();
+}
+
+/* the arc of the day, drawn against the two solstices for scale */
+const SP = { x: h => 3 + (h / 24) * 206, y: d => 64 - (Math.max(d, -9) / 82) * 56 };
+
+function sunCurve(sekki) {
+  const lam = sekkiToLambda(sekki), pts = [];
+  for (let i = 0; i <= 96; i++) {
+    const h = i * 24 / 96;
+    const el = Math.asin(clamp(sunENU(lam, h)[2], -1, 1)) * 180 / PI;
+    pts.push(SP.x(h).toFixed(1) + ',' + SP.y(el).toFixed(1));
+  }
+  return pts.join(' ');
+}
+
+function refreshDials() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const attr = (id, k, v) => { const el = document.getElementById(id); if (el) el.setAttribute(k, v); };
+  const dl = dayLength(sekkiToLambda(CFG.sekkiTarget));
+  set('sekkiv', sekkiName(CFG.sekkiTarget));
+  set('hourv', fmtHM(CFG.hourTarget));
+  set('a_rise', fmtHM(dl.rise));
+  set('a_noon', fmtHM(dl.noon));
+  set('a_set', fmtHM(dl.set));
+  attr('sp_s', 'points', sunCurve(9));    // 夏至
+  attr('sp_w', 'points', sunCurve(21));   // 冬至
+  attr('sp_c', 'points', sunCurve(CFG.sekkiTarget));
+}
+
+/* follows the smoothed sun, not the dial, so it glides with the shadows */
+function refreshLiveReadout() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const attr = (id, o) => {
+    const el = document.getElementById(id); if (!el) return;
+    for (const k in o) el.setAttribute(k, o[k]);
+  };
+  const elDeg = CFG.sunElev * 180 / PI;
+  set('a_el', elDeg.toFixed(1) + '\u00b0');
+  set('a_az', worldToBearing(R.sunDir).toFixed(0) + '\u00b0');
+  // the shadow of a 1m gnomon: the whole point of a sundial
+  set('a_sh', elDeg > 0.35 ? ('\u00d7' + (1 / Math.tan(CFG.sunElev)).toFixed(2)) : '\u2014');
+  const x = SP.x(CFG.hour);
+  attr('sp_t', { x1: x.toFixed(1), y1: 5, x2: x.toFixed(1), y2: 72 });
+  attr('sp_d', { cx: x.toFixed(1), cy: SP.y(elDeg).toFixed(1),
+    opacity: elDeg > -9 ? 1 : 0 });
 }
 
 function setupUI() {
-  bindSlider('sunel', () => CFG.sunElev, v => { CFG.sunElev = v; updateLightingPalette(); }, v => (v * 57.3).toFixed(1) + '°');
-  bindSlider('sunaz', () => CFG.sunAzimuth, v => { CFG.sunAzimuth = v; R.skyDirty = true; }, v => (v * 57.3).toFixed(0) + '°');
-  bindSlider('expo', () => CFG.exposure, v => CFG.exposure = v, v => v.toFixed(2));
+  bindSlider('sekki', () => Math.round(CFG.sekkiTarget), v => setSekki(v, false), sekkiName);
+  bindSlider('hour', () => CFG.hourTarget, v => setHour(v, false), fmtHM);
+  bindSlider('expo', () => CFG.exposure, v => CFG.exposure = v, v => (v >= 1 ? '+' : '') + ((v - 1) * 100).toFixed(0) + '%');
   bindSlider('wet', () => CFG.wetness, v => CFG.wetness = v, v => v.toFixed(2));
   bindSlider('fog', () => CFG.volDensity, v => { CFG.volDensity = v; CFG.fogDensity = 0.006 + v * 0.46; }, v => v.toFixed(3));
   bindSlider('fovs', () => CAM.fov * 57.3, v => CAM.fov = v / 57.3, v => v.toFixed(0) + '\u00b0');
@@ -3582,6 +4013,20 @@ function setupUI() {
     applyQuality(parseInt(e.target.value), true);
   });
   document.getElementById('qual').value = R.quality;
+
+  for (const b of document.querySelectorAll('[data-sekki]'))
+    b.addEventListener('click', () => setSekki(parseInt(b.dataset.sekki), true));
+  for (const b of document.querySelectorAll('[data-when]'))
+    b.addEventListener('click', () => {
+      const dl = dayLength(sekkiToLambda(CFG.sekkiTarget));
+      // nudge off the horizon itself so sunrise and sunset still light the scene
+      const h = b.dataset.when === 'rise' ? dl.rise + 0.12
+        : b.dataset.when === 'set' ? dl.set - 0.12 : dl.noon;
+      CFG.timelapse = false;
+      setHour(h, true); syncUI();
+    });
+  document.getElementById('btnlapse').addEventListener('click', () => { CFG.timelapse = !CFG.timelapse; syncUI(); });
+  refreshDials();
 
   document.getElementById('btnwalk').addEventListener('click', () => { CFG.autoWalk = !CFG.autoWalk; syncUI(); });
   document.getElementById('btndof').addEventListener('click', e => {
@@ -3593,7 +4038,7 @@ function setupUI() {
   });
   document.getElementById('btnshot').addEventListener('click', () => {
     const a = document.createElement('a');
-    a.download = 'fushimi-inari.png';
+    a.download = 'hiyorimi-' + sekkiName(CFG.sekkiTarget).split('\u2009')[0] + '-' + fmtHM(CFG.hour).replace(':', '') + '.png';
     a.href = R.canvas.toDataURL('image/png');
     a.click();
   });
