@@ -134,7 +134,7 @@
   </div>
   <div id="tab">☰</div>
   <div id="fps"></div>
-  <div id="hint">WASD 歩く（Shift 走る） ／ ドラッグ 視線 ／ Q・E 時刻 ／ Z・X 節気 ／ Space 鈴 ／ R 再配置</div>
+  <div id="hint">WASD 歩く（Shift 走る） ／ ドラッグ 視線 ／ Q・E 時刻 ／ Z・X 節気 ／ Space 鈴 ／ G 参道へ</div>
   <div id="hud">
     <div id="curseRow"><i>呪</i><div id="curseWrap"><div id="curseBar"></div></div></div>
     <div id="hudInfo"><span id="hudCount">—</span><span id="hudBell">鈴</span></div>
@@ -1152,8 +1152,8 @@ float hPlaster(vec2 uv, out vec3 alb, out float rough, out float ao){
   float n = pfbm(uv*P*9.0, P*9.0, 5);
   float n2 = pfbm(uv*P*30.0, P*30.0, 3);
   float stain = smoothstep(0.5,0.85,pfbm(vec2(uv.x*P*3.,uv.y*P*0.7),P*3.,4));
-  alb = mix(vec3(0.470,0.452,0.415), vec3(0.330,0.315,0.290), n*0.7);
-  alb = mix(alb, vec3(0.215,0.200,0.180), stain*0.5);
+  alb = mix(vec3(0.760,0.742,0.700), vec3(0.585,0.565,0.525), n*0.7);
+  alb = mix(alb, vec3(0.395,0.372,0.338), stain*0.5);
   alb *= 0.92+0.16*n2;
   rough = clamp(0.72+n2*0.2,0.5,0.98);
   ao = 1.0-n*0.15;
@@ -1251,7 +1251,45 @@ float hTalisman(vec2 uv, out vec3 alb, out float rough, out float ao){
   return fib*0.25 + age*0.20 - stroke*0.10;
 }
 
+/* ---- 檜皮葺 : cypress bark, laid in courses. The butt line of each
+       course is most of what you see of a shrine roof from below. ---- */
+float hHiwada(vec2 uv, out vec3 alb, out float rough, out float ao){
+  float ry = uv.y*P*46.0;
+  float course = fract(ry), rid = floor(ry);
+  float lip  = smoothstep(0.0,0.09,course)*smoothstep(1.0,0.86,course);
+  float shad = smoothstep(0.18,0.0,course);          // the course above shades this one
+  float jag  = pfbm(vec2(uv.x*P*26.0, rid*0.37), P*16.0, 3);
+  float grain= pfbm(vec2(uv.x*P*40.0, uv.y*P*7.0), P*32.0, 3);
+  float moss = smoothstep(0.62,0.86, pfbm(uv*P*4.0+vec2(6.,2.), P*4.0, 5));
+  alb = mix(vec3(0.0490,0.0412,0.0330), vec3(0.1090,0.0885,0.0660), grain*0.55 + jag*0.35);
+  alb *= 0.80 + 0.30*lip;
+  alb = mix(alb, vec3(0.076,0.096,0.050), moss*0.45);
+  alb *= 1.0 - shad*0.45;
+  rough = clamp(0.86 + grain*0.12 - moss*0.06, 0.6, 0.99);
+  ao = 1.0 - shad*0.60 - moss*0.10;
+  return lip*0.55 + grain*0.18 + jag*0.12 - shad*0.40;
+}
+
+/* ---- 銅 : cast fittings. Verdigris settles in the hollows, the raised
+       work stays closer to the original gilt. ---- */
+float hBronze(vec2 uv, out vec3 alb, out float rough, out float ao){
+  float hammer = pfbm(uv*P*14.0, P*14.0, 4);
+  vec2 w = pworley(uv*P*9.0, P*9.0);
+  float dent = smoothstep(0.30,0.02,w.x);
+  float patina = smoothstep(0.44,0.78, pfbm(uv*P*5.0+vec2(3.,8.), P*5.0, 5));
+  float grime = pfbm(uv*P*20.0, P*20.0, 3);
+  vec3 metal = mix(vec3(0.315,0.230,0.108), vec3(0.470,0.365,0.170), hammer);
+  alb = mix(metal, vec3(0.105,0.198,0.163), patina*0.72);
+  alb = mix(alb, alb*0.55, dent*0.40);
+  alb *= 0.92 + 0.16*grime;
+  rough = clamp(mix(0.26,0.72,patina) + dent*0.12 + grime*0.08, 0.15, 0.92);
+  ao = 1.0 - dent*0.35;
+  return hammer*0.35 - dent*0.70;
+}
+
 float dispatch(vec2 uv, out vec3 alb, out float rough, out float ao){
+  if(uLayer==11) return hHiwada(uv, alb, rough, ao);
+  if(uLayer==12) return hBronze(uv, alb, rough, ao);
   if(uLayer==8)  return hSilk(uv, alb, rough, ao);
   if(uLayer==9)  return hCorpse(uv, alb, rough, ao);
   if(uLayer==10) return hTalisman(uv, alb, rough, ao);
@@ -2269,7 +2307,8 @@ void main(){ outC = texture(uTex,vUV); }
 
 const MAT = {
   VERMILLION: 0, BLACK: 1, STONE: 2, MOSS: 3, GRANITE: 4, BARK: 5, PLASTER: 6, FOLIAGE: 7,
-  SILK: 8, CORPSE: 9, TALISMAN: 10      // 官服 / 屍蝋 / 符
+  SILK: 8, CORPSE: 9, TALISMAN: 10,     // 官服 / 屍蝋 / 符
+  HIWADA: 11, BRONZE: 12                // 檜皮葺 / 銅・金具
 };
 
 /* ---------------- path through the mountain ---------------- */
@@ -2444,10 +2483,13 @@ function groundNoise(s, t) {
   return n;
 }
 
+/* CORRIDOR_T0 is the seam with the precinct. Nothing the corridor scatters
+   may reach back past it or it lands in the plaza. */
+const CORRIDOR_T0 = 1.0;
 function buildGroundStrip(sMin, sMax, matId, nS, tStep, yOff, uvScale) {
   const g = new Geo();
   const rows = [];
-  for (let t = -8; t <= PATH_LEN + 12; t += tStep) {
+  for (let t = CORRIDOR_T0; t <= PATH_LEN + 12; t += tStep) {
     const P = pathPos(t), R = pathRight(t);
     const row = [];
     for (let i = 0; i <= nS; i++) {
@@ -2703,7 +2745,7 @@ function buildScene(quality) {
   const kerbGeo = roundedBox(0.20, 0.22, 0.55, 0.02, 1, { mat: MAT.GRANITE, uScale: 0.3, vScale: 0.5 });
   const kerbMesh = new Mesh(kerbGeo);
   const kerbInst = [];
-  for (let tt = -2; tt < PATH_LEN + 6; tt += 0.62) {
+  for (let tt = CORRIDOR_T0; tt < PATH_LEN + 6; tt += 0.62) {
     const P = pathPos(tt), R = pathRight(tt), T = pathTan(tt);
     const ry = Math.atan2(T[0], T[2]);
     for (const sgn of [-1, 1]) {
@@ -2722,7 +2764,7 @@ function buildScene(quality) {
   const trunkMesh = new Mesh(buildTrunk(detail));
   const trunkLow = new Mesh(buildTrunk(false));
   const trunkInst = [];
-  for (let tt = -16; tt < PATH_LEN + 30; tt += 1.05) {
+  for (let tt = CORRIDOR_T0 + 1.0; tt < PATH_LEN + 30; tt += 1.05) {
     for (const sgn of [-1, 1]) {
       if (rnd() > 0.72) continue;
       const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);
@@ -2966,6 +3008,7 @@ const R = {
   time: 0,
   frame: 0,
   stride: 0,
+  fogScale: 1,
   bellCd: 0,
   bellFlash: 0,
   kyonshiAlive: 0,
@@ -3008,7 +3051,7 @@ const CFG = {
   taa: true,
   ao: true,
   volumetric: true,
-  autoWalk: true,
+  autoWalk: false,
   showUI: true,
   curse: 0,
 
@@ -3026,9 +3069,9 @@ const CFG = {
 
 /* ---------------- camera ---------------- */
 const CAM = {
-  pos: [0, 1.62, 3.0],
+  pos: [3.02, -2.8, -74.0],      // at the first torii, looking up the approach
   vel: [0, 0, 0],
-  yaw: 0, pitch: -0.02,
+  yaw: PI, pitch: 0.02,
   fov: 46 * PI / 180,
   near: 0.06, far: 320,
   t: 3.0,           // param along path for auto walk
@@ -3068,7 +3111,7 @@ function initPrograms() {
 }
 
 /* ---------------- material texture arrays ---------------- */
-const NUM_LAYERS = 11;
+const NUM_LAYERS = 13;
 function bakeMaterials(res) {
   const arrA = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, arrA);
@@ -3265,6 +3308,7 @@ R.cullShadow = 62;
 function drawGeometry(prog, list, isShadow) {
   for (const d of list) {
     if (R.only && d.name && d.name !== R.only) continue;
+    if (d.zMax !== undefined && CAM.pos[2] > d.zMax) continue;
     u1i(prog, 'uInstanced', d.mesh.instances ? 1 : 0);
     u1i(prog, 'uAlphaMask', d.alphaMask ? 1 : 0);
     u1f(prog, 'uWind', d.wind || 0);
@@ -3389,8 +3433,15 @@ function renderFrame(dt) {
   u2f(p_l, 'uShadowTexel', 1 / R.shadow[0].size, 1 / R.shadow[0].size);
   // lights
   const lp = new Float32Array(64), lc = new Float32Array(64);
-  // burning kyonshi go first so they never fall off the end of the 16 slots
-  const LL = KY.lights.length ? KY.lights.concat(S.lights) : S.lights;
+  // burning kyonshi go first so they never fall off the end of the 16 slots,
+  // then the nearest lanterns: the precinct alone has more than the budget
+  let stat = S.lights;
+  if (stat.length + KY.lights.length > 16) {
+    const cx = CAM.pos[0], cz = CAM.pos[2];
+    const d2 = L => (L.pos[0] - cx) * (L.pos[0] - cx) + (L.pos[2] - cz) * (L.pos[2] - cz);
+    stat = stat.slice().sort((a, b) => d2(a) - d2(b)).slice(0, Math.max(0, 16 - KY.lights.length));
+  }
+  const LL = KY.lights.length ? KY.lights.concat(stat) : stat;
   const nL = Math.min(LL.length, 16);
   for (let i = 0; i < nL; i++) {
     const L = LL[i];
@@ -3448,7 +3499,7 @@ function renderFrame(dt) {
     u3v(p, 'uSunColor', R.sunColor);
     u3v(p, 'uAmbientFog', R.fogColor);
     u1f(p, 'uTime', R.time);
-    u1f(p, 'uDensity', CFG.volDensity);
+    u1f(p, 'uDensity', CFG.volDensity * R.fogScale);
     u1f(p, 'uFogHeight', R.groundY + 0.55);
     u1f(p, 'uAnisotropy', 0.46);
     u1i(p, 'uSteps', R.quality >= 2 ? 40 : 20);
@@ -3480,7 +3531,7 @@ function renderFrame(dt) {
   u3v(p_c, 'uSunColor', R.sunColor);
   u3v(p_c, 'uFogColor', R.fogColor);
   u3v(p_c, 'uFogColorSun', R.fogColorSun);
-  u1f(p_c, 'uFogDensity', CFG.fogDensity);
+  u1f(p_c, 'uFogDensity', CFG.fogDensity * R.fogScale);
   u1f(p_c, 'uFogHeight', R.groundY + 1.8);
   u1f(p_c, 'uSSRStrength', CFG.ssr);
   drawFS();
@@ -3701,6 +3752,9 @@ function updateSun(dt) {
     if (R.sunMotion < 0.5 || (R.frame & 1) === 0) { R.skyDirty = true; R.bakeSun = sd.slice(); }
   }
 
+  // open ground wants less haze than a closed corridor
+  const want = CAM.pos[2] < 1 ? 0.26 : 1.0;
+  R.fogScale += (want - R.fogScale) * Math.min(1, dt * 1.6);
   if ((R.frame & 3) === 0) refreshLiveReadout();
 }
 
@@ -3718,6 +3772,23 @@ function groundHeightAt(x, z) {
   const P = pathPos(t), Rt = pathRight(t);
   const s = (x - P[0]) * Rt[0] + (z - P[2]) * Rt[2];
   return { y: P[1] + bankHeight(Math.abs(s)), s, t };
+}
+
+/* The two halves of the shrine, registered most-specific first. Adding a
+   third area later means adding one entry here plus its ground function;
+   nothing in the camera or the renderer needs to know about it. */
+function registerAreas() {
+  WORLD.areas.length = 0;
+  WORLD.add({
+    name: 'keidai',
+    contains: (x, z) => z < 1.0,
+    ground: (x, z) => ({ y: keidaiGroundY(x, z), solid: true })
+  });
+  WORLD.add({
+    name: 'senbon',
+    contains: () => true,
+    ground: (x, z) => { const g = groundHeightAt(x, z); return { y: g.y, s: g.s, t: g.t, corridor: true }; }
+  });
 }
 
 function updateCamera(dt) {
@@ -3751,21 +3822,27 @@ function updateCamera(dt) {
     CAM.vel[2] += (wz - CAM.vel[2]) * acc;
     CAM.pos[0] += CAM.vel[0] * dt;
     CAM.pos[2] += CAM.vel[2] * dt;
-    const g = groundHeightAt(CAM.pos[0], CAM.pos[2]);
-    // soft corridor constraint: wide enough to walk out past the pillars and
-    // onto the kerb, which is where the light gets in
-    if (Math.abs(g.s) > CFG.corridorHalf) {
-      const k = (Math.abs(g.s) - CFG.corridorHalf) * Math.sign(g.s);
-      const Rt = pathRight(g.t);
-      CAM.pos[0] -= Rt[0] * k * 0.42; CAM.pos[2] -= Rt[2] * k * 0.42;
+    let g = WORLD.groundAt(CAM.pos[0], CAM.pos[2]);
+    if (g.corridor) {
+      // The precinct is 60m across and the corridor is 5m. Funnel rather
+      // than clamp, or crossing the seam off-axis snaps the player sideways.
+      const half = lerp(5.0, CFG.corridorHalf, smoothstep(0.0, 8.0, CAM.pos[2]));
+      if (Math.abs(g.s) > half) {
+        const k = (Math.abs(g.s) - half) * Math.sign(g.s);
+        const Rt = pathRight(g.t);
+        CAM.pos[0] -= Rt[0] * k * 0.42; CAM.pos[2] -= Rt[2] * k * 0.42;
+      }
+    } else {
+      WORLD.resolve(CAM.pos, 0.42);
     }
-    const gy = groundHeightAt(CAM.pos[0], CAM.pos[2]).y;
+    g = WORLD.groundAt(CAM.pos[0], CAM.pos[2]);
+    const gy = g.y;
     const spd = Math.hypot(CAM.vel[0], CAM.vel[2]);
     R.stride += spd * dt * 2.15;
     const bob = Math.sin(R.stride) * 0.021 * Math.min(1, spd / CFG.walkSpeed)
               + Math.sin(R.stride * 2) * 0.006;
     CAM.pos[1] += (gy + CFG.eyeHeight + bob - CAM.pos[1]) * Math.min(1, dt * 13);
-    CAM.t = g.t;
+    if (g.t !== undefined) CAM.t = g.t;
   }
   CAM.pitch = clamp(CAM.pitch, -1.25, 1.25);
 
@@ -4248,6 +4325,504 @@ function initKyonshi(detail) {
   kyonshiReset();
 }
 
+/* ==== g_keidai.js ==== */
+/* =========================================================================
+   境内 — THE PRECINCT
+
+   Built as a separate AREA so the two halves of the shrine can be worked on
+   apart and joined later. An area owns its ground, its colliders and its
+   content; the camera asks WORLD and WORLD asks whichever area the player
+   is standing in. The corridor is everything above z = 0, the precinct is
+   everything below, and the two are levelled to meet at the seam.
+
+   Real layout, walking in from the west: 一之鳥居, 二之鳥居, 楼門 (Hideyoshi's
+   gate, 1589), 外拝殿, then the 本殿 on its terrace, and past it the climb to
+   奥宮 and the 千本鳥居. Terraces step up the whole way, which is both true to
+   the site and a free difficulty curve for anything built on top of it.
+   ========================================================================= */
+
+const WORLD = {
+  areas: [],
+  boxes: [],                     // AABB colliders in world space
+  add(a) { this.areas.push(a); return a; },
+  areaAt(x, z) {
+    for (const a of this.areas) if (a.contains(x, z)) return a;
+    return this.areas.length ? this.areas[this.areas.length - 1] : null;
+  },
+  groundAt(x, z) {
+    const a = this.areaAt(x, z);
+    return a ? a.ground(x, z) : { y: 0, free: true };
+  },
+  /* push a vertical capsule out of whatever it has walked into. Boxes are
+     axis aligned, so resolve on the shallowest axis and stop. */
+  resolve(p, r) {
+    for (let pass = 0; pass < 2; pass++) {
+      let hit = false;
+      for (const b of this.boxes) {
+        if (p[1] > b.y1 || p[1] + 1.6 < b.y0) continue;
+        const cx = clamp(p[0], b.x0, b.x1), cz = clamp(p[2], b.z0, b.z1);
+        const dx = p[0] - cx, dz = p[2] - cz;
+        if (dx * dx + dz * dz > r * r) continue;
+        if (dx || dz) {                                  // outside, nearest face
+          const d = Math.hypot(dx, dz) || 1e-4;
+          p[0] = cx + dx / d * r; p[2] = cz + dz / d * r;
+        } else {                                         // inside, shallowest exit
+          const l = p[0] - b.x0 + r, ri = b.x1 - p[0] + r;
+          const u = p[2] - b.z0 + r, dn = b.z1 - p[2] + r;
+          const m = Math.min(l, ri, u, dn);
+          if (m === l) p[0] = b.x0 - r; else if (m === ri) p[0] = b.x1 + r;
+          else if (m === u) p[2] = b.z0 - r; else p[2] = b.z1 + r;
+        }
+        hit = true;
+      }
+      if (!hit) break;
+    }
+  }
+};
+
+function addBox(x, z, w, d, y0, h) {
+  x += KX;
+  WORLD.boxes.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, y0, y1: y0 + h });
+}
+
+/* ---------------- the precinct floor ----------------
+   Flat terraces joined by flights of steps, climbing from the first torii
+   up to the honden and levelling out where the corridor begins. */
+const TERRACE = [
+  { z: -300, y: -4.30 }, { z: -62, y: -4.30 }, { z: -56, y: -3.10 },
+  { z: -47, y: -3.10 }, { z: -42, y: -1.70 }, { z: -25, y: -1.70 },
+  { z: -20, y: -0.55 }, { z: -12, y: -0.55 }, { z: -8, y: 0.20 },
+  { z: 400, y: 0.20 }
+];
+const STEP_RISE = 0.18;
+/* The corridor's centreline is not at x = 0, so the precinct is authored
+   about its own axis and offset onto the corridor's mouth. Everything that
+   crosses into world space goes through KX. */
+const KX = 3.02;
+
+function keidaiGroundY(xw, z) {
+  const x = xw - KX;
+  let y = TERRACE[0].y;
+  for (let i = 0; i < TERRACE.length - 1; i++) {
+    const a = TERRACE[i], b = TERRACE[i + 1];
+    if (z >= a.z && z <= b.z) {
+      if (a.y === b.y) { y = a.y; break; }
+      // a flight of steps rather than a ramp: quantise the rise
+      const k = (z - a.z) / (b.z - a.z);
+      const n = Math.max(1, Math.round(Math.abs(b.y - a.y) / STEP_RISE));
+      y = a.y + (b.y - a.y) * (Math.floor(k * n) + 1) / n;
+      break;
+    }
+    y = b.y;
+  }
+  // the plaza falls away into trees outside the retaining walls
+  const ax = Math.abs(x);
+  if (ax > 21) y -= (ax - 21) * 0.55;
+  return y;
+}
+
+/* ---------------- Japanese roof ----------------
+
+   Height over the plan rectangle is driven by the normalised inset from the
+   eave. Taking the MIN of the inset in x and in z produces the correct 45
+   degree hip lines for free; raising it to a power below 1 gives the
+   concave sag (照り) that a plain pyramid lacks. Sori, the lift of the eave
+   toward the corners, is added at the eave and faded out toward the ridge.
+   Everything else about a Japanese roof — that it reads as heavy, that the
+   corners fly — falls out of those two curves.                             */
+function roofShell(o) {
+  const ex = o.ex, ezF = o.ezF, ezB = o.ezB === undefined ? o.ezF : o.ezB;
+  const ey = o.ey, ry = o.ry, rx = o.rx || 0;
+  const thick = o.thick || 0.22, sori = o.sori === undefined ? 0.55 : o.sori;
+  const gable = !!o.gable, mat = o.mat === undefined ? MAT.HIWADA : o.mat;
+  const NX = o.nx || 30, NZ = o.nz || 22, uv = o.uvScale || 0.42;
+
+  const H = (x, z) => {
+    const ez = z >= 0 ? ezF : ezB;
+    const az = Math.min(1, Math.abs(z) / ez), ax = Math.min(1, Math.abs(x) / ex);
+    const iz = 1 - az;
+    const ix = gable ? 1 : (ex > rx ? clamp((ex - Math.abs(x)) / (ex - rx), 0, 1) : 1);
+    const k = clamp(Math.min(iz, ix), 0, 1);
+    const lift = sori * (0.10 + 0.90 * Math.pow(ax * az, 1.15));
+    return ey + lift * Math.pow(1 - k, 1.4) + (ry - ey) * Math.pow(k, 0.74);
+  };
+  const g = new Geo();
+  const top = [], bot = [];
+  for (let j = 0; j <= NZ; j++) {
+    const z = lerp(-ezB, ezF, j / NZ);
+    const rt = [], rb = [];
+    for (let i = 0; i <= NX; i++) {
+      const x = lerp(-ex, ex, i / NX);
+      const y = H(x, z), e = 0.02;
+      const nx = -(H(x + e, z) - H(x - e, z)) / (2 * e);
+      const nz = -(H(x, z + e) - H(x, z - e)) / (2 * e);
+      const l = Math.hypot(nx, 1, nz);
+      rt.push(g.push(x, y, z, nx / l, 1 / l, nz / l, x * uv, z * uv, mat));
+      rb.push(g.push(x, y - thick, z, -nx / l, -1 / l, -nz / l, x * uv, z * uv, mat));
+    }
+    top.push(rt); bot.push(rb);
+  }
+  for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
+    g.quad(top[j][i], top[j + 1][i], top[j + 1][i + 1], top[j][i + 1]);
+    g.quad(bot[j][i], bot[j][i + 1], bot[j + 1][i + 1], bot[j + 1][i]);
+  }
+  // the eave band. On a bark roof this is 200mm of stacked shingle and it
+  // is most of what you actually see from below.
+  const skirt = (a, b, flip) => {
+    for (let i = 0; i < a.length - 1; i++) {
+      const p = [a[i], a[i + 1], b[i + 1], b[i]];
+      g.quad(flip ? p[3] : p[0], flip ? p[2] : p[1], flip ? p[1] : p[2], flip ? p[0] : p[3]);
+    }
+  };
+  skirt(top[NZ], bot[NZ], false);
+  skirt(top[0], bot[0], true);
+  const lt = [], lb = [], rt2 = [], rb2 = [];
+  for (let j = 0; j <= NZ; j++) { lt.push(top[j][0]); lb.push(bot[j][0]); rt2.push(top[j][NX]); rb2.push(bot[j][NX]); }
+  skirt(lt, lb, true); skirt(rt2, rb2, false);
+  return g;
+}
+
+/* 斗栱 : one bracket set. The stacked blocks under an eave are the single
+   detail that makes a building read as Japanese rather than generic. */
+function bracketSet(s, mat) {
+  const g = new Geo(), m = M4.create();
+  s = s || 1;
+  const M2 = mat === undefined ? MAT.VERMILLION : mat;
+  g.merge(roundedBox(0.42 * s, 0.20 * s, 0.42 * s, 0.02, 1, { mat: M2, uScale: 0.4, vScale: 0.4 }),
+    M4.compose(m, [0, 0.10 * s, 0], 0, [1, 1, 1]));                       // 大斗
+  g.merge(roundedBox(1.34 * s, 0.15 * s, 0.20 * s, 0.02, 1, { mat: M2, uScale: 0.9, vScale: 0.2 }),
+    M4.compose(m, [0, 0.275 * s, 0], 0, [1, 1, 1]));                      // 肘木
+  for (const dx of [-0.52, 0, 0.52])                                      // 巻斗
+    g.merge(roundedBox(0.26 * s, 0.14 * s, 0.26 * s, 0.018, 1, { mat: M2, uScale: 0.3, vScale: 0.3 }),
+      M4.compose(m, [dx * s, 0.42 * s, 0], 0, [1, 1, 1]));
+  g.merge(roundedBox(0.22 * s, 0.13 * s, 1.18 * s, 0.02, 1, { mat: M2, uScale: 0.2, vScale: 0.8 }),
+    M4.compose(m, [0, 0.275 * s, 0.30 * s], 0, [1, 1, 1]));               // 尾垂木
+  return g;
+}
+
+/* 垂木 : the rafter row that shows under every eave */
+function rafterRow(g, x0, x1, z, y, n, len, s, ry) {
+  const m = M4.create();
+  const bar = roundedBox(0.085 * s, 0.085 * s, len, 0.012, 1, { mat: MAT.VERMILLION, uScale: 0.1, vScale: 0.8 });
+  for (let i = 0; i <= n; i++) {
+    const x = lerp(x0, x1, i / n);
+    M4.compose(m, [x, y, z], ry || 0, [1, 1, 1], -0.30, 0);
+    g.merge(bar, m);
+  }
+}
+
+/* 高欄 : balcony rail with 擬宝珠 finials */
+function railing(g, x0, x1, z, y, s, ry, cx, cz) {
+  const m = M4.create();
+  const n = Math.max(2, Math.round(Math.abs(x1 - x0) / (1.05 * s)));
+  const post = roundedBox(0.10 * s, 0.62 * s, 0.10 * s, 0.012, 1, { mat: MAT.VERMILLION, uScale: 0.1, vScale: 0.5 });
+  const gib = lathe([[0, 0, 0], [0.075, 0.03, 0.2], [0.085, 0.085, 0.5], [0.052, 0.14, 0.8], [0.030, 0.175, 0.9], [0, 0.20, 1]],
+    10, { mat: MAT.BRONZE, uScale: 0.4 });
+  const rot = ry || 0, cs = Math.cos(rot), sn = Math.sin(rot);
+  const put = (geo, lx, ly, lz) => {
+    M4.compose(m, [(cx || 0) + lx * cs + lz * sn, ly, (cz || 0) - lx * sn + lz * cs], rot, [1, 1, 1]);
+    g.merge(geo, m);
+  };
+  for (let i = 0; i <= n; i++) {
+    const x = lerp(x0, x1, i / n);
+    put(post, x, y + 0.31 * s, z);
+    put(gib, x, y + 0.62 * s, z);
+  }
+  for (const hy of [0.26, 0.56]) {
+    const rail = roundedBox(Math.abs(x1 - x0), 0.07 * s, 0.09 * s, 0.012, 1,
+      { mat: MAT.VERMILLION, uScale: 1.4, vScale: 0.1 });
+    put(rail, (x0 + x1) / 2, y + hy * s, z);
+  }
+}
+
+/* ---------------- 楼門 (1589) ----------------
+   The gate is the shrine's signature: two storeys, three bays, a balcony
+   running right round the upper floor, and a hip-and-gable roof. */
+function buildRomon() {
+  const g = new Geo(), m = M4.create();
+  const W = 11.4, D = 6.2, H1 = 5.3, H2 = 3.5;
+  const cols = [-4.3, -1.45, 1.45, 4.3], rows = [-1.9, 1.9];
+
+  for (const cx of cols) for (const cz of rows) {
+    g.merge(lathe([[0, 0, 0], [0.62, 0.10, 0.1], [0.60, 0.34, 0.3], [0, 0.40, 0.4]], 14,
+      { mat: MAT.GRANITE, uScale: 0.6 }), M4.compose(m, [cx, 0, cz], 0, [1, 1, 1]));   // 礎石
+    g.merge(lathe([[0.30, 0.34, 0], [0.315, 0.50, 0.1], [0.300, H1 * 0.6, 0.5], [0.276, H1, 0.95], [0.268, H1 + 0.12, 1]], 16,
+      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, 0, cz], 0, [1, 1, 1]));
+  }
+  // 貫 through-beams, and the white plaster panels between the outer bays
+  for (const cz of rows) for (const hy of [1.55, 3.35]) {
+    g.merge(roundedBox(W - 0.6, 0.34, 0.24, 0.02, 2, { mat: MAT.VERMILLION, uScale: 2.0, vScale: 0.2 }),
+      M4.compose(m, [0, hy, cz], 0, [1, 1, 1]));
+  }
+  for (const sx of [-1, 1]) for (const cz of rows)
+    g.merge(roundedBox(2.55, 3.6, 0.20, 0.02, 2, { mat: MAT.PLASTER, uScale: 1.2, vScale: 1.6 }),
+      M4.compose(m, [sx * 2.875, 3.3, cz], 0, [1, 1, 1]));
+
+  // first-floor beam, brackets and rafters
+  g.merge(roundedBox(W + 0.5, 0.42, D + 0.5, 0.03, 2, { mat: MAT.VERMILLION, uScale: 2.4, vScale: 1.4 }),
+    M4.compose(m, [0, H1 + 0.33, 0], 0, [1, 1, 1]));
+  const bs = bracketSet(1.0);
+  for (const cx of cols) for (const cz of rows)
+    g.merge(bs, M4.compose(m, [cx, H1 + 0.54, cz], cz > 0 ? 0 : PI, [1, 1, 1]));
+
+  // balcony floor and rail
+  g.merge(roundedBox(W + 2.3, 0.16, D + 2.3, 0.02, 2, { mat: MAT.VERMILLION, uScale: 3.0, vScale: 2.0 }),
+    M4.compose(m, [0, H1 + 1.02, 0], 0, [1, 1, 1]));
+  for (const sz of [-1, 1]) railing(g, -(W + 2.3) / 2, (W + 2.3) / 2, sz * (D + 2.3) / 2, H1 + 1.10, 1.0, 0, 0, 0);
+  for (const sx of [-1, 1]) railing(g, -(D + 2.3) / 2, (D + 2.3) / 2, sx * (W + 2.3) / 2, H1 + 1.10, 1.0, PI / 2, 0, 0);
+
+  // upper storey
+  for (const cx of [-3.5, -1.2, 1.2, 3.5]) for (const cz of [-1.55, 1.55])
+    g.merge(lathe([[0.24, 0, 0], [0.246, 0.12, 0.1], [0.228, H2, 0.95], [0.222, H2 + 0.10, 1]], 14,
+      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, H1 + 1.10, cz], 0, [1, 1, 1]));
+  for (const sx of [-1, 1]) for (const cz of [-1.55, 1.55])
+    g.merge(roundedBox(2.1, H2 - 0.5, 0.16, 0.02, 2, { mat: MAT.PLASTER, uScale: 1.0, vScale: 1.4 }),
+      M4.compose(m, [sx * 2.35, H1 + 1.10 + H2 / 2, cz], 0, [1, 1, 1]));
+  // 連子窓 : the slatted window over the centre bay
+  for (let i = 0; i < 13; i++)
+    g.merge(roundedBox(0.055, 1.5, 0.10, 0.008, 1, { mat: MAT.BLACK, uScale: 0.1, vScale: 0.6 }),
+      M4.compose(m, [-1.05 + i * 0.175, H1 + 2.55, 1.58], 0, [1, 1, 1]));
+
+  const topY = H1 + 1.10 + H2;
+  g.merge(roundedBox(W - 2.2, 0.34, D - 1.4, 0.03, 2, { mat: MAT.VERMILLION, uScale: 2.0, vScale: 1.2 }),
+    M4.compose(m, [0, topY + 0.16, 0], 0, [1, 1, 1]));
+  const bs2 = bracketSet(0.85);
+  for (const cx of [-3.5, -1.2, 1.2, 3.5]) for (const cz of [-1.55, 1.55])
+    g.merge(bs2, M4.compose(m, [cx, topY + 0.32, cz], cz > 0 ? 0 : PI, [1, 1, 1]));
+  for (const sz of [-1, 1])
+    rafterRow(g, -6.6, 6.6, sz * 3.0, topY + 0.62, 42, 1.9, 1.0, sz > 0 ? 0 : PI);
+
+  // the roof
+  g.merge(roofShell({ ex: 7.5, ezF: 4.5, ezB: 4.5, ey: topY + 0.52, ry: topY + 4.15,
+    rx: 2.6, thick: 0.32, sori: 1.05, nx: 34, nz: 24 }));
+  g.merge(roundedBox(5.6, 0.46, 0.62, 0.10, 2, { mat: MAT.HIWADA, uScale: 1.2, vScale: 0.2 }),
+    M4.compose(m, [0, topY + 4.30, 0], 0, [1, 1, 1]));                     // 棟
+  // 懸魚 : the pendant that hangs off the gable point
+  for (const sz of [-1, 1])
+    g.merge(lathe([[0, 0, 0], [0.34, 0.10, 0.2], [0.30, 0.42, 0.6], [0.16, 0.62, 0.9], [0, 0.68, 1]], 12,
+      { mat: MAT.BRONZE, uScale: 0.5 }), M4.compose(m, [0, topY + 2.30, sz * 3.30], 0, [1, 1, 0.35], PI, 0));
+  return g;
+}
+
+/* ---------------- 外拝殿 : the outer worship hall, open on all sides ---- */
+function buildGehaiden() {
+  const g = new Geo(), m = M4.create();
+  const W = 13.6, D = 8.0, H = 4.1;
+  g.merge(roundedBox(W + 1.6, 0.62, D + 1.6, 0.04, 2, { mat: MAT.GRANITE, uScale: 4.0, vScale: 2.4 }),
+    M4.compose(m, [0, -0.31, 0], 0, [1, 1, 1]));
+  g.merge(roundedBox(W + 0.9, 0.20, D + 0.9, 0.03, 2, { mat: MAT.VERMILLION, uScale: 4.0, vScale: 2.4 }),
+    M4.compose(m, [0, 0.10, 0], 0, [1, 1, 1]));
+  const cols = [-5.6, -2.8, 0, 2.8, 5.6], rows = [-3.0, 3.0];
+  for (const cx of cols) for (const cz of rows) {
+    g.merge(lathe([[0.255, 0.20, 0], [0.262, 0.34, 0.1], [0.246, H, 0.95], [0.240, H + 0.10, 1]], 16,
+      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, 0, cz], 0, [1, 1, 1]));
+    g.merge(bracketSet(0.92), M4.compose(m, [cx, H + 0.30, cz], cz > 0 ? 0 : PI, [1, 1, 1]));
+  }
+  for (const cz of rows)
+    g.merge(roundedBox(W, 0.36, 0.26, 0.02, 2, { mat: MAT.VERMILLION, uScale: 2.6, vScale: 0.2 }),
+      M4.compose(m, [0, H + 0.12, cz], 0, [1, 1, 1]));
+  for (const sz of [-1, 1]) rafterRow(g, -7.4, 7.4, sz * 4.3, H + 0.72, 46, 1.8, 1.0, sz > 0 ? 0 : PI);
+  g.merge(roofShell({ ex: 8.6, ezF: 5.6, ezB: 5.6, ey: H + 0.62, ry: H + 4.70,
+    rx: 3.4, thick: 0.30, sori: 1.15, nx: 34, nz: 24 }));
+  g.merge(roundedBox(6.9, 0.42, 0.58, 0.09, 2, { mat: MAT.HIWADA, uScale: 1.4, vScale: 0.2 }),
+    M4.compose(m, [0, H + 4.86, 0], 0, [1, 1, 1]));
+  /* the twelve zodiac lanterns hung along the front eave, which is what
+     everyone photographs this building for */
+  for (let i = 0; i < 12; i++) {
+    const x = -6.6 + i * 1.2;
+    g.merge(roundedBox(0.05, 0.42, 0.05, 0.01, 1, { mat: MAT.BLACK }),
+      M4.compose(m, [x, H + 0.40, 5.15], 0, [1, 1, 1]));
+    g.merge(lathe([[0, 0, 0], [0.16, 0.05, 0.1], [0.185, 0.20, 0.4], [0.175, 0.40, 0.7], [0.12, 0.50, 0.9], [0, 0.53, 1]],
+      12, { mat: MAT.BRONZE, uScale: 0.6 }), M4.compose(m, [x, H - 0.13, 5.15], 0, [1, 1, 1]));
+    g.merge(lathe([[0, 0, 0], [0.235, 0.035, 0.2], [0.20, 0.10, 0.7], [0, 0.125, 1]], 12,
+      { mat: MAT.BRONZE, uScale: 0.5 }), M4.compose(m, [x, H + 0.36, 5.15], 0, [1, 1, 1]));
+  }
+  return g;
+}
+
+/* ---------------- 本殿 : 五間社流造 ----------------
+   Nagare-zukuri: a gabled roof whose front slope runs on far past the wall
+   to shelter the steps. Asymmetry is the whole point, and roofShell takes
+   a different eave depth front and back, so it comes for free. */
+function buildHonden() {
+  const g = new Geo(), m = M4.create();
+  const W = 10.2, D = 5.0, H = 3.9, FL = 1.35;
+  g.merge(roundedBox(W + 2.0, FL, D + 4.6, 0.05, 2, { mat: MAT.GRANITE, uScale: 3.4, vScale: 2.4 }),
+    M4.compose(m, [0, FL / 2, 0.9], 0, [1, 1, 1]));
+  g.merge(roundedBox(W + 1.1, 0.22, D + 3.4, 0.03, 2, { mat: MAT.VERMILLION, uScale: 3.4, vScale: 2.4 }),
+    M4.compose(m, [0, FL + 0.11, 0.8], 0, [1, 1, 1]));
+  for (const cx of [-4.4, -2.2, 0, 2.2, 4.4]) {
+    for (const cz of [-2.2, 2.2])
+      g.merge(lathe([[0.225, 0, 0], [0.232, 0.14, 0.1], [0.216, H, 0.95], [0.210, H + 0.09, 1]], 16,
+        { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, FL + 0.22, cz], 0, [1, 1, 1]));
+    g.merge(bracketSet(0.80), M4.compose(m, [cx, FL + H + 0.42, 2.2], 0, [1, 1, 1]));
+    g.merge(bracketSet(0.80), M4.compose(m, [cx, FL + H + 0.42, -2.2], PI, [1, 1, 1]));
+  }
+  // walls: cypress boarding, with 蔀 panels facing front
+  for (const sz of [-1, 1])
+    g.merge(roundedBox(W, H - 0.3, 0.20, 0.02, 2, { mat: MAT.BARK, uScale: 2.4, vScale: 1.6 }),
+      M4.compose(m, [0, FL + 0.22 + (H - 0.3) / 2, sz * 2.2], 0, [1, 1, 1]));
+  for (const sx of [-1, 1])
+    g.merge(roundedBox(0.20, H - 0.3, D - 0.4, 0.02, 2, { mat: MAT.BARK, uScale: 1.4, vScale: 1.6 }),
+      M4.compose(m, [sx * 5.1, FL + 0.22 + (H - 0.3) / 2, 0], 0, [1, 1, 1]));
+  for (const cx of [-3.3, -1.1, 1.1, 3.3])
+    g.merge(roundedBox(1.9, 2.5, 0.10, 0.015, 2, { mat: MAT.VERMILLION, uScale: 0.9, vScale: 1.2 }),
+      M4.compose(m, [cx, FL + 1.8, 2.32], 0, [1, 1, 1]));
+
+  const ey = FL + H + 0.75;
+  for (const sz of [-1, 1]) rafterRow(g, -6.0, 6.0, sz * 3.2, ey + 0.10, 40, 1.7, 0.95, sz > 0 ? 0 : PI);
+  g.merge(roofShell({ ex: 6.6, ezF: 6.4, ezB: 3.5, ey, ry: ey + 3.30,
+    gable: true, thick: 0.32, sori: 0.85, nx: 30, nz: 26 }));
+  // the gable walls the roof needs now that it is not hipped
+  for (const sx of [-1, 1])
+    g.merge(roundedBox(0.22, 2.30, 3.0, 0.02, 2, { mat: MAT.PLASTER, uScale: 0.6, vScale: 1.0 }),
+      M4.compose(m, [sx * 6.5, ey + 1.70, -0.3], 0, [1, 1, 1]));
+  g.merge(roundedBox(13.4, 0.44, 0.60, 0.10, 2, { mat: MAT.HIWADA, uScale: 2.4, vScale: 0.2 }),
+    M4.compose(m, [0, ey + 3.44, 0], 0, [1, 1, 1]));
+  // 千木 crossed finials and 鰹木 billets along the ridge
+  for (const sx of [-1, 1]) for (const r of [-1, 1])
+    g.merge(roundedBox(0.20, 3.1, 0.20, 0.03, 1, { mat: MAT.BRONZE, uScale: 0.2, vScale: 1.2 }),
+      M4.compose(m, [sx * 6.0, ey + 3.96, r * 0.42], 0, [1, 1, 1], r * 0.26, sx * 0.30));
+  for (let i = 0; i < 5; i++)
+    g.merge(lathe([[0, 0, 0], [0.20, 0.03, 0.1], [0.215, 0.55, 0.5], [0.20, 1.07, 0.9], [0, 1.10, 1]], 12,
+      { mat: MAT.BRONZE, uScale: 0.5 }),
+      M4.compose(m, [-4.0 + i * 2.0, ey + 3.56, -0.55], 0, [1, 1, 1], PI / 2, 0));
+  // the front steps the long slope is there to cover
+  for (let i = 0; i < 7; i++)
+    g.merge(roundedBox(4.2, STEP_RISE, 0.36, 0.01, 1, { mat: MAT.GRANITE, uScale: 1.6, vScale: 0.2 }),
+      M4.compose(m, [0, FL - 0.09 - i * STEP_RISE, 3.1 + i * 0.36], 0, [1, 1, 1]));
+  return g;
+}
+
+/* ---------------- 手水舎 ---------------- */
+function buildChozuya() {
+  const g = new Geo(), m = M4.create();
+  const H = 2.55;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    g.merge(lathe([[0, 0, 0], [0.34, 0.14, 0.2], [0.32, 0.26, 0.4], [0, 0.30, 0.5]], 12,
+      { mat: MAT.GRANITE, uScale: 0.5 }), M4.compose(m, [sx * 1.5, 0, sz * 1.1], 0, [1, 1, 1]));
+    g.merge(lathe([[0.15, 0.24, 0], [0.155, 0.4, 0.1], [0.142, H, 0.95], [0.138, H + 0.08, 1]], 12,
+      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [sx * 1.5, 0, sz * 1.1], 0, [1, 1, 1]));
+    g.merge(bracketSet(0.55), M4.compose(m, [sx * 1.5, H + 0.16, sz * 1.1], sz > 0 ? 0 : PI, [1, 1, 1]));
+  }
+  for (const sz of [-1, 1]) rafterRow(g, -2.5, 2.5, sz * 1.9, H + 0.46, 18, 1.1, 0.7, sz > 0 ? 0 : PI);
+  g.merge(roofShell({ ex: 2.9, ezF: 2.4, ezB: 2.4, ey: H + 0.40, ry: H + 2.30,
+    rx: 0.9, thick: 0.22, sori: 0.52, nx: 22, nz: 18 }));
+  g.merge(roundedBox(1.9, 0.28, 0.40, 0.07, 2, { mat: MAT.HIWADA, uScale: 0.8, vScale: 0.2 }),
+    M4.compose(m, [0, H + 2.42, 0], 0, [1, 1, 1]));
+  // the basin
+  g.merge(roundedBox(2.5, 0.62, 1.45, 0.06, 2, { mat: MAT.GRANITE, uScale: 1.6, vScale: 0.9 }),
+    M4.compose(m, [0, 0.31, 0], 0, [1, 1, 1]));
+  g.merge(roundedBox(2.16, 0.20, 1.12, 0.05, 2, { mat: MAT.STONE, uScale: 1.4, vScale: 0.8 }),
+    M4.compose(m, [0, 0.60, 0], 0, [1, 1, 1]));
+  return g;
+}
+
+/* ---------------- 玉垣 : the vermillion fence ---------------- */
+function buildTamagaki(len, n) {
+  const g = new Geo(), m = M4.create();
+  for (let i = 0; i <= n; i++) {
+    const x = -len / 2 + (len / n) * i;
+    g.merge(roundedBox(0.155, 1.42, 0.155, 0.016, 1, { mat: MAT.VERMILLION, uScale: 0.15, vScale: 0.9 }),
+      M4.compose(m, [x, 0.71, 0], 0, [1, 1, 1]));
+    g.merge(lathe([[0, 0, 0], [0.085, 0.03, 0.3], [0.055, 0.10, 0.8], [0, 0.12, 1]], 8,
+      { mat: MAT.BLACK, uScale: 0.3 }), M4.compose(m, [x, 1.42, 0], 0, [1, 1, 1]));
+  }
+  for (const hy of [0.52, 1.14])
+    g.merge(roundedBox(len, 0.10, 0.085, 0.012, 1, { mat: MAT.VERMILLION, uScale: 3.0, vScale: 0.1 }),
+      M4.compose(m, [0, hy, 0], 0, [1, 1, 1]));
+  return g;
+}
+
+/* ---------------- assemble the precinct ---------------- */
+function buildKeidai(detail) {
+  const draws = [], shadowDraws = [], lights = [];
+  const rnd = mulberry32(83551);
+  const one = (geo, x, y, z, ry, sc, name, tint) => {
+    const mesh = new Mesh(geo);
+    const m = M4.create();
+    M4.compose(m, [x + KX, y, z], ry || 0, [sc || 1, sc || 1, sc || 1]);
+    mesh.setInstances([{ m, tint: tint || [1, 1, 1, rnd()] }]);
+    mesh.instT = null;
+    draws.push({ mesh, name });
+    shadowDraws.push({ mesh });
+    return mesh;
+  };
+  const GY = z => keidaiGroundY(0, z);
+
+  // --- the floor: terraces, step treads and the retaining walls ---
+  {
+    const g = new Geo(), m = M4.create();
+    const NX = 46, NZ = 200;
+    const rows = [];
+    for (let j = 0; j <= NZ; j++) {
+      const z = lerp(-86, 4, j / NZ), row = [];
+      for (let i = 0; i <= NX; i++) {
+        const x = lerp(-30, 30, i / NX);
+        const y = keidaiGroundY(x + KX, z);
+        const mat = Math.abs(x) > 21 ? MAT.MOSS : (Math.abs(x) > 15 ? MAT.MOSS : MAT.STONE);
+        row.push(g.push(x, y, z, 0, 1, 0, x * 0.34, z * 0.34, mat));
+      }
+      rows.push(row);
+    }
+    for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++)
+      g.quad(rows[j][i], rows[j + 1][i], rows[j + 1][i + 1], rows[j][i + 1]);
+    one(g, 0, 0, 0, 0, 1, 'keidai_ground');
+  }
+
+  // --- torii on the approach, reusing the corridor's builder at scale ---
+  const toriiG = buildTorii(detail);
+  for (const [z, sc] of [[-78, 2.55], [-58, 2.05]]) {
+    one(toriiG, 0, GY(z), z, 0, sc, 'keidai_torii');
+    addBox(-1.09 * sc, z, 0.5 * sc, 0.5 * sc, GY(z), 3 * sc);
+    addBox(1.09 * sc, z, 0.5 * sc, 0.5 * sc, GY(z), 3 * sc);
+  }
+
+  // --- the buildings ---
+  one(buildRomon(), 0, GY(-44), -44, 0, 1, 'romon');
+  for (const cx of [-4.3, -1.45, 1.45, 4.3]) for (const cz of [-1.9, 1.9])
+    addBox(cx, -44 + cz, 0.9, 0.9, GY(-44), 6);
+  for (const sx of [-1, 1]) addBox(sx * 2.9, -44, 3.0, 4.4, GY(-44), 6);   // the closed bays
+
+  one(buildGehaiden(), 0, GY(-30), -30, 0, 1, 'gehaiden');
+  for (const cx of [-5.6, -2.8, 0, 2.8, 5.6]) for (const cz of [-3.0, 3.0])
+    addBox(cx, -30 + cz, 0.75, 0.75, GY(-30), 5);
+
+  one(buildHonden(), 0, GY(-9), -9, 0, 1, 'honden');
+  addBox(0, -9, 11.4, 6.0, GY(-9), 6.5);
+
+  one(buildChozuya(), -12.5, GY(-52), -52, 0, 1, 'chozuya');
+  addBox(-12.5, -52, 3.4, 2.6, GY(-52), 3);
+
+  // --- 狛狐 flanking the gate and the hall ---
+  const foxG = buildFox();
+  for (const [z, off, sc] of [[-49.5, 3.6, 1.35], [-34.5, 4.4, 1.2], [-14.0, 5.2, 1.15]])
+    for (const sx of [-1, 1]) {
+      one(foxG, sx * off, GY(z), z, sx > 0 ? -0.28 : 0.28, sc, 'keidai_fox');
+      addBox(sx * off, z, 0.9, 0.9, GY(z), 1.4);
+    }
+
+  // --- stone lanterns down the approach, and the fence along the terraces ---
+  const lanG = buildLantern(detail);
+  for (let i = 0; i < 9; i++) {
+    const z = -74 + i * 4.6;
+    if (z > -50) break;
+    for (const sx of [-1, 1]) {
+      one(lanG, sx * 7.2, GY(z), z, rnd() * 0.4, 1.15, 'keidai_lantern');
+      lights.push({ pos: [sx * 7.2, GY(z) + 1.5, z], radius: 6.4,
+        color: [1.0, 0.62, 0.28], intensity: 3.0, flicker: rnd() * 10 });
+      addBox(sx * 7.2, z, 0.7, 0.7, GY(z), 2.0);
+    }
+  }
+  const fenceG = buildTamagaki(9.0, 9);
+  for (const [z, x0] of [[-24.5, 11.5], [-24.5, -11.5], [-13.0, 12.5], [-13.0, -12.5]])
+    one(fenceG, x0, GY(z), z, 0, 1, 'tamagaki');
+  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++)
+    one(fenceG, sx * 13.5, GY(-46 + i * 9), -46 + i * 9, PI / 2, 1, 'tamagaki');
+
+  return { draws, shadowDraws, lights };
+}
+
 /* ==== e_main.js ==== */
 /* =========================================================================
    MAIN : boot, input, UI
@@ -4403,6 +4978,13 @@ async function boot() {
   await step('千本鳥居を建立中…', () => {
     R.scene = buildScene(R.sceneDetail);
   });
+  await step('境内を建立中…', () => {
+    registerAreas();
+    R.keidai = buildKeidai(R.sceneDetail);
+    for (const d of R.keidai.draws) { d.zMax = 62; R.scene.draws.push(d); }
+    for (const d of R.keidai.shadowDraws) { d.zMax = 62; R.scene.shadowDraws.push(d); }
+    for (const l of R.keidai.lights) R.scene.lights.push(l);
+  });
   await step('屍を起こしています…', () => initKyonshi(R.sceneDetail >= 1));
   await step('準備完了', () => {
     applyQuality(R.quality, false);
@@ -4449,7 +5031,7 @@ async function boot() {
     return { e: b[0], L: b[1] };
   };
   window.__DBG = { CFG, R, CAM, QUALITY, updateSun, sunENU, dayLength, pathPos, resize,
-    KY, sunExposure, kyonshiReset, ringBell };
+    KY, sunExposure, kyonshiReset, ringBell, WORLD, keidaiGroundY };
   window.__probe = function (rtName, px, py, n) {
     const rt = R.rt[rtName]; if (!rt) return null;
     n = n || 1;
@@ -4479,6 +5061,13 @@ function setupInput() {
     if (e.key.toLowerCase() === 't') { CFG.timelapse = !CFG.timelapse; syncUI(); }
     if (e.key === ' ') { e.preventDefault(); ringBell(); }
     if (e.key.toLowerCase() === 'r') kyonshiReset();
+    if (e.key.toLowerCase() === 'g') {          // jump between the two areas
+      const toCorridor = CAM.pos[2] < 1;
+      const p = toCorridor ? pathPos(6) : [3.02, 0, -74];
+      CAM.pos[0] = p[0]; CAM.pos[2] = p[2];
+      CAM.pos[1] = WORLD.groundAt(p[0], p[2]).y + CFG.eyeHeight;
+      CAM.vel[0] = CAM.vel[2] = 0; CAM.yaw = PI; R.expoSnap = true;
+    }
     if (e.key.toLowerCase() === 'z') setSekki(Math.round(CFG.sekkiTarget) - 1, true);
     if (e.key.toLowerCase() === 'x') setSekki(Math.round(CFG.sekkiTarget) + 1, true);
     if (['w', 'a', 's', 'd'].includes(e.key.toLowerCase())) CFG.autoWalk = false;
