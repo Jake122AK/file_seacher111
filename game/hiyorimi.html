@@ -1349,9 +1349,9 @@ float hHair(vec2 uv, out vec3 alb, out float rough, out float ao){
   float band   = pfbm(vec2(uv.x*P*16.0,  uv.y*P*1.6), P*16.0, 3);
   float fine   = pfbm(vec2(uv.x*P*240.0, uv.y*P*6.0), P*128.0, 2);
   float lift = strand*0.60 + fine*0.40;
-  alb = mix(vec3(0.330,0.296,0.286), vec3(0.665,0.622,0.578),
+  alb = mix(vec3(0.098,0.055,0.036), vec3(0.330,0.182,0.104),
             clamp(band*0.55 + lift*0.55, 0.0, 1.0));
-  alb = mix(alb, vec3(0.858,0.822,0.766), smoothstep(0.66, 0.95, lift)*0.60);
+  alb = mix(alb, vec3(0.505,0.320,0.190), smoothstep(0.66, 0.95, lift)*0.60);
   rough = clamp(0.36 + lift*0.16, 0.22, 0.62);
   ao = clamp(0.70 + 0.30*lift, 0.4, 1.0);
   return lift*0.55 + band*0.30 - 0.12;
@@ -1390,6 +1390,7 @@ float hOutline(vec2 uv, out vec3 alb, out float rough, out float ao){
 
 float dispatch(vec2 uv, out vec3 alb, out float rough, out float ao){
   if(uLayer==20) return hOutline(uv, alb, rough, ao);
+  if(uLayer==21) return hSkin(uv, alb, rough, ao);   // overwritten by the canvas
   if(uLayer==16) return hSkin(uv, alb, rough, ao);
   if(uLayer==17) return hHair(uv, alb, rough, ao);
   if(uLayer==18) return hChar(uv, alb, rough, ao);
@@ -2454,7 +2455,8 @@ const MAT = {
   /* 16 and up are the character, and the lighting pass switches to a
      toon path on that boundary. */
   SKIN: 16, HAIR: 17, CHAR: 18, EYE: 19, // 肌 / 髪 / 平色 / 虹彩
-  OUTLINE: 20                            // 輪郭線 — flat, unlit, tint-coloured
+  OUTLINE: 20,                           // 輪郭線 — flat, unlit, tint-coloured
+  FACE: 21                               // the painted face, drawn on a canvas
 };
 
 /* ---------------- path through the mountain ---------------- */
@@ -3259,7 +3261,7 @@ function initPrograms() {
 }
 
 /* ---------------- material texture arrays ---------------- */
-const NUM_LAYERS = 21;
+const NUM_LAYERS = 22;
 const TOON_MIN = 16;
 function bakeMaterials(res) {
   const arrA = gl.createTexture();
@@ -3285,6 +3287,8 @@ function bakeMaterials(res) {
   }
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.deleteFramebuffer(fb);
+
+  bakeFaceLayer(arrA, arrB, res, MAT.FACE);
 
   for (const t of [arrA, arrB]) {
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
@@ -5449,7 +5453,7 @@ const TINT = {
   thigh: [1, 1, 1, 0.3], shin: [1, 1, 1, 0.3],
   foot: [1.02, 1.02, 1.04, 0.3],
   ear: [1, 1, 1, 0.3],
-  earIn: [1.00, 0.62, 0.60, 0.3],
+  earIn: [0.175, 0.190, 0.520, 0.3],
   eyeW: [1.02, 1.02, 1.05, 0.3],
   iris: [1, 1, 1, 0.3],
   pupil: [0.055, 0.050, 0.062, 0.3],
@@ -5468,7 +5472,7 @@ const TINT = {
   upArm_o: [0.300, 0.150, 0.128, 0.3], loArm_o: [0.300, 0.150, 0.128, 0.3],
   handL_o: [0.300, 0.150, 0.128, 0.3], handR_o: [0.300, 0.150, 0.128, 0.3],
   thigh_o: [0.300, 0.150, 0.128, 0.3], shin_o: [0.300, 0.150, 0.128, 0.3],
-  hair_o: [0.235, 0.205, 0.238, 0.3], ear_o: [0.230, 0.150, 0.140, 0.3],
+  hair_o: [0.135, 0.075, 0.048, 0.3], ear_o: [0.190, 0.115, 0.078, 0.3],
   eyeW_o: [0.115, 0.090, 0.120, 0.3],
   foot_o: [0.290, 0.270, 0.260, 0.3], top_o: [0.320, 0.300, 0.290, 0.3],
   sleeve_o: [0.320, 0.300, 0.290, 0.3], hakama_o: [0.290, 0.055, 0.048, 0.3],
@@ -5476,31 +5480,302 @@ const TINT = {
   tail2_o: [0.245, 0.150, 0.110, 0.3], tail3_o: [0.260, 0.215, 0.190, 0.3]
 };
 
-/* ---------------- the head ----------------
-   Cranium wide and tall, face small, jaw sweeping to a narrow chin. Nothing
-   about this is a muzzle; the whole read is the eyes. */
+/* ---------------- the face is DRAWN, not modelled ----------------
+
+   This is the thing the earlier passes got wrong at the root. In an anime
+   3D character the eyes, lashes, brows, mouth and nose are not geometry —
+   they are a painted texture on a smooth head. Modelling each feature is
+   why they read as objects stuck onto a skull rather than as a face.
+
+   So the face is authored the way it would actually be authored: with a 2D
+   drawing tool. Canvas gives beziers, gradients and clipping, which is
+   everything an anime eye needs — and an anime eye is a stack of about ten
+   deliberate layers, not a coloured disc.                                  */
+
+const FACE_RES = 1024;
+
+function drawAnimeEye(c, S, sx, cx, cy) {
+  const W = 0.104 * S, H = 0.086 * S;          // eye opening, half extents
+  const px = (u) => cx + sx * u * S, py = (v) => cy + v * S;
+
+  /* 1. the opening. Upper lid arches high and peaks inboard of centre;
+        lower lid is much shallower. That asymmetry is the eye's character. */
+  const lid = () => {
+    c.beginPath();
+    c.moveTo(cx - W, cy + H * 0.10);                                   // inner corner
+    c.bezierCurveTo(cx - W * 0.72, cy - H * 0.86, cx - W * 0.06, cy - H * 1.06,
+                    cx + W * 0.50, cy - H * 0.80);
+    c.bezierCurveTo(cx + W * 0.84, cy - H * 0.58, cx + W * 1.00, cy - H * 0.24,
+                    cx + W * 1.03, cy - H * 0.02);                     // outer corner
+    c.bezierCurveTo(cx + W * 0.80, cy + H * 0.72, cx + W * 0.20, cy + H * 1.02,
+                    cx - W * 0.44, cy + H * 0.72);
+    c.bezierCurveTo(cx - W * 0.76, cy + H * 0.54, cx - W * 0.94, cy + H * 0.34,
+                    cx - W, cy + H * 0.10);
+    c.closePath();
+  };
+
+  c.save();
+  lid(); c.clip();
+
+  // 2. sclera, cool in the corners, and a soft shadow cast by the lid
+  const sg = c.createLinearGradient(0, cy - H, 0, cy + H);
+  sg.addColorStop(0, '#b9c2d4'); sg.addColorStop(0.34, '#eef1f7'); sg.addColorStop(1, '#ffffff');
+  c.fillStyle = sg; c.fillRect(cx - W * 1.2, cy - H * 1.3, W * 2.4, H * 2.6);
+
+  /* 3. the iris. Vertically graded — deep at the top where the lid shades
+        it, luminous at the bottom where light bounces back in. Getting this
+        one gradient the right way up is most of what makes an anime eye
+        read as glass rather than as paint. */
+  const IR = W * 0.74, IRY = H * 1.02;
+  const ig = c.createLinearGradient(0, cy - IRY, 0, cy + IRY);
+  ig.addColorStop(0.00, '#123a86');
+  ig.addColorStop(0.30, '#1c5bc4');
+  ig.addColorStop(0.62, '#2f8ee8');
+  ig.addColorStop(0.86, '#7fdcff');
+  ig.addColorStop(1.00, '#c9f4ff');
+  c.save();
+  c.beginPath(); c.ellipse(cx, cy, IR, IRY, 0, 0, TAU); c.clip();
+  c.fillStyle = ig; c.fillRect(cx - IR, cy - IRY, IR * 2, IRY * 2);
+  // radial fibres, only in the lower half where they catch the light
+  c.globalAlpha = 0.30; c.strokeStyle = '#cdefff'; c.lineWidth = S * 0.0028;
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * TAU;
+    c.beginPath();
+    c.moveTo(cx + Math.cos(a) * IR * 0.42, cy + Math.sin(a) * IRY * 0.42);
+    c.lineTo(cx + Math.cos(a) * IR * 0.94, cy + Math.sin(a) * IRY * 0.94);
+    c.stroke();
+  }
+  c.globalAlpha = 1;
+  // the bright inner ring that sits below the pupil
+  c.strokeStyle = 'rgba(190,244,255,0.85)'; c.lineWidth = S * 0.010;
+  c.beginPath(); c.ellipse(cx, cy + IRY * 0.10, IR * 0.60, IRY * 0.60, 0, 0, TAU); c.stroke();
+  c.restore();
+
+  // 4. limbal ring — a hard dark rim is what stops the iris looking flat
+  c.strokeStyle = 'rgba(8,26,64,0.92)'; c.lineWidth = S * 0.013;
+  c.beginPath(); c.ellipse(cx, cy, IR, IRY, 0, 0, TAU); c.stroke();
+
+  // 5. pupil
+  c.fillStyle = '#0a1430';
+  c.beginPath(); c.ellipse(cx, cy - IRY * 0.02, IR * 0.36, IRY * 0.40, 0, 0, TAU); c.fill();
+
+  // 6. the shadow the upper lid throws onto the eyeball
+  const lg = c.createLinearGradient(0, cy - H * 1.05, 0, cy + H * 0.05);
+  lg.addColorStop(0, 'rgba(48,40,72,0.60)'); lg.addColorStop(1, 'rgba(48,40,72,0)');
+  c.fillStyle = lg; c.fillRect(cx - W * 1.2, cy - H * 1.3, W * 2.4, H * 1.5);
+
+  // 7. catchlights: one large upper-outer, one small lower-inner
+  c.fillStyle = '#ffffff';
+  c.beginPath(); c.ellipse(px(-0.030), py(-0.030), W * 0.30, H * 0.32, 0.4, 0, TAU); c.fill();
+  c.globalAlpha = 0.85;
+  c.beginPath(); c.ellipse(px(0.036), py(0.036), W * 0.15, H * 0.16, 0, 0, TAU); c.fill();
+  c.globalAlpha = 1;
+  c.restore();
+
+  /* 8. 上まつ毛. Not a line — a wedge of ink that hugs the lid, thickens
+        over the outer third and flicks up past the outer corner. */
+  c.fillStyle = '#3b2036';
+  c.beginPath();
+  c.moveTo(cx - W * 1.02, cy + H * 0.06);
+  c.bezierCurveTo(cx - W * 0.74, cy - H * 0.90, cx - W * 0.06, cy - H * 1.10,
+                  cx + W * 0.50, cy - H * 0.84);
+  c.bezierCurveTo(cx + W * 0.86, cy - H * 0.62, cx + W * 1.02, cy - H * 0.26,
+                  cx + W * 1.30, cy - H * 0.40);                        // the flick
+  c.bezierCurveTo(cx + W * 1.06, cy + H * 0.06, cx + W * 0.86, cy - H * 0.18,
+                  cx + W * 0.46, cy - H * 0.52);
+  c.bezierCurveTo(cx - W * 0.06, cy - H * 0.76, cx - W * 0.70, cy - H * 0.56,
+                  cx - W * 1.02, cy + H * 0.06);
+  c.closePath(); c.fill();
+  // two lash spikes at the outer corner
+  for (const [ax, ay, bx, by] of [[1.02, -0.30, 1.44, -0.62], [0.80, -0.62, 1.16, -0.94]]) {
+    c.beginPath();
+    c.moveTo(cx + sx * W * ax, cy + H * ay);
+    c.lineTo(cx + sx * W * bx, cy + H * by);
+    c.lineTo(cx + sx * W * (ax - 0.16), cy + H * (ay - 0.14));
+    c.closePath(); c.fill();
+  }
+
+  // 9. 下まつ毛, present only on the outer half
+  c.strokeStyle = 'rgba(59,32,54,0.80)'; c.lineWidth = S * 0.0060; c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(cx + sx * W * 0.10, cy + H * 0.95);
+  c.quadraticCurveTo(cx + sx * W * 0.72, cy + H * 0.76, cx + sx * W * 1.00, cy + H * 0.02);
+  c.stroke();
+
+  // 10. 二重 : the crease above the lid
+  c.strokeStyle = 'rgba(150,96,96,0.55)'; c.lineWidth = S * 0.0045;
+  c.beginPath();
+  c.moveTo(cx - sx * W * 0.86, cy - H * 0.72);
+  c.quadraticCurveTo(cx + sx * W * 0.10, cy - H * 1.52, cx + sx * W * 1.06, cy - H * 0.52);
+  c.stroke();
+}
+
+function drawAnimeFace(c, S) {
+  // ---- skin ground ----
+  c.fillStyle = '#f6dccb';
+  c.fillRect(0, 0, S, S);
+  // a touch of warmth low on the face, cool at the temples
+  let g0 = c.createLinearGradient(0, 0, 0, S);
+  g0.addColorStop(0, 'rgba(232,205,196,0.55)');
+  g0.addColorStop(0.55, 'rgba(246,220,203,0)');
+  g0.addColorStop(1, 'rgba(240,196,178,0.40)');
+  c.fillStyle = g0; c.fillRect(0, 0, S, S);
+
+  const EYE_Y = 0.578 * S, EYE_DX = 0.163 * S;
+
+  // ---- 頬の赤み ----
+  for (const sx of [-1, 1]) {
+    const bx = S * 0.5 + sx * 0.225 * S, by = 0.660 * S;
+    const bg = c.createRadialGradient(bx, by, 0, bx, by, 0.115 * S);
+    bg.addColorStop(0, 'rgba(247,150,146,0.42)');
+    bg.addColorStop(0.55, 'rgba(247,150,146,0.16)');
+    bg.addColorStop(1, 'rgba(247,150,146,0)');
+    c.fillStyle = bg;
+    c.beginPath(); c.ellipse(bx, by, 0.115 * S, 0.062 * S, 0, 0, TAU); c.fill();
+    // the three blush ticks anime uses on top of the gradient
+    c.strokeStyle = 'rgba(232,120,118,0.30)'; c.lineWidth = S * 0.0055; c.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      c.beginPath();
+      c.moveTo(bx + sx * (i - 1) * 0.030 * S - 0.016 * S, by + 0.020 * S);
+      c.lineTo(bx + sx * (i - 1) * 0.030 * S + 0.010 * S, by - 0.022 * S);
+      c.stroke();
+    }
+  }
+
+  // ---- 鼻 : a shadow and a dot of light. Never a modelled nose. ----
+  const ng = c.createLinearGradient(0, 0.640 * S, 0, 0.700 * S);
+  ng.addColorStop(0, 'rgba(206,150,132,0)');
+  ng.addColorStop(1, 'rgba(206,150,132,0.55)');
+  c.fillStyle = ng;
+  c.beginPath();
+  c.moveTo(S * 0.5 - 0.012 * S, 0.700 * S);
+  c.quadraticCurveTo(S * 0.5, 0.636 * S, S * 0.5 + 0.014 * S, 0.700 * S);
+  c.closePath(); c.fill();
+
+  // ---- 口 : a small open smile, as in the reference ----
+  c.fillStyle = '#7d2f3e';
+  c.beginPath();
+  c.moveTo(S * 0.5 - 0.052 * S, 0.752 * S);
+  c.bezierCurveTo(S * 0.5 - 0.022 * S, 0.746 * S, S * 0.5 + 0.022 * S, 0.746 * S,
+                  S * 0.5 + 0.052 * S, 0.752 * S);
+  c.bezierCurveTo(S * 0.5 + 0.034 * S, 0.806 * S, S * 0.5 - 0.034 * S, 0.806 * S,
+                  S * 0.5 - 0.052 * S, 0.752 * S);
+  c.closePath(); c.fill();
+  c.fillStyle = '#e8737f';                                     // tongue
+  c.beginPath(); c.ellipse(S * 0.5, 0.786 * S, 0.030 * S, 0.014 * S, 0, 0, TAU); c.fill();
+  c.strokeStyle = 'rgba(120,54,62,0.85)'; c.lineWidth = S * 0.0050; c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(S * 0.5 - 0.054 * S, 0.750 * S);
+  c.bezierCurveTo(S * 0.5 - 0.022 * S, 0.744 * S, S * 0.5 + 0.022 * S, 0.744 * S,
+                  S * 0.5 + 0.054 * S, 0.750 * S);
+  c.stroke();
+
+  // ---- eyes ----
+  drawAnimeEye(c, S, -1, S * 0.5 - EYE_DX, EYE_Y);
+  drawAnimeEye(c, S, 1, S * 0.5 + EYE_DX, EYE_Y);
+
+  // ---- 眉 : brown, arched, thinning to the outer tail ----
+  for (const sx of [-1, 1]) {
+    const bx = S * 0.5 + sx * EYE_DX;
+    c.fillStyle = '#6b4230';
+    c.beginPath();
+    c.moveTo(bx - sx * 0.108 * S, 0.470 * S);
+    c.quadraticCurveTo(bx - sx * 0.012 * S, 0.418 * S, bx + sx * 0.098 * S, 0.452 * S);
+    c.quadraticCurveTo(bx - sx * 0.010 * S, 0.440 * S, bx - sx * 0.108 * S, 0.484 * S);
+    c.closePath(); c.fill();
+  }
+}
+
+/* the drawn face is uploaded straight into its own slot of the material
+   array, so nothing else in the renderer has to know it came from a canvas */
+function bakeFaceLayer(arrA, arrB, res, layer) {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = res;
+  const c = cv.getContext('2d');
+  drawAnimeFace(c, res);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, arrA);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, res, res, 1,
+    gl.RGBA, gl.UNSIGNED_BYTE, cv);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  // flat normal, matte, no height: the face must not pick up relief
+  const b = new Uint8Array(res * res * 4);
+  for (let i = 0; i < res * res; i++) {
+    b[i * 4] = 128; b[i * 4 + 1] = 128; b[i * 4 + 2] = 126; b[i * 4 + 3] = 128;
+  }
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, arrB);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, res, res, 1,
+    gl.RGBA, gl.UNSIGNED_BYTE, b);
+}
+
+/* ---------------- the head that carries it ----------------
+   One smooth surface from chin to crown, with a FRONT PLANAR uv so the
+   drawing lands on the face undistorted. Vertices behind the ear line have
+   their uv pushed off the edge of the drawing and clamp to plain skin,
+   which the hair covers anyway. */
+const HEAD_RINGS = [
+  //  y       rx      rz      cz
+  [-0.0555, 0.0060, 0.0075,  0.0110],
+  [-0.0500, 0.0230, 0.0280,  0.0105],
+  [-0.0400, 0.0430, 0.0480,  0.0098],
+  [-0.0250, 0.0605, 0.0625,  0.0086],
+  [-0.0060, 0.0715, 0.0715,  0.0068],
+  [ 0.0140, 0.0778, 0.0768,  0.0050],
+  [ 0.0380, 0.0812, 0.0812,  0.0030],
+  [ 0.0640, 0.0828, 0.0848,  0.0006],
+  [ 0.0920, 0.0826, 0.0876, -0.0020],
+  [ 0.1180, 0.0796, 0.0864, -0.0044],
+  [ 0.1420, 0.0716, 0.0790, -0.0064],
+  [ 0.1600, 0.0568, 0.0640, -0.0078],
+  [ 0.1710, 0.0330, 0.0378, -0.0086],
+  [ 0.1755, 0.0000, 0.0000, -0.0090]
+];
+const FACE_U = 0.2060, FACE_V = 0.2660, FACE_CY = 0.0450;
+
 function mikoHead(detail) {
-  const g = new Geo(), m = M4.create();
-  const S = detail ? 44 : 14, R = detail ? 22 : 7;
-
-  // cranium
-  g.merge(ellipsoid(0.0825, 0.0945, 0.0890, S, { rows: R, mat: SKIN, uScale: 1.0, vScale: 1.0 }),
-    M4.compose(m, [0, 0.078, -0.006], 0, [1, 1, 1]));
-  /* the face and jaw. Wide at the cheekbones, then a fast sweep to a small
-     chin. This taper is the difference between a cute head and a doll's. */
-  g.merge(loft([
-    { p: [0, 0.108, 0.004], rx: 0.0805, ry: 0.0850 },
-    { p: [0, 0.062, 0.008], rx: 0.0800, ry: 0.0855 },
-    { p: [0, 0.012, 0.012], rx: 0.0745, ry: 0.0810 },
-    { p: [0, -0.014, 0.014], rx: 0.0600, ry: 0.0700 },
-    { p: [0, -0.034, 0.016], rx: 0.0405, ry: 0.0545 },
-    { p: [0, -0.046, 0.016], rx: 0.0215, ry: 0.0355 },
-    { p: [0, -0.053, 0.014], rx: 0.0075, ry: 0.0150 }
-  ], S, { mat: SKIN, uScale: 1.0, vScale: 2.6, up: [0, 0, 1] }));
-  // the barely-there nose: a soft wedge, no nostrils modelled
-  g.merge(ellipsoid(0.0085, 0.0150, 0.0110, 10, { rows: 5, mat: SKIN }),
-    M4.compose(m, [0, -0.001, 0.0775], 0, [1, 1, 1], -0.24, 0));
-
+  const g = new Geo();
+  const SEG = detail ? 52 : 18;
+  const R = HEAD_RINGS, N = R.length;
+  const P = [], UV = [];
+  for (let i = 0; i < N; i++) {
+    const [y, rx, rz, cz] = R[i], row = [], urow = [];
+    for (let j = 0; j <= SEG; j++) {
+      const a = (j / SEG) * TAU;              // 0 = dead front
+      const s = Math.sin(a), co = Math.cos(a);
+      const x = rx * s, z = cz + rz * co;
+      row.push([x, y, z]);
+      // front planar projection; the back is pushed past the border and clamps
+      const back = Math.max(0, -co);
+      const k = 1 + back * back * 3.2;
+      urow.push([
+        clamp(0.5 + (x / FACE_U) * k, 0.012, 0.988),
+        clamp(0.5 + ((y - FACE_CY) / FACE_V) * (1 + back * back * 0.9), 0.012, 0.988)
+      ]);
+    }
+    P.push(row); UV.push(urow);
+  }
+  const idx = [];
+  for (let i = 0; i < N; i++) {
+    const row = [];
+    for (let j = 0; j <= SEG; j++) {
+      const a = P[i][(j + SEG - 1) % SEG], b = P[i][(j + 1) % SEG];
+      const c = P[Math.max(0, i - 1)][j], d = P[Math.min(N - 1, i + 1)][j];
+      let nr = cross(sub(b, a), sub(d, c));
+      if (len(nr) < 1e-9) nr = [0, i === 0 ? -1 : 1, 0];
+      nr = norm(nr);
+      const p = P[i][j];
+      // force outward, the way loft does; a concave ring can flip the cross
+      if (nr[0] * p[0] + nr[2] * (p[2] - R[i][3]) < 0 && (p[0] || p[2] - R[i][3]))
+        nr = scl(nr, -1);
+      row.push(g.push(p[0], p[1], p[2], nr[0], nr[1], nr[2], UV[i][j][0], UV[i][j][1], MAT.FACE));
+    }
+    idx.push(row);
+  }
+  /* These rings run +Z toward +X, the opposite way round from loft's, so the
+     winding is the mirror of loft's. Getting it wrong culls the whole head
+     and leaves its own outline shell showing as a blank mask. */
+  for (let i = 0; i < N - 1; i++) for (let j = 0; j < SEG; j++)
+    g.quad(idx[i][j], idx[i][j + 1], idx[i + 1][j + 1], idx[i + 1][j]);
   return g;
 }
 
@@ -5869,7 +6144,7 @@ const OUTLINE_W = {
   head: 0.0020, hair: 0.0030, ear: 0.0022, neck: 0.0020,
   chest: 0.0028, hips: 0.0028, upArm: 0.0024, loArm: 0.0022,
   handL: 0.0016, handR: 0.0016, thigh: 0.0028, shin: 0.0024, foot: 0.0022,
-  top: 0.0030, sleeve: 0.0032, hakama: 0.0034, eyeW: 0.0013,
+  top: 0.0030, sleeve: 0.0032, hakama: 0.0034,
   tail0: 0.0030, tail1: 0.0030, tail2: 0.0028, tail3: 0.0026
 };
 
@@ -5882,9 +6157,7 @@ function initKitsune(detail) {
     handL: mikoHand(detail, -1), handR: mikoHand(detail, 1),
     thigh: mikoThigh(detail), shin: mikoShin(detail), foot: mikoFoot(detail),
     top: mikoTop(detail), sleeve: mikoSleeve(detail), hakama: mikoHakama(detail),
-    earIn: mikoEarIn(detail), eyeW: mikoEyeW(detail), iris: mikoIris(detail),
-    pupil: mikoPupil(detail), hilite: mikoHilite(detail), lash: mikoLash(detail),
-    brow: mikoBrow(detail), mouth: mikoMouth(detail)
+    earIn: mikoEarIn(detail)
   };
   for (let i = 0; i < 4; i++) G['tail' + i] = mikoTail(i, detail);
   for (const k in G) M[k] = new Mesh(G[k]);
@@ -5892,8 +6165,6 @@ function initKitsune(detail) {
 
   KIT.parts = [
     ['head', 'head'], ['head', 'hair'], ['neck', 'neck'],
-    ['head', 'eyeW'], ['head', 'iris'], ['head', 'pupil'], ['head', 'hilite'],
-    ['head', 'lash'], ['head', 'brow'], ['head', 'mouth'],
     ['earL', 'earIn'], ['earR', 'earIn'],
     ['chest', 'chest'], ['hips', 'hips'],
     ['earL', 'ear'], ['earR', 'ear'],
