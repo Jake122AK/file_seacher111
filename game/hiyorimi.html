@@ -1382,7 +1382,14 @@ float hEye(vec2 uv, out vec3 alb, out float rough, out float ao){
   return 0.0;
 }
 
+/* the ink line carries no texture at all: pure white, so the per-part tint
+   is the line colour and nothing else touches it */
+float hOutline(vec2 uv, out vec3 alb, out float rough, out float ao){
+  alb = vec3(1.0); rough = 1.0; ao = 1.0; return 0.0;
+}
+
 float dispatch(vec2 uv, out vec3 alb, out float rough, out float ao){
+  if(uLayer==20) return hOutline(uv, alb, rough, ao);
   if(uLayer==16) return hSkin(uv, alb, rough, ao);
   if(uLayer==17) return hHair(uv, alb, rough, ao);
   if(uLayer==18) return hChar(uv, alb, rough, ao);
@@ -1857,6 +1864,11 @@ void main(){
      one controlled highlight, and add a rim so she separates from a dark
      corridor instead of sinking into it. */
   int cmid = int(GE.w);
+  /* The ink line. An inverted hull writes flat unlit colour: shading it at
+     all would make it read as a rim of dark plastic instead of a drawn
+     line, and a drawn line is most of what separates cel work from
+     untextured polygons. */
+  if(cmid == 20){ outC = vec4(albedo, 1.0); return; }
   if(cmid >= 16){
     float lam = ndl*sh;
     float band = smoothstep(0.24, 0.38, lam)*0.68 + smoothstep(0.56, 0.78, lam)*0.32;
@@ -2441,7 +2453,8 @@ const MAT = {
   FUR: 13, FURC: 14, LINEN: 15,         // 毛（背）/ 毛（腹）/ 麻布
   /* 16 and up are the character, and the lighting pass switches to a
      toon path on that boundary. */
-  SKIN: 16, HAIR: 17, CHAR: 18, EYE: 19  // 肌 / 髪 / 平色 / 虹彩
+  SKIN: 16, HAIR: 17, CHAR: 18, EYE: 19, // 肌 / 髪 / 平色 / 虹彩
+  OUTLINE: 20                            // 輪郭線 — flat, unlit, tint-coloured
 };
 
 /* ---------------- path through the mountain ---------------- */
@@ -3246,7 +3259,7 @@ function initPrograms() {
 }
 
 /* ---------------- material texture arrays ---------------- */
-const NUM_LAYERS = 20;
+const NUM_LAYERS = 21;
 const TOON_MIN = 16;
 function bakeMaterials(res) {
   const arrA = gl.createTexture();
@@ -5363,6 +5376,28 @@ function ellipsoid(rx, ry, rz, seg, opts) {
   return g;
 }
 
+/* ---------------- the ink line ----------------
+   An inverted hull: copy the surface, push every vertex out along its own
+   normal, flip the winding. Backface culling then shows the copy only where
+   it escapes past the silhouette of the original, which is exactly a line
+   of constant screen weight around the form. Without this the character
+   reads as untextured polygons no matter how good the shading is. */
+function shellOf(geo, width) {
+  const g = new Geo();
+  const nv = geo.vcount;
+  for (let i = 0; i < nv; i++) {
+    g.push(
+      geo.p[i * 3] + geo.n[i * 3] * width,
+      geo.p[i * 3 + 1] + geo.n[i * 3 + 1] * width,
+      geo.p[i * 3 + 2] + geo.n[i * 3 + 2] * width,
+      -geo.n[i * 3], -geo.n[i * 3 + 1], -geo.n[i * 3 + 2],
+      geo.uv[i * 2], geo.uv[i * 2 + 1], MAT.OUTLINE);
+  }
+  for (let i = 0; i < geo.idx.length; i += 3)
+    g.tri(geo.idx[i], geo.idx[i + 2], geo.idx[i + 1]);
+  return g;
+}
+
 /* A hair lock: a flat tapering ribbon that ends in a point. Anime hair is
    read as a stack of these, never as a solid volume, and the pointed tip is
    what stops it looking like a helmet. */
@@ -5374,7 +5409,7 @@ function hairLock(pts, w0, w1, thick, mat) {
     const taper = Math.pow(1 - k, 0.65);
     rings.push({ p: pts[i], rx: lerp(w0, w1, k) * (0.35 + 0.65 * taper), ry: thick * (0.4 + 0.6 * taper) });
   }
-  return loft(rings, 8, { mat: mat === undefined ? MAT.HAIR : mat, uScale: 0.6, vScale: 1.4, up: [0, 0, 1] });
+  return loft(rings, 12, { mat: mat === undefined ? MAT.HAIR : mat, uScale: 0.6, vScale: 1.4, up: [0, 0, 1] });
 }
 
 /* ---------------- rig ----------------
@@ -5425,7 +5460,20 @@ const TINT = {
   top: [1.02, 1.02, 1.02, 0.3],
   sleeve: [1.02, 1.02, 1.02, 0.3],
   hakama: [0.940, 0.185, 0.150, 0.3],     // 緋
-  tail0: [1, 1, 1, 0.3], tail1: [1, 1, 1, 0.3], tail2: [1, 1, 1, 0.3], tail3: [1, 1, 1, 0.3]
+  tail0: [1, 1, 1, 0.3], tail1: [1, 1, 1, 0.3], tail2: [1, 1, 1, 0.3], tail3: [1, 1, 1, 0.3],
+  /* Ink lines are TINTED, not black. A pure black line round skin reads as
+     a sticker; a dark warm brown reads as drawn. */
+  head_o: [0.300, 0.150, 0.128, 0.3], neck_o: [0.300, 0.150, 0.128, 0.3],
+  chest_o: [0.300, 0.150, 0.128, 0.3], hips_o: [0.300, 0.150, 0.128, 0.3],
+  upArm_o: [0.300, 0.150, 0.128, 0.3], loArm_o: [0.300, 0.150, 0.128, 0.3],
+  handL_o: [0.300, 0.150, 0.128, 0.3], handR_o: [0.300, 0.150, 0.128, 0.3],
+  thigh_o: [0.300, 0.150, 0.128, 0.3], shin_o: [0.300, 0.150, 0.128, 0.3],
+  hair_o: [0.235, 0.205, 0.238, 0.3], ear_o: [0.230, 0.150, 0.140, 0.3],
+  eyeW_o: [0.115, 0.090, 0.120, 0.3],
+  foot_o: [0.290, 0.270, 0.260, 0.3], top_o: [0.320, 0.300, 0.290, 0.3],
+  sleeve_o: [0.320, 0.300, 0.290, 0.3], hakama_o: [0.290, 0.055, 0.048, 0.3],
+  tail0_o: [0.245, 0.150, 0.110, 0.3], tail1_o: [0.245, 0.150, 0.110, 0.3],
+  tail2_o: [0.245, 0.150, 0.110, 0.3], tail3_o: [0.260, 0.215, 0.190, 0.3]
 };
 
 /* ---------------- the head ----------------
@@ -5433,10 +5481,10 @@ const TINT = {
    about this is a muzzle; the whole read is the eyes. */
 function mikoHead(detail) {
   const g = new Geo(), m = M4.create();
-  const S = detail ? 24 : 12, R = detail ? 12 : 6;
+  const S = detail ? 44 : 14, R = detail ? 22 : 7;
 
   // cranium
-  g.merge(ellipsoid(0.0825, 0.0940, 0.0885, S, { rows: R, mat: SKIN, uScale: 1.0, vScale: 1.0 }),
+  g.merge(ellipsoid(0.0825, 0.0945, 0.0890, S, { rows: R, mat: SKIN, uScale: 1.0, vScale: 1.0 }),
     M4.compose(m, [0, 0.078, -0.006], 0, [1, 1, 1]));
   /* the face and jaw. Wide at the cheekbones, then a fast sweep to a small
      chin. This taper is the difference between a cute head and a doll's. */
@@ -5475,32 +5523,38 @@ const mikoPupil = d => eyePart((g, m, sx, ex, ey, ez, tw) =>
   g.merge(ellipsoid(0.0078, 0.0100, 0.0020, d ? 12 : 6, { rows: 5, mat: CHAR }),
     M4.compose(m, [ex + sx * 0.0020, ey - 0.0016, ez + 0.0158], tw, [1, 1, 1])));
 const mikoHilite = d => eyePart((g, m, sx, ex, ey, ez, tw) => {
-  g.merge(ellipsoid(0.0078, 0.0080, 0.0018, 10, { rows: 5, mat: CHAR }),
-    M4.compose(m, [ex - sx * 0.0082, ey + 0.0112, ez + 0.0184], 0, [1, 1, 1]));
-  g.merge(ellipsoid(0.0040, 0.0041, 0.0014, 8, { rows: 4, mat: CHAR }),
-    M4.compose(m, [ex + sx * 0.0120, ey - 0.0120, ez + 0.0172], 0, [1, 1, 1]));
+  g.merge(ellipsoid(0.0056, 0.0058, 0.0016, 12, { rows: 6, mat: CHAR }),
+    M4.compose(m, [ex - sx * 0.0094, ey + 0.0126, ez + 0.0180], 0, [1, 1, 1]));
+  g.merge(ellipsoid(0.0028, 0.0029, 0.0012, 8, { rows: 4, mat: CHAR }),
+    M4.compose(m, [ex + sx * 0.0132, ey - 0.0134, ez + 0.0164], 0, [1, 1, 1]));
 });
 /* 上まつ毛 : of everything here, this one band does the most work in
    making the face read as anime rather than as a doll. */
 const mikoLash = d => eyePart((g, m, sx, ex, ey, ez) => {
+  /* The upper lash is not a wire laid over the lid — it is a solid wedge of
+     ink sitting ON the eye, thickest above the pupil and drawn out to a
+     flick past the outer corner. Getting this shape right does more for the
+     face than any other single piece of geometry here. */
   g.merge(loft([
-    { p: [ex - sx * 0.0362, ey + 0.0150, ez + 0.0036], rx: 0.0050, ry: 0.0082 },
-    { p: [ex - sx * 0.0158, ey + 0.0318, ez + 0.0100], rx: 0.0064, ry: 0.0104 },
-    { p: [ex + sx * 0.0094, ey + 0.0322, ez + 0.0106], rx: 0.0062, ry: 0.0098 },
-    { p: [ex + sx * 0.0286, ey + 0.0180, ez + 0.0058], rx: 0.0048, ry: 0.0072 },
-    { p: [ex + sx * 0.0396, ey + 0.0230, ez - 0.0016], rx: 0.0020, ry: 0.0034 }
-  ], 10, { mat: CHAR, uScale: 0.4, vScale: 2.0 }));
+    { p: [ex - sx * 0.0352, ey + 0.0116, ez + 0.0086], rx: 0.0046, ry: 0.0030 },
+    { p: [ex - sx * 0.0248, ey + 0.0224, ez + 0.0136], rx: 0.0092, ry: 0.0038 },
+    { p: [ex - sx * 0.0086, ey + 0.0278, ez + 0.0158], rx: 0.0120, ry: 0.0042 },
+    { p: [ex + sx * 0.0086, ey + 0.0268, ez + 0.0156], rx: 0.0112, ry: 0.0040 },
+    { p: [ex + sx * 0.0244, ey + 0.0190, ez + 0.0124], rx: 0.0084, ry: 0.0036 },
+    { p: [ex + sx * 0.0352, ey + 0.0146, ez + 0.0068], rx: 0.0052, ry: 0.0028 },
+    { p: [ex + sx * 0.0446, ey + 0.0216, ez + 0.0004], rx: 0.0022, ry: 0.0014 }
+  ], 12, { mat: CHAR, uScale: 0.4, vScale: 2.0 }));
   g.merge(loft([
-    { p: [ex - sx * 0.0314, ey - 0.0074, ez + 0.0056], rx: 0.0023, ry: 0.0027 },
-    { p: [ex, ey - 0.0262, ez + 0.0092], rx: 0.0027, ry: 0.0032 },
-    { p: [ex + sx * 0.0280, ey - 0.0126, ez + 0.0060], rx: 0.0022, ry: 0.0025 }
+    { p: [ex - sx * 0.0308, ey - 0.0086, ez + 0.0090], rx: 0.0026, ry: 0.0022 },
+    { p: [ex, ey - 0.0258, ez + 0.0130], rx: 0.0038, ry: 0.0026 },
+    { p: [ex + sx * 0.0276, ey - 0.0136, ez + 0.0096], rx: 0.0028, ry: 0.0022 }
   ], 8, { mat: CHAR, uScale: 0.4, vScale: 2.0 }));
 });
 const mikoBrow = d => eyePart((g, m, sx, ex, ey, ez) =>
   g.merge(loft([
-    { p: [ex - sx * 0.0292, ey + 0.0498, ez + 0.0026], rx: 0.0034, ry: 0.0046 },
-    { p: [ex - sx * 0.0038, ey + 0.0586, ez + 0.0076], rx: 0.0038, ry: 0.0050 },
-    { p: [ex + sx * 0.0246, ey + 0.0504, ez + 0.0044], rx: 0.0025, ry: 0.0034 }
+    { p: [ex - sx * 0.0292, ey + 0.0498, ez + 0.0026], rx: 0.0046, ry: 0.0030 },
+    { p: [ex - sx * 0.0038, ey + 0.0586, ez + 0.0076], rx: 0.0052, ry: 0.0034 },
+    { p: [ex + sx * 0.0246, ey + 0.0504, ez + 0.0044], rx: 0.0034, ry: 0.0024 }
   ], 8, { mat: CHAR, uScale: 0.4, vScale: 2.0 })));
 function mikoMouth(d) {
   const g = new Geo();
@@ -5515,55 +5569,74 @@ function mikoMouth(d) {
    reads as a helmet no matter how it is shaped. */
 function mikoHair(detail) {
   const g = new Geo(), m = M4.create();
-  const S = detail ? 22 : 11;
+  const S = detail ? 40 : 13;
   // cap, sitting slightly proud of the skull
-  g.merge(ellipsoid(0.0905, 0.1010, 0.0955, S, { rows: detail ? 11 : 6, mat: HAIR, uScale: 1.0, vScale: 1.0 }),
+  g.merge(ellipsoid(0.0912, 0.1018, 0.0962, S, { rows: detail ? 20 : 7, mat: HAIR, uScale: 1.0, vScale: 1.0 }),
     M4.compose(m, [0, 0.080, -0.012], 0, [1, 1, 1]));
-  // 前髪 : seven lobes, uneven, the middle parting slightly off centre
+  /* 前髪. Seven even lobes read as a fringe of identical teeth. Real anime
+     bangs are a stack of locks of different length, width and lean, in two
+     depths, so the eye finds groups rather than a repeat. */
   const bangs = [
-    [-0.072, 0.30, 0.128], [-0.050, 0.48, 0.150], [-0.026, 0.20, 0.162],
-    [0.000, 0.62, 0.158], [0.028, 0.26, 0.156], [0.052, 0.50, 0.146], [0.074, 0.24, 0.124]
+    // x      drop  width  lean   depth
+    [-0.083, 0.22, 0.112, -0.30, 0.028], [-0.070, 0.46, 0.140, -0.20, 0.062],
+    [-0.056, 0.30, 0.128, -0.14, 0.086], [-0.040, 0.66, 0.158, -0.08, 0.098],
+    [-0.023, 0.24, 0.146,  0.00, 0.108], [-0.006, 0.54, 0.164,  0.04, 0.110],
+    [ 0.012, 0.34, 0.150,  0.08, 0.106], [ 0.030, 0.72, 0.152,  0.12, 0.094],
+    [ 0.048, 0.28, 0.140,  0.18, 0.078], [ 0.065, 0.50, 0.126,  0.26, 0.052],
+    [ 0.080, 0.20, 0.106,  0.34, 0.024]
   ];
-  for (const [bx, drop, w] of bangs) {
-    const L = 0.088 + drop * 0.052;
+  for (const [bx, drop, w, lean, dz] of bangs) {
+    const L = 0.048 + drop * 0.040;
     g.merge(hairLock([
-      [bx * 0.9, 0.150, 0.045],
-      [bx * 1.02, 0.115, 0.072],
-      [bx * 1.06, 0.150 - L * 0.62, 0.079],
-      [bx * 1.02, 0.150 - L, 0.070]
-    ], w * 0.34, w * 0.15, 0.028, HAIR));
+      [bx * 0.92, 0.152, dz - 0.030],
+      [bx * 1.02, 0.118, dz + 0.010],
+      [bx * 1.06 + lean * 0.012, 0.152 - L * 0.60, dz + 0.020],
+      [bx * 1.08 + lean * 0.030, 0.152 - L, dz + 0.012]
+    ], w * 0.34, w * 0.13, 0.030, HAIR));
   }
-  // 横髪 : the pair that frames the face, the strongest cue that this is a
-  // character and not a mannequin
+  // a shorter inner layer, so the fringe has depth rather than being a wall
+  for (const [bx, drop, w] of [[-0.058, 0.20, 0.10], [-0.024, 0.34, 0.11],
+                              [0.008, 0.18, 0.11], [0.040, 0.30, 0.10], [0.066, 0.16, 0.09]]) {
+    const L = 0.032 + drop * 0.028;
+    g.merge(hairLock([
+      [bx, 0.150, 0.052], [bx * 1.02, 0.120, 0.078],
+      [bx * 1.04, 0.150 - L, 0.084]
+    ], w * 0.30, w * 0.12, 0.024, HAIR));
+  }
+  /* 横髪 : three per side at different lengths. The pair that frames the
+     face is the strongest single cue that this is a character. */
   for (const sx of [-1, 1]) {
     g.merge(hairLock([
-      [sx * 0.076, 0.148, 0.010],
-      [sx * 0.092, 0.070, 0.036],
-      [sx * 0.094, -0.030, 0.044],
-      [sx * 0.088, -0.130, 0.038],
-      [sx * 0.078, -0.215, 0.024]
-    ], 0.042, 0.012, 0.026, HAIR));
+      [sx * 0.078, 0.148, 0.012], [sx * 0.094, 0.070, 0.040],
+      [sx * 0.097, -0.030, 0.048], [sx * 0.090, -0.140, 0.040],
+      [sx * 0.079, -0.238, 0.022]
+    ], 0.046, 0.011, 0.028, HAIR));
     g.merge(hairLock([
-      [sx * 0.062, 0.150, -0.038],
-      [sx * 0.086, 0.060, -0.036],
-      [sx * 0.090, -0.055, -0.026],
-      [sx * 0.080, -0.160, -0.014]
-    ], 0.034, 0.010, 0.022, HAIR));
+      [sx * 0.066, 0.150, -0.030], [sx * 0.090, 0.062, -0.026],
+      [sx * 0.095, -0.052, -0.014], [sx * 0.086, -0.168, -0.002]
+    ], 0.038, 0.010, 0.024, HAIR));
+    g.merge(hairLock([
+      [sx * 0.052, 0.152, 0.046], [sx * 0.072, 0.086, 0.070],
+      [sx * 0.076, 0.008, 0.070], [sx * 0.070, -0.070, 0.058]
+    ], 0.030, 0.009, 0.020, HAIR));
   }
-  // 後ろ髪 : one mass, broken by three locks so the tip is not a straight cut
+  // 後ろ髪 : one mass, then locks of differing length so the tip is not a cut
   g.merge(loft([
-    { p: [0, 0.128, -0.058], rx: 0.086, ry: 0.056 },
-    { p: [0, 0.040, -0.078], rx: 0.096, ry: 0.062 },
-    { p: [0, -0.080, -0.082], rx: 0.100, ry: 0.058 },
-    { p: [0, -0.215, -0.076], rx: 0.094, ry: 0.050 },
-    { p: [0, -0.330, -0.066], rx: 0.078, ry: 0.040 }
+    { p: [0, 0.130, -0.056], rx: 0.088, ry: 0.058 },
+    { p: [0, 0.044, -0.078], rx: 0.099, ry: 0.064 },
+    { p: [0, -0.070, -0.084], rx: 0.104, ry: 0.060 },
+    { p: [0, -0.200, -0.080], rx: 0.098, ry: 0.052 },
+    { p: [0, -0.320, -0.070], rx: 0.082, ry: 0.042 }
   ], S, { mat: HAIR, uScale: 1.2, vScale: 1.2, up: [0, 0, 1] }));
-  for (const [bx, L] of [[-0.052, 0.44], [0.006, 0.50], [0.056, 0.41]])
+  for (const [bx, L, dz] of [[-0.072, 0.30, -0.048], [-0.048, 0.47, -0.070],
+                             [-0.022, 0.38, -0.082], [0.004, 0.55, -0.084],
+                             [0.030, 0.36, -0.078], [0.056, 0.50, -0.062],
+                             [0.076, 0.28, -0.042]])
     g.merge(hairLock([
-      [bx, -0.300, -0.070],
-      [bx * 1.05, -0.300 - L * 0.5, -0.062],
-      [bx * 1.06, -0.300 - L, -0.048]
-    ], 0.052, 0.012, 0.030, HAIR));
+      [bx, -0.270, dz],
+      [bx * 1.04, -0.270 - L * 0.48, dz + 0.010],
+      [bx * 1.07, -0.270 - L, dz + 0.026]
+    ], 0.056, 0.011, 0.032, HAIR));
   // アホ毛
   g.merge(hairLock([
     [0.006, 0.176, -0.010], [0.020, 0.216, 0.006], [0.006, 0.238, 0.030], [-0.020, 0.230, 0.048]
@@ -5574,7 +5647,7 @@ function mikoHair(detail) {
 /* fox ear: fur outside, pink inside */
 function mikoEar(detail) {
   const g = new Geo();
-  const S = detail ? 14 : 7;
+  const S = detail ? 26 : 9;
   g.merge(loft([
     { p: [0, 0, 0], rx: 0.0345, ry: 0.0205 },
     { p: [0, 0.035, 0.003], rx: 0.0335, ry: 0.0185 },
@@ -5595,7 +5668,7 @@ function mikoEarIn(detail) {
 }
 
 function mikoNeck(detail) {
-  const S = detail ? 14 : 7;
+  const S = detail ? 26 : 8;
   return loft([
     { p: [0, -0.016, 0], rx: 0.0330, ry: 0.0330 },
     { p: [0, 0.030, 0.003], rx: 0.0312, ry: 0.0312 },
@@ -5606,7 +5679,7 @@ function mikoNeck(detail) {
 /* torso, mostly under cloth: shoulders and the upper chest are all that show */
 function mikoChest(detail) {
   const g = new Geo();
-  const S = detail ? 20 : 10;
+  const S = detail ? 32 : 11;
   g.merge(loft([
     { p: [0, -0.060, 0], rx: 0.088, ry: 0.058 },
     { p: [0, 0.020, 0.004], rx: 0.098, ry: 0.066 },
@@ -5620,7 +5693,7 @@ function mikoChest(detail) {
   return g;
 }
 function mikoHips(detail) {
-  const S = detail ? 16 : 8;
+  const S = detail ? 30 : 10;
   return loft([
     { p: [0, -0.058, -0.004], rx: 0.086, ry: 0.060 },
     { p: [0, -0.006, 0], rx: 0.092, ry: 0.064 },
@@ -5632,7 +5705,7 @@ function mikoHips(detail) {
 /* slim arms; the hand is small, which reads as young */
 function mikoUpArm(detail) {
   const g = new Geo();
-  const S = detail ? 12 : 6;
+  const S = detail ? 24 : 8;
   g.merge(ellipsoid(0.0355, 0.0355, 0.0355, S, { rows: 6, mat: SKIN }));
   g.merge(loft([
     { p: [0, -0.008, 0], rx: 0.0350, ry: 0.0345 },
@@ -5643,7 +5716,7 @@ function mikoUpArm(detail) {
 }
 function mikoLoArm(detail) {
   const g = new Geo();
-  const S = detail ? 12 : 6;
+  const S = detail ? 24 : 8;
   g.merge(ellipsoid(0.0268, 0.0268, 0.0268, S, { rows: 5, mat: SKIN }));
   g.merge(loft([
     { p: [0, -0.006, 0], rx: 0.0262, ry: 0.0258 },
@@ -5677,7 +5750,7 @@ function mikoHand(detail, side) {
 /* legs, hidden to the ankle by the hakama */
 function mikoThigh(detail) {
   const g = new Geo();
-  const S = detail ? 14 : 7;
+  const S = detail ? 26 : 9;
   g.merge(ellipsoid(0.062, 0.062, 0.062, S, { rows: 6, mat: SKIN }));
   g.merge(loft([
     { p: [0, -0.012, 0.004], rx: 0.0615, ry: 0.0600 },
@@ -5688,7 +5761,7 @@ function mikoThigh(detail) {
 }
 function mikoShin(detail) {
   const g = new Geo();
-  const S = detail ? 12 : 6;
+  const S = detail ? 24 : 8;
   g.merge(ellipsoid(0.0410, 0.0410, 0.0410, S, { rows: 6, mat: SKIN }));
   g.merge(loft([
     { p: [0, -0.010, 0.002], rx: 0.0405, ry: 0.0420 },
@@ -5722,7 +5795,7 @@ function mikoFoot(detail) {
 /* ---------------- 巫女装束 ---------------- */
 function mikoTop(detail) {
   const g = new Geo();
-  const S = detail ? 22 : 11;
+  const S = detail ? 34 : 12;
   g.merge(loft([
     { p: [0, -0.115, -0.002], rx: 0.104, ry: 0.074 },
     { p: [0, -0.020, 0.004], rx: 0.108, ry: 0.076 },
@@ -5741,7 +5814,7 @@ function mikoTop(detail) {
 }
 /* the wide sleeve, which is also what hides the shoulder joint */
 function mikoSleeve(detail) {
-  const S = detail ? 16 : 8;
+  const S = detail ? 28 : 10;
   return loft([
     { p: [0, 0.030, 0], rx: 0.058, ry: 0.052 },
     { p: [0, -0.070, 0.002], rx: 0.072, ry: 0.062 },
@@ -5753,7 +5826,7 @@ function mikoSleeve(detail) {
 /* 緋袴 : long, pleated, flaring to the ankle */
 function mikoHakama(detail) {
   const g = new Geo();
-  const S = detail ? 26 : 13;
+  const S = detail ? 40 : 14;
   const rings = [];
   const prof = [[0.125, 0.098, 0.070], [0.060, 0.106, 0.076], [-0.060, 0.128, 0.094],
                 [-0.240, 0.166, 0.122], [-0.430, 0.205, 0.150], [-0.610, 0.232, 0.170],
@@ -5772,7 +5845,7 @@ function mikoHakama(detail) {
 /* the tail: four fat segments, cream with a white tip */
 function mikoTail(i, detail) {
   const g = new Geo();
-  const S = detail ? 14 : 7;
+  const S = detail ? 26 : 9;
   const R = [0.052, 0.070, 0.066, 0.046][i];
   const R2 = [0.070, 0.070, 0.055, 0.012][i];
   const L = [0.135, 0.140, 0.130, 0.120][i];
@@ -5789,33 +5862,33 @@ function mikoTail(i, detail) {
 /* ---------------- assembly ---------------- */
 const KIT = { mesh: {}, parts: [], world: M4.create() };
 
+/* Line weight per part. Thinner on the face, where a heavy line coarsens
+   the features, heavier on the body and the hair mass where it has to
+   survive being seen from across a courtyard. */
+const OUTLINE_W = {
+  head: 0.0020, hair: 0.0030, ear: 0.0022, neck: 0.0020,
+  chest: 0.0028, hips: 0.0028, upArm: 0.0024, loArm: 0.0022,
+  handL: 0.0016, handR: 0.0016, thigh: 0.0028, shin: 0.0024, foot: 0.0022,
+  top: 0.0030, sleeve: 0.0032, hakama: 0.0034, eyeW: 0.0013,
+  tail0: 0.0030, tail1: 0.0030, tail2: 0.0028, tail3: 0.0026
+};
+
 function initKitsune(detail) {
   const M = KIT.mesh;
-  M.head = new Mesh(mikoHead(detail));
-  M.hair = new Mesh(mikoHair(detail));
-  M.ear = new Mesh(mikoEar(detail));
-  M.neck = new Mesh(mikoNeck(detail));
-  M.chest = new Mesh(mikoChest(detail));
-  M.hips = new Mesh(mikoHips(detail));
-  M.upArm = new Mesh(mikoUpArm(detail));
-  M.loArm = new Mesh(mikoLoArm(detail));
-  M.handL = new Mesh(mikoHand(detail, -1));
-  M.handR = new Mesh(mikoHand(detail, 1));
-  M.thigh = new Mesh(mikoThigh(detail));
-  M.shin = new Mesh(mikoShin(detail));
-  M.foot = new Mesh(mikoFoot(detail));
-  M.top = new Mesh(mikoTop(detail));
-  M.sleeve = new Mesh(mikoSleeve(detail));
-  M.hakama = new Mesh(mikoHakama(detail));
-  for (let i = 0; i < 4; i++) M['tail' + i] = new Mesh(mikoTail(i, detail));
-  M.earIn = new Mesh(mikoEarIn(detail));
-  M.eyeW = new Mesh(mikoEyeW(detail));
-  M.iris = new Mesh(mikoIris(detail));
-  M.pupil = new Mesh(mikoPupil(detail));
-  M.hilite = new Mesh(mikoHilite(detail));
-  M.lash = new Mesh(mikoLash(detail));
-  M.brow = new Mesh(mikoBrow(detail));
-  M.mouth = new Mesh(mikoMouth(detail));
+  const G = {
+    head: mikoHead(detail), hair: mikoHair(detail), ear: mikoEar(detail),
+    neck: mikoNeck(detail), chest: mikoChest(detail), hips: mikoHips(detail),
+    upArm: mikoUpArm(detail), loArm: mikoLoArm(detail),
+    handL: mikoHand(detail, -1), handR: mikoHand(detail, 1),
+    thigh: mikoThigh(detail), shin: mikoShin(detail), foot: mikoFoot(detail),
+    top: mikoTop(detail), sleeve: mikoSleeve(detail), hakama: mikoHakama(detail),
+    earIn: mikoEarIn(detail), eyeW: mikoEyeW(detail), iris: mikoIris(detail),
+    pupil: mikoPupil(detail), hilite: mikoHilite(detail), lash: mikoLash(detail),
+    brow: mikoBrow(detail), mouth: mikoMouth(detail)
+  };
+  for (let i = 0; i < 4; i++) G['tail' + i] = mikoTail(i, detail);
+  for (const k in G) M[k] = new Mesh(G[k]);
+  for (const k in OUTLINE_W) if (G[k]) M[k + '_o'] = new Mesh(shellOf(G[k], OUTLINE_W[k]));
 
   KIT.parts = [
     ['head', 'head'], ['head', 'hair'], ['neck', 'neck'],
@@ -5832,6 +5905,9 @@ function initKitsune(detail) {
     KIT.parts.push(['upArm' + k, 'sleeve']);
     KIT.parts.push(['thigh' + k, 'thigh'], ['shin' + k, 'shin'], ['foot' + k, 'foot']);
   }
+  // every outlined part gets its shell on the same joint
+  const base = KIT.parts.slice();
+  for (const [j, mk] of base) if (OUTLINE_W[mk]) KIT.parts.push([j, mk + '_o']);
   for (const k in M) { M[k].setInstances([{ m: M4.create(), tint: TINT[k] || [1, 1, 1, 0.3] }]); M[k].instT = null; }
   const seen = {};
   for (const [j, mk] of KIT.parts) {
