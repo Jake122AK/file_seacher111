@@ -137,7 +137,7 @@
   </div>
   <div id="tab">☰</div>
   <div id="fps"></div>
-  <div id="hint">WASD 歩く（Shift 走る） ／ ホイール 拡大縮小 ／ F 俯瞰 ／ Q・E 時刻 ／ Z・X 節気 ／ Space 鈴 ／ G 参道へ</div>
+  <div id="hint">WASD 歩く（Shift 走る） ／ ホイール 拡大縮小 ／ F 俯瞰 ／ Q・E 時刻 ／ Z・X 節気 ／ K 狐人 ／ G 参道へ</div>
   <div id="hud">
     <div id="curseRow"><i>呪</i><div id="curseWrap"><div id="curseBar"></div></div></div>
     <div id="hudInfo"><span id="hudCount">—</span><span id="hudBell">鈴</span></div>
@@ -1290,7 +1290,49 @@ float hBronze(vec2 uv, out vec3 alb, out float rough, out float ao){
   return hammer*0.35 - dent*0.70;
 }
 
+/* ---- 毛 : short fur. Clumps first, strands inside them, pale guard-hair
+       tips on top. The strand direction runs along V, so a loft's own
+       parameterisation lays the coat down the limb for free. ---- */
+float furBody(vec2 uv, vec3 base, vec3 tipC, vec3 deep,
+              out vec3 alb, out float rough, out float ao){
+  float clump  = pfbm(vec2(uv.x*P*8.0,   uv.y*P*3.0),  P*8.0,   4);
+  float strand = pfbm(vec2(uv.x*P*88.0,  uv.y*P*6.5),  P*64.0,  3);
+  float fine   = pfbm(vec2(uv.x*P*190.0, uv.y*P*12.0), P*128.0, 2);
+  float part   = pfbm(vec2(uv.x*P*3.0,   uv.y*P*1.4),  P*4.0,   4);
+  float lift = strand*0.62 + fine*0.38;
+  alb = mix(deep, base, clamp(clump*0.55 + lift*0.55, 0.0, 1.0));
+  alb = mix(alb, tipC, smoothstep(0.60, 0.95, lift)*0.55);
+  alb *= 0.90 + 0.20*part;
+  rough = clamp(0.74 + lift*0.16 - clump*0.06, 0.45, 0.99);
+  ao = clamp(0.55 + 0.45*(clump*0.5 + lift*0.5), 0.25, 1.0);
+  return lift*0.75 + clump*0.35 - 0.15;
+}
+float hFur(vec2 uv, out vec3 alb, out float rough, out float ao){
+  return furBody(uv, vec3(0.352,0.148,0.058), vec3(0.520,0.300,0.140),
+                     vec3(0.128,0.052,0.024), alb, rough, ao);
+}
+float hFurC(vec2 uv, out vec3 alb, out float rough, out float ao){
+  return furBody(uv, vec3(0.700,0.660,0.598), vec3(0.845,0.815,0.762),
+                     vec3(0.372,0.336,0.292), alb, rough, ao);
+}
+/* ---- 麻布 : undyed hemp, plain weave with slubs ---- */
+float hLinen(vec2 uv, out vec3 alb, out float rough, out float ao){
+  float wx = 0.5+0.5*sin(uv.x*P*210.0);
+  float wy = 0.5+0.5*sin(uv.y*P*210.0);
+  float weave = mix(wx, wy, step(0.5, fract(uv.y*P*105.0)));
+  float slub = pfbm(vec2(uv.x*P*38.0, uv.y*P*3.0), P*32.0, 3);
+  float dirt = pfbm(uv*P*4.0+vec2(2.,6.), P*4.0, 5);
+  alb = mix(vec3(0.700,0.678,0.622), vec3(0.560,0.538,0.482), weave*0.35 + slub*0.30);
+  alb = mix(alb, vec3(0.398,0.372,0.318), smoothstep(0.55,0.85,dirt)*0.35);
+  rough = clamp(0.80 + slub*0.14, 0.55, 0.99);
+  ao = 1.0 - (1.0-weave)*0.10;
+  return weave*0.30 + slub*0.25;
+}
+
 float dispatch(vec2 uv, out vec3 alb, out float rough, out float ao){
+  if(uLayer==13) return hFur(uv, alb, rough, ao);
+  if(uLayer==14) return hFurC(uv, alb, rough, ao);
+  if(uLayer==15) return hLinen(uv, alb, rough, ao);
   if(uLayer==11) return hHiwada(uv, alb, rough, ao);
   if(uLayer==12) return hBronze(uv, alb, rough, ao);
   if(uLayer==8)  return hSilk(uv, alb, rough, ao);
@@ -2311,7 +2353,8 @@ void main(){ outC = texture(uTex,vUV); }
 const MAT = {
   VERMILLION: 0, BLACK: 1, STONE: 2, MOSS: 3, GRANITE: 4, BARK: 5, PLASTER: 6, FOLIAGE: 7,
   SILK: 8, CORPSE: 9, TALISMAN: 10,     // 官服 / 屍蝋 / 符
-  HIWADA: 11, BRONZE: 12                // 檜皮葺 / 銅・金具
+  HIWADA: 11, BRONZE: 12,               // 檜皮葺 / 銅・金具
+  FUR: 13, FURC: 14, LINEN: 15          // 毛（背）/ 毛（腹）/ 麻布
 };
 
 /* ---------------- path through the mountain ---------------- */
@@ -3116,7 +3159,7 @@ function initPrograms() {
 }
 
 /* ---------------- material texture arrays ---------------- */
-const NUM_LAYERS = 13;
+const NUM_LAYERS = 16;
 function bakeMaterials(res) {
   const arrA = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, arrA);
@@ -5081,6 +5124,595 @@ function buildKeidai(detail) {
   return { draws, shadowDraws, lights };
 }
 
+/* ==== h_kitsune.js ==== */
+/* =========================================================================
+   狐人 — THE FOX-FOLK
+
+   Modelled now, animated later, so the whole thing is authored on a joint
+   hierarchy from the start: every part is built in its own joint's local
+   space and posed by walking the rig. Adding a walk cycle later is writing
+   angles into JOINTS, not rebuilding geometry.
+
+   The balance being aimed at — realistic enough to stand in this world,
+   stylised enough to be a character:
+
+     · 7.3 heads tall. Eight reads as a fashion illustration, five as chibi.
+     · The muzzle projects 85mm. Longer and it is an animal; shorter and it
+       is a human with ears on. This is the single number that decides
+       whether a 獣人 design lands.
+     · Digitigrade hind legs — thigh, shin, metatarsus, paw. Nothing else
+       says beast-folk as immediately from the silhouette alone.
+     · Eyes are enlarged about 25% over anatomical and given real lid
+       structure. Stylisation in the proportion, realism in the build.
+     · Red-fox markings: russet coat, cream throat and belly, black stockings
+       and ear-backs, white tail tip. Instantly readable at any distance.
+   ========================================================================= */
+
+/* ---------------- loft ----------------
+   An organic tube through a chain of elliptical rings. The frame is
+   parallel transported so a long limb does not corkscrew, which is the
+   whole reason not to just sweep a fixed section along a path. */
+function loft(rings, seg, opts) {
+  opts = opts || {};
+  const g = new Geo(), mat = opts.mat || 0;
+  const uS = opts.uScale === undefined ? 1 : opts.uScale;
+  const vS = opts.vScale === undefined ? 1 : opts.vScale;
+  const N = rings.length, capA = opts.capStart !== false, capB = opts.capEnd !== false;
+
+  const T = [];
+  for (let i = 0; i < N; i++) {
+    const a = rings[Math.max(0, i - 1)].p, b = rings[Math.min(N - 1, i + 1)].p;
+    let t = sub(b, a);
+    if (len(t) < 1e-6) t = [0, 1, 0];
+    T.push(norm(t));
+  }
+  let ref = opts.up || [0, 0, 1];
+  const U = [], Rt = [];
+  for (let i = 0; i < N; i++) {
+    let u = sub(ref, scl(T[i], dot(ref, T[i])));
+    if (len(u) < 1e-5) { const alt = Math.abs(T[i][0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]; u = sub(alt, scl(T[i], dot(alt, T[i]))); }
+    u = norm(u);
+    U.push(u); Rt.push(norm(cross(T[i], u)));
+    ref = u;
+  }
+  // positions first, normals from central differences over the surface
+  const Pp = [];
+  for (let i = 0; i < N; i++) {
+    const r = rings[i], row = [];
+    const rx = r.rx, ry = r.ry === undefined ? r.rx : r.ry;
+    const roll = r.roll || 0, off = r.off || [0, 0];
+    for (let j = 0; j <= seg; j++) {
+      const a = (j / seg) * TAU + roll;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const sx = ca * rx + off[0], sy = sa * ry + off[1];
+      row.push([
+        r.p[0] + Rt[i][0] * sx + U[i][0] * sy,
+        r.p[1] + Rt[i][1] * sx + U[i][1] * sy,
+        r.p[2] + Rt[i][2] * sx + U[i][2] * sy
+      ]);
+    }
+    Pp.push(row);
+  }
+  const idx = [];
+  let vlen = 0;
+  for (let i = 0; i < N; i++) {
+    if (i > 0) vlen += dist(rings[i].p, rings[i - 1].p);
+    const row = [];
+    for (let j = 0; j <= seg; j++) {
+      const a = Pp[i][(j + seg - 1) % seg], b = Pp[i][(j + 1) % seg];
+      const c = Pp[Math.max(0, i - 1)][j], d = Pp[Math.min(N - 1, i + 1)][j];
+      let nr = cross(sub(b, a), sub(d, c));
+      if (len(nr) < 1e-9) nr = sub(Pp[i][j], rings[i].p);
+      nr = norm(nr);
+      if (dot(nr, sub(Pp[i][j], rings[i].p)) < 0) nr = scl(nr, -1);
+      const p = Pp[i][j];
+      row.push(g.push(p[0], p[1], p[2], nr[0], nr[1], nr[2], (j / seg) * uS, vlen * vS, mat));
+    }
+    idx.push(row);
+  }
+  for (let i = 0; i < N - 1; i++) for (let j = 0; j < seg; j++)
+    g.quad(idx[i][j], idx[i + 1][j], idx[i + 1][j + 1], idx[i][j + 1]);
+  const cap = (i, flip) => {
+    const c = rings[i].p, t = scl(T[i], flip ? -1 : 1);
+    const ci = g.push(c[0], c[1], c[2], t[0], t[1], t[2], 0.5, 0.5, mat);
+    for (let j = 0; j < seg; j++) {
+      const a = idx[i][j], b = idx[i][j + 1];
+      if (flip) g.tri(ci, a, b); else g.tri(ci, b, a);
+    }
+  };
+  if (capA) cap(0, true);
+  if (capB) cap(N - 1, false);
+  return g;
+}
+
+/* an ellipsoid, for joint caps, the cranium and the eyes */
+function ellipsoid(rx, ry, rz, seg, opts) {
+  opts = opts || {};
+  const g = new Geo(), mat = opts.mat || 0, rows = opts.rows || Math.max(4, seg >> 1);
+  const grid = [];
+  for (let i = 0; i <= rows; i++) {
+    const v = i / rows, phi = v * PI, sp = Math.sin(phi), cp = Math.cos(phi), row = [];
+    for (let j = 0; j <= seg; j++) {
+      const th = (j / seg) * TAU, ct = Math.cos(th), st = Math.sin(th);
+      const x = sp * ct, y = cp, z = sp * st;
+      const nx = x / rx, ny = y / ry, nz = z / rz;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      row.push(g.push(x * rx, y * ry, z * rz, nx / l, ny / l, nz / l,
+        (j / seg) * (opts.uScale || 1), v * (opts.vScale || 1), mat));
+    }
+    grid.push(row);
+  }
+  for (let i = 0; i < rows; i++) for (let j = 0; j < seg; j++)
+    g.quad(grid[i][j], grid[i][j + 1], grid[i + 1][j + 1], grid[i + 1][j]);
+  return g;
+}
+
+/* ---------------- the rig ----------------
+   Positions are the joint's offset from its parent, in metres, in rest
+   pose. Nothing here is drawn; it is the frame the parts hang on and the
+   thing a walk cycle will write into. */
+const KIT_H = 1.72;
+const JOINTS = {
+  root:   { parent: null,     p: [0, 0.99, 0] },
+  hips:   { parent: 'root',   p: [0, 0, 0] },
+  spine:  { parent: 'hips',   p: [0, 0.125, -0.005] },
+  chest:  { parent: 'spine',  p: [0, 0.190, 0.010] },
+  neck:   { parent: 'chest',  p: [0, 0.205, 0.012] },
+  head:   { parent: 'neck',   p: [0, 0.105, 0.016] },
+  earL:   { parent: 'head',   p: [-0.068, 0.150, -0.020] },
+  earR:   { parent: 'head',   p: [0.068, 0.150, -0.020] },
+  tail0:  { parent: 'hips',   p: [0, 0.020, -0.115], rest: [0.55, 0, 0] },
+  tail1:  { parent: 'tail0',  p: [0, 0, -0.155], rest: [-0.20, 0, 0] },
+  tail2:  { parent: 'tail1',  p: [0, 0, -0.170], rest: [-0.26, 0, 0] },
+  tail3:  { parent: 'tail2',  p: [0, 0, -0.165], rest: [-0.28, 0, 0] },
+  tail4:  { parent: 'tail3',  p: [0, 0, -0.155], rest: [-0.26, 0, 0] }
+};
+for (const s of [-1, 1]) {
+  const k = s < 0 ? 'L' : 'R';
+  JOINTS['clav' + k]  = { parent: 'chest',       p: [s * 0.055, 0.150, 0.020] };
+  JOINTS['upArm' + k] = { parent: 'clav' + k,    p: [s * 0.130, -0.020, -0.010], rest: [0.10, 0, s * -0.13] };
+  JOINTS['loArm' + k] = { parent: 'upArm' + k,   p: [0, -0.285, 0], rest: [0.22, 0, s * -0.05] };
+  JOINTS['hand' + k]  = { parent: 'loArm' + k,   p: [0, -0.255, 0] };
+  JOINTS['thigh' + k] = { parent: 'hips',      p: [s * 0.098, -0.030, 0],  rest: [0.26, 0, s * 0.05] };
+  JOINTS['shin' + k]  = { parent: 'thigh' + k, p: [0, -0.310, 0.010],      rest: [-0.79, 0, 0] };
+  JOINTS['meta' + k]  = { parent: 'shin' + k,  p: [0, -0.330, -0.030],     rest: [1.22, 0, 0] };
+  JOINTS['paw' + k]   = { parent: 'meta' + k,  p: [0, -0.250, 0.020],      rest: [-0.69, 0, 0] };
+}
+
+/* ---------------- parts ---------------- */
+const FUR = MAT.FUR, CRM = MAT.FURC, LIN = MAT.LINEN;
+
+/* the head: cranium, muzzle, jaw, cheeks, brow, eyes, nose leather */
+function kitHead(detail) {
+  const g = new Geo(), m = M4.create();
+  const S = detail ? 20 : 10, R = detail ? 10 : 5;
+
+  // cranium, slightly boxy at the back the way a canid's is
+  g.merge(ellipsoid(0.088, 0.098, 0.098, S, { rows: R, mat: FUR, uScale: 1.2, vScale: 1.2 }),
+    M4.compose(m, [0, 0.052, -0.012], 0, [1, 1, 1]));
+  // the brow shelf, where a fox's face reads as a fox
+  g.merge(ellipsoid(0.082, 0.030, 0.052, S, { rows: 5, mat: FUR, uScale: 1.0, vScale: 0.6 }),
+    M4.compose(m, [0, 0.058, 0.052], 0, [1, 1, 1], -0.22, 0));
+  // cheeks / ruff
+  for (const sx of [-1, 1])
+    g.merge(ellipsoid(0.046, 0.062, 0.052, 14, { rows: 7, mat: CRM, uScale: 0.8, vScale: 0.8 }),
+      M4.compose(m, [sx * 0.070, 0.006, 0.006], 0, [1, 1, 1], 0, sx * 0.24));
+
+  /* the muzzle. 85mm of projection: the number the whole design turns on.
+     Tapered, with the bridge slightly convex and the underside cream. */
+  g.merge(loft([
+    { p: [0, 0.028, 0.030], rx: 0.062, ry: 0.052 },
+    { p: [0, 0.026, 0.056], rx: 0.052, ry: 0.046 },
+    { p: [0, 0.024, 0.080], rx: 0.041, ry: 0.038 },
+    { p: [0, 0.022, 0.100], rx: 0.032, ry: 0.031 },
+    { p: [0, 0.021, 0.113], rx: 0.026, ry: 0.026 }
+  ], S, { mat: FUR, uScale: 1.0, vScale: 3.0, up: [0, 1, 0] }));
+  // underside and lower jaw in cream
+  g.merge(loft([
+    { p: [0, 0.000, 0.028], rx: 0.048, ry: 0.026 },
+    { p: [0, -0.002, 0.058], rx: 0.039, ry: 0.022 },
+    { p: [0, -0.003, 0.086], rx: 0.030, ry: 0.018 },
+    { p: [0, -0.003, 0.108], rx: 0.022, ry: 0.014 }
+  ], S, { mat: CRM, uScale: 1.0, vScale: 3.0, up: [0, 1, 0] }));
+  g.merge(ellipsoid(0.048, 0.034, 0.056, 14, { rows: 7, mat: CRM, uScale: 0.8, vScale: 0.8 }),
+    M4.compose(m, [0, -0.020, 0.028], 0, [1, 1, 1], 0.10, 0));
+  // 鼻鏡 : the nose leather, wet and dark, the one glossy thing on the face
+  g.merge(ellipsoid(0.021, 0.016, 0.015, 12, { rows: 6, mat: MAT.BLACK, uScale: 0.4, vScale: 0.4 }),
+    M4.compose(m, [0, 0.026, 0.120], 0, [1, 1, 1], -0.30, 0));
+
+  // eyes: enlarged about a quarter over anatomical, with real lid structure
+  for (const sx of [-1, 1]) {
+    const ex = sx * 0.049, ey = 0.048, ez = 0.062;
+    g.merge(ellipsoid(0.0225, 0.0225, 0.0225, 14, { rows: 7, mat: MAT.PLASTER, uScale: 0.4, vScale: 0.4 }),
+      M4.compose(m, [ex, ey, ez], 0, [1, 1, 1]));
+    g.merge(ellipsoid(0.0138, 0.0138, 0.0060, 14, { rows: 5, mat: MAT.BRONZE, uScale: 0.5, vScale: 0.5 }),
+      M4.compose(m, [ex + sx * 0.0035, ey, ez + 0.0182], 0, [1, 1, 1], 0, 0));
+    g.merge(ellipsoid(0.0042, 0.0092, 0.0035, 10, { rows: 5, mat: MAT.BLACK }),
+      M4.compose(m, [ex + sx * 0.0040, ey, ez + 0.0222], 0, [1, 1, 1]));
+    // lids, cut from the same fur as the face so the eye sits in a socket
+    for (const sy of [1, -1])
+      g.merge(loft([
+        { p: [ex - sx * 0.030, ey + sy * 0.016, ez - 0.006], rx: 0.0075, ry: 0.0075 },
+        { p: [ex, ey + sy * 0.026, ez + 0.008], rx: 0.0090, ry: 0.0090 },
+        { p: [ex + sx * 0.028, ey + sy * 0.011, ez - 0.002], rx: 0.0065, ry: 0.0065 }
+      ], 10, { mat: FUR, uScale: 0.4, vScale: 2.0 }));
+  }
+  return g;
+}
+
+function kitEar(detail) {
+  const g = new Geo(), m = M4.create();
+  const S = detail ? 14 : 7;
+  // outer ear, tapering to a point, black at the back
+  g.merge(loft([
+    { p: [0, 0, 0], rx: 0.042, ry: 0.024 },
+    { p: [0, 0.040, 0.004], rx: 0.040, ry: 0.021 },
+    { p: [0, 0.080, 0.006], rx: 0.033, ry: 0.017 },
+    { p: [0, 0.115, 0.005], rx: 0.023, ry: 0.012 },
+    { p: [0, 0.140, 0.002], rx: 0.010, ry: 0.006 }
+  ], S, { mat: MAT.BLACK, uScale: 0.8, vScale: 3.0, up: [0, 0, 1] }));
+  // the inner ear, cream, set into the front face
+  g.merge(loft([
+    { p: [0, 0.008, 0.016], rx: 0.030, ry: 0.010 },
+    { p: [0, 0.048, 0.019], rx: 0.028, ry: 0.009 },
+    { p: [0, 0.088, 0.019], rx: 0.021, ry: 0.007 },
+    { p: [0, 0.122, 0.014], rx: 0.010, ry: 0.004 }
+  ], S, { mat: CRM, uScale: 0.8, vScale: 3.0, up: [0, 0, 1] }));
+  // the tuft of guard hair at the base
+  g.merge(ellipsoid(0.030, 0.016, 0.016, 10, { rows: 5, mat: CRM, uScale: 0.4, vScale: 0.4 }),
+    M4.compose(m, [0, 0.012, 0.020], 0, [1, 1, 1]));
+  return g;
+}
+
+/* torso in two pieces so the spine can bend */
+function kitChest(detail) {
+  const g = new Geo();
+  const S = detail ? 20 : 10;
+  g.merge(loft([
+    { p: [0, -0.020, 0], rx: 0.108, ry: 0.078 },
+    { p: [0, 0.055, 0.006], rx: 0.124, ry: 0.088 },
+    { p: [0, 0.125, 0.010], rx: 0.132, ry: 0.092 },
+    { p: [0, 0.180, 0.008], rx: 0.126, ry: 0.086 },
+    { p: [0, 0.215, 0.002], rx: 0.098, ry: 0.070 }
+  ], S, { mat: FUR, uScale: 1.4, vScale: 1.6, up: [0, 0, 1] }));
+  // the cream front, from throat to belly
+  g.merge(loft([
+    { p: [0, -0.020, 0.052], rx: 0.058, ry: 0.026 },
+    { p: [0, 0.070, 0.062], rx: 0.066, ry: 0.030 },
+    { p: [0, 0.150, 0.062], rx: 0.060, ry: 0.028 },
+    { p: [0, 0.212, 0.048], rx: 0.040, ry: 0.020 }
+  ], S, { mat: CRM, uScale: 1.0, vScale: 1.6, up: [0, 1, 0] }));
+  // deltoid caps, so the shoulder does not open up when the arm swings
+  for (const sx of [-1, 1])
+    g.merge(ellipsoid(0.052, 0.056, 0.052, 14, { rows: 7, mat: FUR, uScale: 0.6, vScale: 0.6 }),
+      M4.compose(M4.create(), [sx * 0.128, 0.152, 0.012], 0, [1, 1, 1]));
+  return g;
+}
+
+function kitHips(detail) {
+  const g = new Geo();
+  const S = detail ? 18 : 9;
+  g.merge(loft([
+    { p: [0, -0.075, -0.010], rx: 0.098, ry: 0.078 },
+    { p: [0, -0.020, -0.004], rx: 0.112, ry: 0.086 },
+    { p: [0, 0.045, 0.002], rx: 0.106, ry: 0.078 },
+    { p: [0, 0.110, 0.004], rx: 0.096, ry: 0.070 }
+  ], S, { mat: FUR, uScale: 1.2, vScale: 1.6, up: [0, 0, 1] }));
+  return g;
+}
+
+function kitNeck(detail) {
+  const g = new Geo();
+  const S = detail ? 16 : 8;
+  g.merge(loft([
+    { p: [0, -0.020, 0], rx: 0.056, ry: 0.052 },
+    { p: [0, 0.040, 0.006], rx: 0.052, ry: 0.048 },
+    { p: [0, 0.095, 0.012], rx: 0.050, ry: 0.046 }
+  ], S, { mat: FUR, uScale: 0.8, vScale: 2.0, up: [0, 0, 1] }));
+  // the ruff where the neck meets the chest
+  g.merge(loft([
+    { p: [0, -0.030, 0.018], rx: 0.048, ry: 0.026 },
+    { p: [0, 0.030, 0.030], rx: 0.042, ry: 0.024 },
+    { p: [0, 0.080, 0.032], rx: 0.034, ry: 0.020 }
+  ], S, { mat: CRM, uScale: 0.8, vScale: 2.0, up: [0, 1, 0] }));
+  return g;
+}
+
+/* arms. The joint caps are spheres a hair larger than the tube so a bent
+   elbow never shows a seam. */
+function kitUpArm(detail) {
+  const g = new Geo();
+  const S = detail ? 14 : 7;
+  g.merge(ellipsoid(0.049, 0.049, 0.049, S, { rows: 7, mat: FUR, uScale: 0.6, vScale: 0.6 }));
+  g.merge(loft([
+    { p: [0, -0.010, 0], rx: 0.048, ry: 0.046 },
+    { p: [0, -0.090, 0.002], rx: 0.044, ry: 0.042 },
+    { p: [0, -0.190, 0.001], rx: 0.037, ry: 0.036 },
+    { p: [0, -0.275, 0], rx: 0.033, ry: 0.032 }
+  ], S, { mat: FUR, uScale: 0.8, vScale: 2.0, up: [0, 0, 1] }));
+  return g;
+}
+function kitLoArm(detail) {
+  const g = new Geo();
+  const S = detail ? 14 : 7;
+  g.merge(ellipsoid(0.036, 0.036, 0.036, S, { rows: 6, mat: FUR, uScale: 0.5, vScale: 0.5 }));
+  g.merge(loft([
+    { p: [0, -0.008, 0], rx: 0.036, ry: 0.035 },
+    { p: [0, -0.075, 0.002], rx: 0.033, ry: 0.032 },
+    { p: [0, -0.170, 0.001], rx: 0.026, ry: 0.026 },
+    { p: [0, -0.245, 0], rx: 0.023, ry: 0.023 }
+  ], S, { mat: FUR, uScale: 0.7, vScale: 2.0, up: [0, 0, 1] }));
+  return g;
+}
+/* the hand: a pad, four fingers and a thumb, all short and thick the way a
+   paw-hand should be */
+function kitHand(detail, side) {
+  const g = new Geo(), m = M4.create();
+  const S = detail ? 12 : 6;
+  g.merge(ellipsoid(0.030, 0.042, 0.020, S, { rows: 6, mat: FUR, uScale: 0.5, vScale: 0.5 }),
+    M4.compose(m, [0, -0.036, 0], 0, [1, 1, 1]));
+  g.merge(ellipsoid(0.026, 0.030, 0.016, S, { rows: 5, mat: CRM, uScale: 0.4, vScale: 0.4 }),
+    M4.compose(m, [0, -0.040, 0.014], 0, [1, 1, 1]));
+  for (let f = 0; f < 4; f++) {
+    const x = -0.021 + f * 0.014, l = 0.050 - Math.abs(f - 1.4) * 0.006;
+    g.merge(loft([
+      { p: [x, -0.066, 0.004], rx: 0.0072, ry: 0.0072 },
+      { p: [x * 1.12, -0.066 - l * 0.55, 0.010], rx: 0.0065, ry: 0.0065 },
+      { p: [x * 1.20, -0.066 - l, 0.020], rx: 0.0048, ry: 0.0048 }
+    ], 8, { mat: MAT.BLACK, uScale: 0.3, vScale: 3.0, up: [0, 0, 1] }));
+  }
+  const tx = side < 0 ? -1 : 1;   // the thumb changes sides
+  g.merge(loft([
+    { p: [tx * 0.028, -0.040, 0.002], rx: 0.0085, ry: 0.0085 },
+    { p: [tx * 0.040, -0.062, 0.012], rx: 0.0075, ry: 0.0075 },
+    { p: [tx * 0.046, -0.080, 0.024], rx: 0.0055, ry: 0.0055 }
+  ], 8, { mat: MAT.BLACK, uScale: 0.3, vScale: 3.0, up: [0, 0, 1] }));
+  return g;
+}
+
+/* the hind leg, digitigrade. Thigh is heavy, shin tapers hard, the
+   metatarsus is the long raised bone that reads as a backwards knee, and
+   the paw is what actually touches the ground. */
+function kitThigh(detail) {
+  const g = new Geo();
+  const S = detail ? 16 : 8;
+  g.merge(ellipsoid(0.070, 0.070, 0.070, S, { rows: 7, mat: FUR, uScale: 0.7, vScale: 0.7 }));
+  g.merge(loft([
+    { p: [0, -0.015, 0.004], rx: 0.072, ry: 0.070 },
+    { p: [0, -0.095, 0.008], rx: 0.070, ry: 0.068 },
+    { p: [0, -0.190, 0.004], rx: 0.056, ry: 0.056 },
+    { p: [0, -0.278, 0], rx: 0.042, ry: 0.044 }
+  ], S, { mat: FUR, uScale: 0.9, vScale: 1.8, up: [0, 0, 1] }));
+  return g;
+}
+function kitShin(detail) {
+  const g = new Geo();
+  const S = detail ? 14 : 7;
+  g.merge(ellipsoid(0.046, 0.046, 0.046, S, { rows: 6, mat: FUR, uScale: 0.5, vScale: 0.5 }));
+  g.merge(loft([
+    { p: [0, -0.012, 0], rx: 0.046, ry: 0.048 },
+    { p: [0, -0.080, -0.006], rx: 0.044, ry: 0.046 },
+    { p: [0, -0.180, -0.014], rx: 0.031, ry: 0.032 },
+    { p: [0, -0.285, -0.018], rx: 0.024, ry: 0.025 }
+  ], S, { mat: FUR, uScale: 0.7, vScale: 1.8, up: [0, 0, 1] }));
+  return g;
+}
+function kitMeta(detail) {
+  const g = new Geo();
+  const S = detail ? 12 : 6;
+  g.merge(ellipsoid(0.030, 0.030, 0.030, S, { rows: 5, mat: MAT.BLACK, uScale: 0.4, vScale: 0.4 }));
+  g.merge(loft([
+    { p: [0, -0.010, 0], rx: 0.029, ry: 0.031 },
+    { p: [0, -0.090, 0.008], rx: 0.024, ry: 0.026 },
+    { p: [0, -0.180, 0.018], rx: 0.021, ry: 0.023 },
+    { p: [0, -0.235, 0.024], rx: 0.021, ry: 0.024 }
+  ], S, { mat: MAT.BLACK, uScale: 0.6, vScale: 2.0, up: [0, 0, 1] }));
+  return g;
+}
+function kitPaw(detail) {
+  const g = new Geo(), m = M4.create();
+  const S = detail ? 12 : 6;
+  g.merge(ellipsoid(0.040, 0.026, 0.058, S, { rows: 6, mat: MAT.BLACK, uScale: 0.5, vScale: 0.5 }),
+    M4.compose(m, [0, 0.024, 0.030], 0, [1, 1, 1]));
+  for (let f = 0; f < 4; f++) {
+    const x = -0.026 + f * 0.0173;
+    g.merge(loft([
+      { p: [x, 0.024, 0.058], rx: 0.0105, ry: 0.0115 },
+      { p: [x * 1.06, 0.020, 0.082], rx: 0.0098, ry: 0.0105 },
+      { p: [x * 1.10, 0.014, 0.100], rx: 0.0072, ry: 0.0078 }
+    ], 8, { mat: MAT.BLACK, uScale: 0.3, vScale: 3.0, up: [0, 1, 0] }));
+    g.merge(ellipsoid(0.0090, 0.0060, 0.0090, 8, { rows: 4, mat: MAT.BARK }),
+      M4.compose(m, [x * 1.10, 0.004, 0.092], 0, [1, 1, 1]));
+  }
+  g.merge(ellipsoid(0.026, 0.010, 0.020, 10, { rows: 5, mat: MAT.BARK, uScale: 0.4, vScale: 0.4 }),
+    M4.compose(m, [0, 0.004, 0.044], 0, [1, 1, 1]));
+  return g;
+}
+
+/* the tail, in five segments so it can whip. Thick, then the white tip. */
+function kitTail(i, detail) {
+  const g = new Geo();
+  const S = detail ? 14 : 7;
+  const R = [0.070, 0.078, 0.072, 0.056, 0.036][i];
+  const R2 = [0.078, 0.076, 0.062, 0.044, 0.010][i];
+  const L = [0.150, 0.165, 0.160, 0.150, 0.135][i];
+  const mat = i >= 4 ? CRM : FUR;
+  g.merge(ellipsoid(R, R, R, S, { rows: 6, mat, uScale: 0.6, vScale: 0.6 }));
+  g.merge(loft([
+    { p: [0, 0, 0], rx: R, ry: R },
+    { p: [0, -0.010, -L * 0.5], rx: (R + R2) * 0.52, ry: (R + R2) * 0.52 },
+    { p: [0, -0.020, -L], rx: R2, ry: R2 }
+  ], S, { mat, uScale: 0.8, vScale: 1.6, up: [0, 1, 0] }));
+  if (i === 3)   // the tip goes white a segment early, as a red fox's does
+    g.merge(loft([
+      { p: [0, -0.016, -L * 0.72], rx: 0.049, ry: 0.049 },
+      { p: [0, -0.022, -L], rx: 0.045, ry: 0.045 }
+    ], S, { mat: CRM, uScale: 0.8, vScale: 1.6, up: [0, 1, 0] }));
+  return g;
+}
+
+/* ---------------- clothing ----------------
+   Enough to belong in a shrine without hiding the anatomy: a sleeveless
+   white 小袖 over indigo 括り袴, tied with a sash. */
+function kitTop(detail) {
+  const g = new Geo();
+  const S = detail ? 20 : 10;
+  g.merge(loft([
+    { p: [0, -0.215, -0.004], rx: 0.112, ry: 0.086 },
+    { p: [0, -0.120, -0.002], rx: 0.118, ry: 0.088 },
+    { p: [0, -0.020, 0.004], rx: 0.128, ry: 0.094 },
+    { p: [0, 0.070, 0.008], rx: 0.138, ry: 0.099 },
+    { p: [0, 0.135, 0.010], rx: 0.140, ry: 0.100 },
+    { p: [0, 0.186, 0.008], rx: 0.131, ry: 0.092 }
+  ], S, { mat: LIN, uScale: 1.4, vScale: 1.6, up: [0, 0, 1] }));
+  // the crossed collar, which is what makes it read as Japanese
+  for (const sx of [-1, 1])
+    g.merge(loft([
+      { p: [sx * 0.086, 0.196, 0.014], rx: 0.026, ry: 0.014 },
+      { p: [sx * 0.048, 0.130, 0.070], rx: 0.024, ry: 0.013 },
+      { p: [0, 0.070, 0.086], rx: 0.021, ry: 0.012 }
+    ], 10, { mat: MAT.VERMILLION, uScale: 0.4, vScale: 2.4 }));
+  return g;
+}
+function kitHakama(detail) {
+  const g = new Geo(), m = M4.create();
+  const S = detail ? 18 : 9;
+  g.merge(loft([
+    { p: [0, 0.110, 0.004], rx: 0.104, ry: 0.078 },
+    { p: [0, 0.030, 0], rx: 0.122, ry: 0.094 },
+    { p: [0, -0.080, -0.004], rx: 0.134, ry: 0.104 }
+  ], S, { mat: MAT.SILK, uScale: 1.4, vScale: 1.6, up: [0, 0, 1] }));
+  g.merge(loft([
+    { p: [0, 0.058, 0], rx: 0.128, ry: 0.098 },
+    { p: [0, 0.030, 0], rx: 0.132, ry: 0.102 },
+    { p: [0, 0.004, 0], rx: 0.128, ry: 0.098 }
+  ], S, { mat: MAT.VERMILLION, uScale: 1.6, vScale: 1.0, up: [0, 0, 1] }));   // 帯
+  return g;
+}
+/* 括り袴 : the leg, gathered and tied below the knee */
+function kitHakamaLeg(detail) {
+  const g = new Geo(), m = M4.create();
+  const S = detail ? 14 : 7;
+  g.merge(loft([
+    { p: [0, -0.030, 0.002], rx: 0.086, ry: 0.084 },
+    { p: [0, -0.130, 0.006], rx: 0.092, ry: 0.090 },
+    { p: [0, -0.230, 0.004], rx: 0.082, ry: 0.080 },
+    { p: [0, -0.286, 0], rx: 0.056, ry: 0.056 }
+  ], S, { mat: MAT.SILK, uScale: 1.0, vScale: 1.6, up: [0, 0, 1] }));
+  g.merge(loft([
+    { p: [0, -0.272, 0], rx: 0.060, ry: 0.060 },
+    { p: [0, -0.292, 0], rx: 0.058, ry: 0.058 }
+  ], S, { mat: LIN, uScale: 1.0, vScale: 1.0, up: [0, 0, 1] }));
+  return g;
+}
+/* 脚絆 : the wrap over the shin */
+function kitKyahan(detail) {
+  const g = new Geo();
+  const S = detail ? 12 : 6;
+  return g.merge(loft([
+    { p: [0, -0.030, 0], rx: 0.050, ry: 0.052 },
+    { p: [0, -0.120, -0.008], rx: 0.046, ry: 0.048 },
+    { p: [0, -0.215, -0.016], rx: 0.034, ry: 0.035 },
+    { p: [0, -0.268, -0.018], rx: 0.028, ry: 0.029 }
+  ], S, { mat: LIN, uScale: 0.8, vScale: 1.8, up: [0, 0, 1] }));
+}
+
+/* ---------------- assembly ---------------- */
+const KIT = { mesh: {}, parts: [], world: M4.create() };
+
+function initKitsune(detail) {
+  const M = KIT.mesh;
+  M.head = new Mesh(kitHead(detail));
+  M.ear = new Mesh(kitEar(detail));
+  M.neck = new Mesh(kitNeck(detail));
+  M.chest = new Mesh(kitChest(detail));
+  M.hips = new Mesh(kitHips(detail));
+  M.upArm = new Mesh(kitUpArm(detail));
+  M.loArm = new Mesh(kitLoArm(detail));
+  M.handL = new Mesh(kitHand(detail, -1));
+  M.handR = new Mesh(kitHand(detail, 1));
+  M.thigh = new Mesh(kitThigh(detail));
+  M.shin = new Mesh(kitShin(detail));
+  M.meta = new Mesh(kitMeta(detail));
+  M.paw = new Mesh(kitPaw(detail));
+  for (let i = 0; i < 5; i++) M['tail' + i] = new Mesh(kitTail(i, detail));
+  M.top = new Mesh(kitTop(detail));
+  M.hakama = new Mesh(kitHakama(detail));
+  M.hakamaLeg = new Mesh(kitHakamaLeg(detail));
+  M.kyahan = new Mesh(kitKyahan(detail));
+
+  /* which mesh hangs off which joint. Anything mirrored is flagged so the
+     pose can negate X without flipping the winding. */
+  KIT.parts = [
+    ['head', 'head'], ['neck', 'neck'], ['chest', 'chest'], ['hips', 'hips'],
+    ['earL', 'ear'], ['earR', 'ear'],
+    ['chest', 'top'], ['hips', 'hakama'],
+    ['tail0', 'tail0'], ['tail1', 'tail1'], ['tail2', 'tail2'],
+    ['tail3', 'tail3'], ['tail4', 'tail4']
+  ];
+  for (const k of ['L', 'R']) {
+    KIT.parts.push(['upArm' + k, 'upArm'], ['loArm' + k, 'loArm'], ['hand' + k, 'hand' + k]);
+    KIT.parts.push(['thigh' + k, 'thigh'], ['shin' + k, 'shin'], ['meta' + k, 'meta'], ['paw' + k, 'paw']);
+    KIT.parts.push(['thigh' + k, 'hakamaLeg'], ['shin' + k, 'kyahan']);
+  }
+  for (const k in M) { M[k].setInstances([{ m: M4.create(), tint: [1, 1, 1, 0.3] }]); M[k].instT = null; }
+
+  const seen = {};
+  for (const [j, mk] of KIT.parts) {
+    if (seen[mk]) continue;
+    seen[mk] = 1;
+    R.scene.draws.push({ mesh: M[mk], name: 'kit_' + mk, zMax: 62 });
+    R.scene.shadowDraws.push({ mesh: M[mk], zMax: 62 });
+  }
+  KIT.inst = {};
+  poseKitsune();
+  groundKitsune();
+  poseKitsune();
+}
+
+/* Walk the rig, compose world matrices, hand each mesh its instances. This
+   is the only function a walk cycle has to touch. */
+const _kitM = {}, _kitW = {};
+function poseKitsune() {
+  const W = {};
+  const solve = name => {
+    if (W[name]) return W[name];
+    const J = JOINTS[name];
+    const local = _kitM[name] || (_kitM[name] = M4.create());
+    const rs = J.rest, an = KIT.pose && KIT.pose[name];
+    const rx = (rs ? rs[0] : 0) + (an ? an[0] : 0);
+    const ry = (rs ? rs[1] : 0) + (an ? an[1] : 0);
+    const rz = (rs ? rs[2] : 0) + (an ? an[2] : 0);
+    M4.compose(local, J.p, ry, [1, 1, 1], rx, rz);
+    const out = _kitW[name] || (_kitW[name] = M4.create());
+    if (J.parent) M4.mul(out, solve(J.parent), local); else M4.mul(out, KIT.world, local);
+    W[name] = out;
+    return out;
+  };
+  const byMesh = {};
+  for (const [j, mk] of KIT.parts) {
+    (byMesh[mk] || (byMesh[mk] = [])).push({ m: solve(j), tint: [1, 1, 1, 0.3] });
+  }
+  for (const mk in byMesh) KIT.mesh[mk].updateInstances(byMesh[mk]);
+  KIT.joints = W;
+}
+
+/* Pose once, measure where the paws ended up, and drop the root by that
+   much. Counting the chain by hand is what put it 100mm in the air. */
+function groundKitsune() {
+  let lo = 1e9;
+  for (const k of ['pawL', 'pawR']) {
+    const W = KIT.joints[k];
+    if (W) lo = Math.min(lo, W[13] - 0.026);
+  }
+  if (lo < 1e8) JOINTS.root.p[1] -= lo;
+}
+
+function placeKitsune(x, y, z, yaw) {
+  M4.compose(KIT.world, [x, y, z], yaw || 0, [1, 1, 1]);
+  poseKitsune();
+}
+
 /* ==== e_main.js ==== */
 /* =========================================================================
    MAIN : boot, input, UI
@@ -5244,6 +5876,10 @@ async function boot() {
     for (const l of R.keidai.lights) R.scene.lights.push(l);
   });
   await step('屍を起こしています…', () => initKyonshi(R.sceneDetail >= 1));
+  await step('狐人を彫っています…', () => {
+    initKitsune(R.sceneDetail >= 1);
+    placeKitsune(3.02, keidaiGroundY(3.02, -34.0), -34.0, PI);
+  });
   await step('準備完了', () => {
     applyQuality(R.quality, false);
     resize();
@@ -5289,7 +5925,8 @@ async function boot() {
     return { e: b[0], L: b[1] };
   };
   window.__DBG = { CFG, R, CAM, QUALITY, updateSun, sunENU, dayLength, pathPos, resize,
-    KY, sunExposure, kyonshiReset, ringBell, WORLD, keidaiGroundY };
+    KY, sunExposure, kyonshiReset, ringBell, WORLD, keidaiGroundY,
+    KIT, JOINTS, poseKitsune, placeKitsune };
   window.__probe = function (rtName, px, py, n) {
     const rt = R.rt[rtName]; if (!rt) return null;
     n = n || 1;
@@ -5326,6 +5963,12 @@ function setupInput() {
       syncUI();
     }
     if (e.key.toLowerCase() === 'r') kyonshiReset();
+    if (e.key.toLowerCase() === 'k') {          // stand in front of the model
+      CAM.pos[0] = 3.02; CAM.pos[2] = -31.2;
+      CAM.pos[1] = keidaiGroundY(3.02, -31.2) + 1.30;
+      CAM.yaw = PI; CAM.pitch = 0.02; CAM.vel[0] = CAM.vel[2] = 0;
+      CAM.fovTarget = 34 * PI / 180; R.expoSnap = true;
+    }
     if (e.key.toLowerCase() === 'g') {          // jump between the two areas
       const toCorridor = CAM.pos[2] < 1;
       const p = toCorridor ? pathPos(6) : [3.02, 0, -74];
