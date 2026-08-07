@@ -3660,10 +3660,10 @@ function hairLock(pts, w0, w1, thick, mat) {
 const JOINTS = {
   root:   { parent: null,    p: [0, 0.855, 0] },
   hips:   { parent: 'root',  p: [0, 0, 0] },
-  spine:  { parent: 'hips',  p: [0, 0.142, -0.004] },
-  chest:  { parent: 'spine', p: [0, 0.202, 0.006] },
-  neck:   { parent: 'chest', p: [0, 0.186, 0.010] },
-  head:   { parent: 'neck',  p: [0, 0.055, 0.004] },
+  spine:  { parent: 'hips',  p: [0, 0.160, -0.004] },
+  chest:  { parent: 'spine', p: [0, 0.222, 0.006] },
+  neck:   { parent: 'chest', p: [0, 0.196, 0.010] },
+  head:   { parent: 'neck',  p: [0, 0.061, 0.004] },
   earL:   { parent: 'head',  p: [-0.058, 0.126, 0.004], rest: [-0.12, -0.20, -0.30] },
   earR:   { parent: 'head',  p: [0.058, 0.126, 0.004], rest: [-0.12, 0.20, 0.30] },
   tail0:  { parent: 'hips',  p: [0, 0.052, -0.128], rest: [0.62, 0, 0] },
@@ -3673,12 +3673,12 @@ const JOINTS = {
 };
 for (const s of [-1, 1]) {
   const k = s < 0 ? 'L' : 'R';
-  JOINTS['upArm' + k] = { parent: 'chest',     p: [s * 0.148, 0.128, 0.002], rest: [0.06, 0, s * 0.075] };
-  JOINTS['loArm' + k] = { parent: 'upArm' + k, p: [0, -0.296, 0], rest: [0.14, 0, s * 0.030] };
-  JOINTS['hand' + k]  = { parent: 'loArm' + k, p: [0, -0.266, 0], rest: [0.05, 0, 0] };
-  JOINTS['thigh' + k] = { parent: 'hips',      p: [s * 0.078, -0.022, 0], rest: [0.02, 0, s * 0.02] };
-  JOINTS['shin' + k]  = { parent: 'thigh' + k, p: [0, -0.462, 0.004], rest: [-0.04, 0, 0] };
-  JOINTS['foot' + k]  = { parent: 'shin' + k,  p: [0, -0.436, -0.012], rest: [0.02, 0, 0] };
+  JOINTS['upArm' + k] = { parent: 'chest',     p: [s * 0.152, 0.132, 0.002], rest: [0.06, 0, s * 0.075] };
+  JOINTS['loArm' + k] = { parent: 'upArm' + k, p: [0, -0.286, 0], rest: [0.14, 0, s * 0.030] };
+  JOINTS['hand' + k]  = { parent: 'loArm' + k, p: [0, -0.252, 0], rest: [0.05, 0, 0] };
+  JOINTS['thigh' + k] = { parent: 'hips',      p: [s * 0.080, -0.019, 0], rest: [0.02, 0, s * 0.02] };
+  JOINTS['shin' + k]  = { parent: 'thigh' + k, p: [0, -0.389, 0.004], rest: [-0.04, 0, 0] };
+  JOINTS['foot' + k]  = { parent: 'shin' + k,  p: [0, -0.380, -0.012], rest: [0.02, 0, 0] };
 }
 
 const SKIN = MAT.SKIN, HAIR = MAT.HAIR, EYE = MAT.EYE, CHAR = MAT.CHAR, CLOTH = MAT.CLOTH;
@@ -4416,9 +4416,10 @@ function mikoEarIn(detail) {
 function mikoNeck(detail) {
   const S = detail ? 26 : 8;
   return loft([
-    { p: [0, -0.016, 0], rx: 0.0330, ry: 0.0330 },
-    { p: [0, 0.030, 0.003], rx: 0.0312, ry: 0.0312 },
-    { p: [0, 0.062, 0.004], rx: 0.0305, ry: 0.0305 }
+    { p: [0, -0.034, 0], rx: 0.0455, ry: 0.0450 },
+    { p: [0, 0.006, 0.002], rx: 0.0432, ry: 0.0424 },
+    { p: [0, 0.040, 0.003], rx: 0.0416, ry: 0.0408 },
+    { p: [0, 0.066, 0.004], rx: 0.0412, ry: 0.0402 }
   ], S, { mat: SKIN, uScale: 0.6, vScale: 2.0, up: [0, 0, 1] });
 }
 
@@ -4431,21 +4432,21 @@ function mikoChest(detail) {
      which is the whole argument for looking at the model undressed. It now
      runs down past the waist and overlaps the pelvis. */
   g.merge(loft([
-    { p: [0, -0.252, -0.002], rx: 0.074, ry: 0.051 },
-    { p: [0, -0.196, -0.001], rx: 0.080, ry: 0.055 },
-    { p: [0, -0.130, 0.000], rx: 0.083, ry: 0.056 },   // 腰のくびれ
-    { p: [0, -0.060, 0.000], rx: 0.090, ry: 0.060 },
-    { p: [0, 0.020, 0.004], rx: 0.099, ry: 0.067 },
-    { p: [0, 0.082, 0.008], rx: 0.104, ry: 0.072 },
-    { p: [0, 0.132, 0.004], rx: 0.100, ry: 0.064 },
-    { p: [0, 0.162, -0.002], rx: 0.074, ry: 0.048 }
+    { p: [0, -0.290, -0.002], rx: 0.073, ry: 0.050 },
+    { p: [0, -0.228, -0.001], rx: 0.079, ry: 0.054 },
+    { p: [0, -0.152, 0.000], rx: 0.083, ry: 0.056 },   // 腰のくびれ
+    { p: [0, -0.070, 0.000], rx: 0.091, ry: 0.061 },
+    { p: [0, 0.014, 0.004], rx: 0.100, ry: 0.068 },
+    { p: [0, 0.080, 0.008], rx: 0.106, ry: 0.073 },
+    { p: [0, 0.138, 0.004], rx: 0.102, ry: 0.065 },
+    { p: [0, 0.176, -0.002], rx: 0.064, ry: 0.046 }
   ], S, { mat: SKIN, uScale: 1.0, vScale: 1.6, up: [0, 0, 1] }));
   // 三角筋 and a restrained chest — a 白衣 flattens, but nothing is not a form
   for (const sx of [-1, 1]) {
-    g.merge(ellipsoid(0.040, 0.042, 0.040, 14, { rows: 7, mat: SKIN }),
-      M4.compose(M4.create(), [sx * 0.138, 0.122, 0.002], 0, [1, 1, 1]));
-    g.merge(ellipsoid(0.049, 0.043, 0.034, 16, { rows: 8, mat: SKIN }),
-      M4.compose(M4.create(), [sx * 0.048, 0.030, 0.050], 0, [1, 1, 1], -0.16, sx * 0.20));
+    g.merge(ellipsoid(0.043, 0.045, 0.043, 14, { rows: 7, mat: SKIN }),
+      M4.compose(M4.create(), [sx * 0.142, 0.126, 0.002], 0, [1, 1, 1]));
+    g.merge(ellipsoid(0.050, 0.044, 0.035, 16, { rows: 8, mat: SKIN }),
+      M4.compose(M4.create(), [sx * 0.049, 0.024, 0.052], 0, [1, 1, 1], -0.16, sx * 0.20));
   }
   return g;
 }
@@ -4460,25 +4461,38 @@ function mikoHips(detail) {
 }
 
 /* slim arms; the hand is small, which reads as young */
+/* Scaling a built Geo, normals included. A non-uniform scale takes the
+   inverse transpose on the normal or the shading tilts with it. */
+function scaleGeo(g, sx, sy, sz) {
+  for (let i = 0; i < g.vcount; i++) {
+    g.p[i * 3] *= sx; g.p[i * 3 + 1] *= sy; g.p[i * 3 + 2] *= sz;
+    const nx = g.n[i * 3] / sx, ny = g.n[i * 3 + 1] / sy, nz = g.n[i * 3 + 2] / sz;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    g.n[i * 3] = nx / l; g.n[i * 3 + 1] = ny / l; g.n[i * 3 + 2] = nz / l;
+  }
+  return g;
+}
+
 function mikoUpArm(detail) {
   const g = new Geo();
   const S = detail ? 24 : 8;
-  g.merge(ellipsoid(0.0355, 0.0355, 0.0355, S, { rows: 6, mat: SKIN }));
+  g.merge(ellipsoid(0.0420, 0.0420, 0.0420, S, { rows: 6, mat: SKIN }));
   g.merge(loft([
-    { p: [0, -0.008, 0], rx: 0.0350, ry: 0.0345 },
-    { p: [0, -0.125, 0.002], rx: 0.0305, ry: 0.0300 },
-    { p: [0, -0.286, 0], rx: 0.0262, ry: 0.0258 }
+    { p: [0, -0.008, 0], rx: 0.0415, ry: 0.0408 },
+    { p: [0, -0.120, 0.002], rx: 0.0362, ry: 0.0356 },
+    { p: [0, -0.278, 0], rx: 0.0302, ry: 0.0298 }
   ], S, { mat: SKIN, uScale: 0.6, vScale: 2.0, up: [0, 0, 1] }));
   return g;
 }
 function mikoLoArm(detail) {
   const g = new Geo();
   const S = detail ? 24 : 8;
-  g.merge(ellipsoid(0.0268, 0.0268, 0.0268, S, { rows: 5, mat: SKIN }));
+  g.merge(ellipsoid(0.0308, 0.0308, 0.0308, S, { rows: 5, mat: SKIN }));
   g.merge(loft([
-    { p: [0, -0.006, 0], rx: 0.0262, ry: 0.0258 },
-    { p: [0, -0.148, 0.001], rx: 0.0224, ry: 0.0220 },
-    { p: [0, -0.258, 0], rx: 0.0176, ry: 0.0182 }
+    { p: [0, -0.006, 0], rx: 0.0305, ry: 0.0300 },
+    { p: [0, -0.100, 0.001], rx: 0.0288, ry: 0.0282 },
+    { p: [0, -0.176, 0.001], rx: 0.0252, ry: 0.0250 },
+    { p: [0, -0.246, 0], rx: 0.0228, ry: 0.0238 }
   ], S, { mat: SKIN, uScale: 0.6, vScale: 2.0, up: [0, 0, 1] }));
   return g;
 }
@@ -4486,24 +4500,25 @@ function mikoLoArm(detail) {
 function mikoThigh(detail) {
   const g = new Geo();
   const S = detail ? 26 : 9;
-  g.merge(ellipsoid(0.062, 0.062, 0.062, S, { rows: 6, mat: SKIN }));
+  g.merge(ellipsoid(0.0765, 0.0740, 0.0740, S, { rows: 6, mat: SKIN }));
   g.merge(loft([
-    { p: [0, -0.012, 0.004], rx: 0.0615, ry: 0.0600 },
-    { p: [0, -0.215, 0.006], rx: 0.0510, ry: 0.0510 },
-    { p: [0, -0.448, 0], rx: 0.0400, ry: 0.0415 }
+    { p: [0, -0.010, 0.004], rx: 0.0760, ry: 0.0730 },
+    { p: [0, -0.181, 0.006], rx: 0.0628, ry: 0.0620 },
+    { p: [0, -0.300, 0.002], rx: 0.0545, ry: 0.0555 },
+    { p: [0, -0.379, 0], rx: 0.0500, ry: 0.0510 }
   ], S, { mat: SKIN, uScale: 0.8, vScale: 1.6, up: [0, 0, 1] }));
   return g;
 }
 function mikoShin(detail) {
   const g = new Geo();
   const S = detail ? 24 : 8;
-  g.merge(ellipsoid(0.0410, 0.0410, 0.0410, S, { rows: 6, mat: SKIN }));
+  g.merge(ellipsoid(0.0520, 0.0500, 0.0500, S, { rows: 6, mat: SKIN }));
   g.merge(loft([
-    { p: [0, -0.010, 0.002], rx: 0.0430, ry: 0.0448 },
-    { p: [0, -0.130, -0.006], rx: 0.0432, ry: 0.0468 },
-    { p: [0, -0.245, -0.010], rx: 0.0330, ry: 0.0352 },
-    { p: [0, -0.352, -0.013], rx: 0.0254, ry: 0.0276 },
-    { p: [0, -0.426, -0.014], rx: 0.0242, ry: 0.0262 }
+    { p: [0, -0.009, 0.002], rx: 0.0510, ry: 0.0530 },
+    { p: [0, -0.098, -0.006], rx: 0.0538, ry: 0.0572 },   // 腓腹筋
+    { p: [0, -0.196, -0.010], rx: 0.0428, ry: 0.0452 },
+    { p: [0, -0.300, -0.013], rx: 0.0326, ry: 0.0348 },
+    { p: [0, -0.371, -0.014], rx: 0.0308, ry: 0.0326 }
   ], S, { mat: SKIN, uScale: 0.7, vScale: 1.8, up: [0, 0, 1] }));
   return g;
 }
@@ -4518,8 +4533,8 @@ function mikoTop(detail) {
   const S = detail ? 34 : 12;
   // the body of the 白衣, with a little slack rather than shrink-wrapped
   g.merge(loft([
-    { p: [0, -0.220, -0.004], rx: 0.116, ry: 0.088 },
-    { p: [0, -0.130, -0.002], rx: 0.120, ry: 0.090 },
+    { p: [0, -0.256, -0.004], rx: 0.114, ry: 0.086 },
+    { p: [0, -0.150, -0.002], rx: 0.120, ry: 0.090 },
     { p: [0, -0.030, 0.004], rx: 0.128, ry: 0.094 },
     { p: [0, 0.062, 0.008], rx: 0.140, ry: 0.100 },
     { p: [0, 0.126, 0.010], rx: 0.150, ry: 0.101 },
@@ -4576,16 +4591,20 @@ function mikoSleeve(detail) {
 function mikoHakama(detail) {
   const g = new Geo();
   const SEG = detail ? 132 : 44, NP = 11;      // 11 pleats
+  /* Widened at the hip: the thighs are human width now and were coming
+     through the crease of every pleat, where the radius is at its minimum.
+     Lengthened too — the legs are shorter, and a 袴 hem sits about 10cm
+     off the floor, not at mid-shin. */
   const prof = [
-    [0.150, 0.098, 0.072, 0.00],
-    [0.108, 0.104, 0.076, 0.04],
-    [0.052, 0.120, 0.090, 0.13],
-    [-0.070, 0.158, 0.118, 0.21],
-    [-0.230, 0.200, 0.150, 0.26],
-    [-0.400, 0.234, 0.176, 0.29],
-    [-0.560, 0.258, 0.194, 0.31],
-    [-0.660, 0.272, 0.204, 0.32],
-    [-0.700, 0.274, 0.206, 0.32]
+    [ 0.150, 0.104, 0.078, 0.00],
+    [ 0.108, 0.112, 0.084, 0.03],
+    [ 0.052, 0.136, 0.102, 0.10],
+    [-0.070, 0.196, 0.150, 0.17],
+    [-0.240, 0.232, 0.176, 0.23],
+    [-0.420, 0.258, 0.194, 0.27],
+    [-0.600, 0.280, 0.210, 0.30],
+    [-0.710, 0.294, 0.221, 0.31],
+    [-0.745, 0.296, 0.222, 0.31]
   ];
   const P = [];
   for (const [y, rx, rz, depth] of prof) {
@@ -4650,7 +4669,18 @@ function mikoObi(detail) {
    Anime hands are small, smooth and simplified: no knuckles, no veins, a
    soft palm and fingers that taper and curl very slightly. The previous
    pair were four tubes in a blob. */
+/* The hand and the foot were built correctly and sized wrong — 115mm and
+   160mm long against a human 175mm and 235mm. Scaling the finished geometry
+   is the honest fix; rewriting every ring by hand would only re-derive the
+   same shape. */
 function mikoHand(detail, side) {
+  return scaleGeo(mikoHandRaw(detail, side), 1.30, 1.32, 1.30);
+}
+function mikoFoot(detail) {
+  return scaleGeo(mikoFootRaw(detail), 1.15, 1.08, 1.30);
+}
+
+function mikoHandRaw(detail, side) {
   const g = new Geo(), m = M4.create();
   const S = detail ? 14 : 7;
   const tx = side < 0 ? -1 : 1;
@@ -4684,7 +4714,7 @@ function mikoHand(detail, side) {
 
 /* ---------------- feet ----------------
    白足袋 with the split toe, on a 草履 with a raised sole and a thong. */
-function mikoFoot(detail) {
+function mikoFootRaw(detail) {
   const g = new Geo(), m = M4.create();
   const S = detail ? 18 : 8;
   g.merge(loft([
