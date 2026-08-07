@@ -1390,9 +1390,12 @@ float hHair(vec2 uv, out vec3 alb, out float rough, out float ao){
   float s2 = pfbm(vec2(uv.x*P*170.0, uv.y*P*1.4), P*128.0, 3);
   float clump = pfbm(vec2(uv.x*P*22.0, uv.y*P*1.2), P*16.0, 3);
   float lift = s1*0.52 + s2*0.48;
-  alb = mix(vec3(0.0180,0.0092,0.0056), vec3(0.0865,0.0455,0.0248),
+  /* Anime hair is a dark BROWN read, not a black one. At these values the
+     mass went to silhouette and only the specular band showed, which is
+     what made the fringe read as holes cut in the frame. */
+  alb = mix(vec3(0.0455,0.0245,0.0158), vec3(0.1720,0.0960,0.0555),
             clamp(clump*0.50 + lift*0.60, 0.0, 1.0));
-  alb = mix(alb, vec3(0.148,0.086,0.048), smoothstep(0.74, 0.98, lift)*0.55);
+  alb = mix(alb, vec3(0.268,0.163,0.096), smoothstep(0.70, 0.98, lift)*0.60);
   rough = clamp(0.30 + lift*0.14 - clump*0.05, 0.16, 0.52);
   ao = clamp(0.62 + 0.38*lift, 0.35, 1.0);
   return lift*0.80 + clump*0.25 - 0.20;
@@ -1410,6 +1413,21 @@ float hChar(vec2 uv, out vec3 alb, out float rough, out float ao){
 
 /* ---- 虹彩 : the iris is DRAWN, not shaded. Bright at the centre, radial
        fibres, a dark limbal ring at the rim. Mapped with radial uvs. ---- */
+/* ---- 白目 : never white, and darkest where the lid hangs over it ---- */
+float hSclera(vec2 uv, out vec3 alb, out float rough, out float ao){
+  vec3 lit  = vec3(0.905,0.890,0.885);
+  vec3 shad = vec3(0.400,0.395,0.440);
+  // uv.y runs 0 at the bottom of the aperture to 1 at the top
+  float occ = smoothstep(0.42, 1.02, uv.y);
+  // and the corners are always in shadow too
+  float cor = smoothstep(0.44, 0.02, uv.x) + smoothstep(0.56, 0.98, uv.x);
+  alb = mix(lit, shad, clamp(occ*0.92 + cor*0.30, 0.0, 1.0));
+  // the faintest warmth at the inner corner, where the caruncle is
+  alb = mix(alb, vec3(0.780,0.560,0.540), smoothstep(0.62, 0.99, uv.x)*0.45);
+  rough = 0.16; ao = 1.0;
+  return 0.0;
+}
+
 float hEye(vec2 uv, out vec3 alb, out float rough, out float ao){
   /* A real iris: collarette ridge about a third out, crypts and trabeculae
      radiating from it, a dark limbal ring at the rim and a pupil that is
@@ -1464,6 +1482,7 @@ float dispatch(vec2 uv, out vec3 alb, out float rough, out float ao){
   if(uLayer==17) return hHair(uv, alb, rough, ao);
   if(uLayer==18) return hChar(uv, alb, rough, ao);
   if(uLayer==19) return hEye(uv, alb, rough, ao);
+  if(uLayer==23) return hSclera(uv, alb, rough, ao);
   if(uLayer==13) return hFur(uv, alb, rough, ao);
   if(uLayer==14) return hFurC(uv, alb, rough, ao);
   if(uLayer==15) return hLinen(uv, alb, rough, ao);
@@ -1809,7 +1828,7 @@ float shadowFactor(vec3 wpos, vec3 N, float viewDist, float rot){
      actually is. The wider poisson spread costs nothing and turns a hard
      blotch into a shadow. */
   vec4 c0 = uShVP0*vec4(wpos+off*0.32,1.0); vec3 p0 = c0.xyz/c0.w*0.5+0.5;
-  s = sampleCascade(uSh0, p0, rot, 1.60);
+  s = sampleCascade(uSh0, p0, rot, 2.40);
   if(s<0.0){
     vec4 c1 = uShVP1*vec4(wpos+off*1.9,1.0); vec3 p1=c1.xyz/c1.w*0.5+0.5;
     s = sampleCascade(uSh1, p1, rot, 1.0);
@@ -1973,7 +1992,7 @@ void main(){
        this reason: a raw shadow map thrown across flat-shaded skin reads
        as a grey mask stuck over the drawing, which is precisely what the
        last render produced. Keep a hint of it and no more. */
-    float shF = mix(1.0, sh, 0.34);
+    float shF = mix(1.0, smoothstep(0.0, 1.0, sh), 0.18);
     vec3 skinDirect = (dif/PI + spec*ndl)*uSunColor*shF;
 
     vec3 irrS = texture(uIrr, N).rgb;
@@ -2578,7 +2597,8 @@ const MAT = {
   /* The garments were on LINEN (15), BELOW the toon boundary, so the
      clothes were being shaded physically while the face and hair were
      shaded as cel. One character, two lighting models. */
-  CLOTH: 22                              // 布 — toon cloth
+  CLOTH: 22,                             // 布 — toon cloth
+  SCLERA: 23                             // 白目（上瞼の落とす影を含む）
 };
 
 /* ---------------- path through the mountain ---------------- */
@@ -3385,7 +3405,7 @@ function initPrograms() {
 }
 
 /* ---------------- material texture arrays ---------------- */
-const NUM_LAYERS = 23;
+const NUM_LAYERS = 24;
 const TOON_MIN = 16;
 function bakeMaterials(res) {
   const arrA = gl.createTexture();
@@ -5588,6 +5608,7 @@ const TINT = {
   ear: [1, 1, 1, 0.3],
   earIn: [0.620, 0.400, 0.360, 0.3],
   feat: [1, 1, 1, 0.3], lid: [1, 1, 1, 0.3],
+  lash: [0.085, 0.062, 0.080, 0.3], tear: [1.35, 1.30, 1.32, 0.3],
   eyeball: [0.955, 0.935, 0.915, 0.3],   // sclera is never pure white
   iris: [1, 1, 1, 0.3],
   pupil: [0.055, 0.050, 0.062, 0.3],
@@ -5930,7 +5951,7 @@ function headZ(x, y) {
    the shell, plus this relief, faded to nothing at the border so it
    merges back into the skull with no edge at all. Every feature below is
    a form with a measured height in millimetres.                          */
-const FP_X = 0.0585, FP_Y0 = -0.0545, FP_Y1 = 0.0880, FP_LIFT = 0.0010;
+const FP_X = 0.0760, FP_Y0 = -0.0545, FP_Y1 = 0.0880;
 
 function faceRelief(x, y) {
   const ax = Math.abs(x);
@@ -5967,8 +5988,9 @@ function facePatchFade(x, y) {
   return smoothstep(1.0, 0.74, Math.abs(x) / XL) *
          smoothstep(0.0, 0.10, ty) * smoothstep(1.0, 0.88, ty);
 }
+/* the head's actual surface — the shell and this are now the same thing */
 function faceZ(x, y) {
-  return headZ(x, y) + FP_LIFT + faceRelief(x, y) * facePatchFade(x, y);
+  return headZ(x, y) + faceRelief(x, y) * facePatchFade(x, y);
 }
 
 /* ---------------- the forms a texture cannot carry ----------------
@@ -6013,7 +6035,7 @@ function eyeSink(x, y) {
   const r = Math.hypot(dx / EYE_HW, dy / (dy > 0 ? EYE_HU : EYE_HD));
   return EYE_SINK * Math.exp(-r * r * 0.80);
 }
-function eyeSurfZ(x, y) { return faceZ(x, y) + eyeSink(x, y) - 0.0007; }
+function eyeSurfZ(x, y) { return faceZ(x, y) + eyeSink(x, y) - 0.0009; }
 
 /* a radial patch over the aperture: (angle, radius) → a point on whatever
    surface fn returns. Every piece of the eye is one of these. */
@@ -6056,8 +6078,9 @@ function eyePatch(sx, seg, rn, extent, mat, fn, uvfn) {
 function mikoEyeball(detail) {
   const g = new Geo();
   for (const sx of [-1, 1])
-    g.merge(eyePatch(sx, detail ? 40 : 15, detail ? 5 : 2, 1.16, MAT.CHAR,
-      (x, y) => eyeSurfZ(x, y)));
+    g.merge(eyePatch(sx, detail ? 44 : 15, detail ? 6 : 2, 1.16, MAT.SCLERA,
+      (x, y) => eyeSurfZ(x, y),
+      (t, ct, st) => [0.5 - sx * t * ct * 0.5, 0.5 + t * st * 0.5]));
   return g;
 }
 
@@ -6100,6 +6123,75 @@ function mikoIris(detail) {
   return g;
 }
 
+/* 睫毛 : a ribbon rooted on the upper margin, curling up and outward,
+   longest over the outer third. Emitted twice with opposite normals — a
+   lash is a sheet and has to be lit from both sides. */
+function mikoLash(detail) {
+  const g = new Geo();
+  const SEG = detail ? 36 : 13, KN = 3;
+  for (const sx of [-1, 1]) {
+    const P = [];
+    for (let i = 0; i <= SEG; i++) {
+      const th = (i / SEG) * PI;              // 0 = 外眼角 … PI = 内眼角
+      const ct = Math.cos(th), st = Math.sin(th);
+      const r0 = eyeRad(ct, st);
+      const bx = sx * EYE_P[0] + r0 * ct, by = EYE_P[1] + r0 * st;
+      const bz = faceZ(bx, by) + 0.0009;
+      const u = 1 - th / PI;                  // 1 at the outer corner
+      const L = (0.0020 + 0.0082 * Math.pow(u, 1.20)) * (0.40 + 0.60 * Math.pow(st, 0.45));
+      const d = norm([sx * (0.40 + 0.34 * u), 0.74, 0.30]);
+      const row = [];
+      for (let k = 0; k <= KN; k++) {
+        const t = k / KN, c = t * t * 0.40;   // the tip curls up more than the root
+        row.push([bx + d[0] * L * t * (1 - c * 0.5),
+                  by + d[1] * L * t + c * L * 0.55,
+                  bz + d[2] * L * t * (1 - c)]);
+      }
+      P.push(row);
+    }
+    for (const flip of [false, true]) {
+      const idx = [];
+      for (let i = 0; i <= SEG; i++) {
+        const row = [];
+        for (let k = 0; k <= KN; k++) {
+          const a = P[Math.max(0, i - 1)][k], b = P[Math.min(SEG, i + 1)][k];
+          const c = P[i][Math.max(0, k - 1)], e = P[i][Math.min(KN, k + 1)];
+          let nr = cross(sub(b, a), sub(e, c));
+          if (len(nr) < 1e-12) nr = [0, 0, 1];
+          nr = norm(nr);
+          if (nr[2] < 0) nr = scl(nr, -1);
+          if (flip) nr = scl(nr, -1);
+          const p = P[i][k];
+          row.push(g.push(p[0], p[1], p[2], nr[0], nr[1], nr[2],
+            i / SEG, k / KN, MAT.CHAR));
+        }
+        idx.push(row);
+      }
+      for (let i = 0; i < SEG; i++) for (let k = 0; k < KN; k++) {
+        if (flip) g.quad(idx[i][k], idx[i][k + 1], idx[i + 1][k + 1], idx[i + 1][k]);
+        else      g.quad(idx[i][k], idx[i + 1][k], idx[i + 1][k + 1], idx[i][k + 1]);
+      }
+    }
+  }
+  return g;
+}
+
+/* 涙線 : the wet meniscus along the whole margin. Two millimetres of
+   low-roughness geometry that does nothing but catch a glint — which is
+   most of why a rendered eye looks alive. */
+function mikoTearLine(detail) {
+  const g = new Geo();
+  const SEG = detail ? 48 : 18;
+  for (const sx of [-1, 1])
+    g.merge(eyePatch(sx, SEG, 2, 1.0, MAT.EYE,
+      (x, y, t) => {
+        const k = smoothstep(0.86, 1.0, t);   // only the outermost sliver
+        return lerp(eyeSurfZ(x, y), faceZ(x, y) + 0.0011, k) + k * 0.0004;
+      },
+      t => [0.5, 0.5 + (t - 0.93) * 3.0]));
+  return g;
+}
+
 /* 瞼 : a ring of skin running outward from the aperture rim, standing a
    couple of millimetres proud at the margin and thinning into the face.
    The heavy lash line that reads as an anime lid is PAINTED on it; the
@@ -6118,43 +6210,10 @@ function mikoLid(detail) {
   return g;
 }
 
-/* The front of the face: one grid over (x,y) carrying faceRelief, laid a
-   fraction of a millimetre over the shell and fading into it at the
-   border. It replaces the lofted nose, lips and brow entirely — same
-   forms, same measurements, but continuous with the skull, which is the
-   whole point. Its uv is the head's own planar projection, so the painted
-   drawing lands on it with nothing to line up by hand. */
-function mikoFacePatch(detail) {
-  const g = new Geo();
-  const NX = detail ? 44 : 17, NY = detail ? 62 : 23;
-  const P = [];
-  for (let i = 0; i <= NY; i++) {
-    const y = lerp(FP_Y0, FP_Y1, i / NY), XL = facePatchLimit(y), row = [];
-    for (let j = 0; j <= NX; j++) {
-      const x = lerp(-XL, XL, j / NX);
-      row.push([x, y, faceZ(x, y)]);
-    }
-    P.push(row);
-  }
-  const idx = [];
-  for (let i = 0; i <= NY; i++) {
-    const row = [];
-    for (let j = 0; j <= NX; j++) {
-      const a = P[i][Math.max(0, j - 1)], b = P[i][Math.min(NX, j + 1)];
-      const c = P[Math.max(0, i - 1)][j], e = P[Math.min(NY, i + 1)][j];
-      let nr = cross(sub(b, a), sub(e, c));
-      if (len(nr) < 1e-12) nr = [0, 0, 1];
-      nr = norm(nr);
-      if (nr[2] < 0) nr = scl(nr, -1);
-      const p = P[i][j], uv = faceUV(p[0], p[1]);
-      row.push(g.push(p[0], p[1], p[2], nr[0], nr[1], nr[2], uv[0], uv[1], MAT.FACE));
-    }
-    idx.push(row);
-  }
-  for (let i = 0; i < NY; i++) for (let j = 0; j < NX; j++)
-    g.quad(idx[i][j], idx[i][j + 1], idx[i + 1][j + 1], idx[i + 1][j]);
-  return g;
-}
+/* mikoFacePatch used to live here: a dense (x,y) grid laid over the front
+   of the skull. It bought resolution for the nose and the mouth at the cost
+   of a visible border, which is a bad trade — the head shell carries the
+   relief directly now and there is no second surface at all. */
 
 /* linear resample of the ring table — the authored rings stay put */
 function densifyHeadRings(rings, mult) {
@@ -6176,17 +6235,22 @@ function mikoHead(detail) {
      9.6mm around and 16mm up. Most of the front is covered by the face
      patch, but the jaw, the temples and the back of the skull are this
      mesh, and they were faceting. */
-  const R = detail ? densifyHeadRings(HEAD_RINGS, 2) : HEAD_RINGS, N = R.length;
+  const R = detail ? densifyHeadRings(HEAD_RINGS, 4) : HEAD_RINGS, N = R.length;
   const P = [], UV = [];
   for (let i = 0; i < N; i++) {
     const [y, rx, rz, cz] = R[i], row = [], urow = [];
     for (let j = 0; j <= SEG; j++) {
-      const a = (j / SEG) * TAU;              // 0 = dead front
+      /* 3x denser at the front and the back than at the sides: the flat
+         front is where the features are and where a superellipse's own
+         parameterisation puts the fewest vertices. */
+      const u = (j / SEG) * TAU;
+      const a = u - 0.36 * Math.sin(2 * u);   // 0 = dead front
       const s = Math.sin(a), co = Math.cos(a);
       const x = rx * _hp(s);
       // relief only on the face; the back of the skull stays a clean shell
       const fr = clamp(co * 2.2 + 0.55, 0, 1);
-      const z = cz + rz * _hp(co) + headRelief(x, y) * fr;
+      const z = cz + rz * _hp(co)
+              + (headRelief(x, y) + faceRelief(x, y) * facePatchFade(x, y) * fr) * fr;
       row.push([x, y, z]);
       // front planar projection; the back is pushed past the border and clamps
       const back = Math.max(0, -co);
@@ -6277,7 +6341,7 @@ function mikoHair(detail) {
      fringe turned into string; this goes the other way — eleven wide, flat
      locks that overlap into one mass, each tapering to an actual point
      (w1 is 4% of w0, so the tip is a spike rather than a stub). */
-  const NB = detail ? 13 : 8;
+  const NB = detail ? 17 : 9;
   const RX = 0.0700, RZ = 0.0740, RC = -0.019;      // the cap, at the hairline
   for (let i = 0; i < NB; i++) {
     const u = ((i + 0.5) / NB) * 2 - 1, sg = u < 0 ? -1 : 1, a = Math.abs(u);
@@ -6290,7 +6354,7 @@ function mikoHair(detail) {
     const L = 0.034 + 0.98 * Math.abs(x1) + ((i % 3) - 1) * 0.013;
     // 0.185 of head height proud of the face, per the reference
     const fz = 0.1190 - 0.088 * Math.pow(Math.min(1, Math.abs(x1) / 0.128), 2);
-    const w = 0.031 + 0.013 * (1 - a);
+    const w = 0.026 + 0.012 * (1 - a);
     g.merge(sweptLock([
       [xr, 0.156, zr],
       [lerp(xr, x1, 0.30), 0.136, fz * 0.94],
@@ -6597,7 +6661,7 @@ function mikoTop(detail) {
         { p: [sx * 0.036, 0.086, 0.086 + dz], rx: w * 0.92, ry: th },
         { p: [sx * 0.004, 0.030, 0.082 + dz], rx: w * 0.80, ry: th * 0.9 }
       ], 12, { mat, uScale: 0.4, vScale: 2.0 }));
-  return wrinkleGeo(g, 0.0125, 60.0, 8.5, 0.7);
+  return wrinkleGeo(g, 0.0078, 74.0, 11.0, 0.7);
 }
 
 /* 袖 : a wide rectangular sleeve with a cuff opening, not a cone. The
@@ -6628,7 +6692,7 @@ function mikoSleeve(detail) {
     { p: [0, -0.340, 0.016], rx: 0.0575, ry: 0.082 },
     { p: [0, -0.286, 0.014], rx: 0.0548, ry: 0.078 }
   ], S, { mat: CLOTH, uScale: 1.0, vScale: 1.4, up: [0, 0, 1], capStart: false }));
-  return wrinkleGeo(g, 0.0140, 52.0, 7.0, 2.9);
+  return wrinkleGeo(g, 0.0112, 60.0, 8.0, 2.9);
 }
 
 /* 緋袴 : pleated. A 袴 is a stack of flat panels folded at hard lines, and
@@ -6855,8 +6919,9 @@ function initKitsune(detail) {
     thigh: mikoThigh(detail), shin: mikoShin(detail), foot: mikoFoot(detail),
     top: mikoTop(detail), sleeve: mikoSleeve(detail), hakama: mikoHakama(detail),
     obi: mikoObi(detail),
-    earIn: mikoEarIn(detail), feat: mikoFacePatch(detail),
-    eyeball: mikoEyeball(detail), iris: mikoIris(detail), lid: mikoLid(detail)
+    earIn: mikoEarIn(detail),
+    eyeball: mikoEyeball(detail), iris: mikoIris(detail), lid: mikoLid(detail),
+    lash: mikoLash(detail), tear: mikoTearLine(detail)
   };
   for (let i = 0; i < 4; i++) G['tail' + i] = mikoTail(i, detail);
   for (const k in G) M[k] = new Mesh(G[k]);
@@ -6865,8 +6930,8 @@ function initKitsune(detail) {
   if (CFG.inkLine) for (const k in OUTLINE_W) if (G[k]) M[k + '_o'] = new Mesh(shellOf(G[k], OUTLINE_W[k]));
 
   KIT.parts = [
-    ['head', 'head'], ['head', 'feat'], ['head', 'eyeball'], ['head', 'iris'],
-    ['head', 'lid'],
+    ['head', 'head'], ['head', 'eyeball'], ['head', 'iris'],
+    ['head', 'lid'], ['head', 'lash'], ['head', 'tear'],
     ['head', 'hair'], ['neck', 'neck'],
     ['earL', 'earIn'], ['earR', 'earIn'],
     ['chest', 'chest'], ['hips', 'hips'],
