@@ -5557,7 +5557,7 @@ const JOINTS = {
      realistic pass produced was wrong mostly because of this one
      number. Everything parented to the head — face, eyes, hair, ears —
      scales with it. */
-  head:   { parent: 'neck',  p: [0, 0.061, 0.004], s: [1.10, 1.10, 1.10] },
+  head:   { parent: 'neck',  p: [0, 0.061, 0.004], s: [1.20, 1.20, 1.20] },
   earL:   { parent: 'head',  p: [-0.058, 0.126, 0.004], rest: [-0.12, -0.20, -0.30] },
   earR:   { parent: 'head',  p: [0.058, 0.126, 0.004], rest: [-0.12, 0.20, 0.30] },
   tail0:  { parent: 'hips',  p: [0, 0.052, -0.128], rest: [0.62, 0, 0] },
@@ -5752,7 +5752,7 @@ function drawAnimeFace(c, S) {
      nose shadow the size of a grain of rice, and the mouth. */
   c.fillStyle = '#f6d3bd';
   c.fillRect(0, 0, S, S);
-  const g0 = c.createLinearGradient(0, PY(0.1300), 0, PY(-0.0620));
+  const g0 = c.createLinearGradient(0, PY(0.1400), 0, PY(-0.0620));
   g0.addColorStop(0.00, 'rgba(255,238,222,0.26)');
   g0.addColorStop(0.55, 'rgba(246,206,190,0.10)');
   g0.addColorStop(1.00, 'rgba(226,178,170,0.20)');
@@ -5766,24 +5766,24 @@ function drawAnimeFace(c, S) {
     c.fillStyle = bg;
     c.beginPath(); c.ellipse(bx, by, PW(rx), PH(ry), 0, 0, TAU); c.fill();
   };
-  blush(-0.0430, 0.0080, 0.0210, 0.0130, 0.30, '236,140,138');
-  blush( 0.0430, 0.0080, 0.0210, 0.0130, 0.30, '236,140,138');
-  blush( 0.0000,-0.0500, 0.0150, 0.0090, 0.12, '236,150,142');
+  blush(-0.0440, 0.0270, 0.0215, 0.0135, 0.30, '236,140,138');
+  blush( 0.0440, 0.0270, 0.0215, 0.0135, 0.30, '236,140,138');
+  blush( 0.0000,-0.0450, 0.0150, 0.0090, 0.12, '236,150,142');
 
   // 鼻 : two soft dots of shadow. No nostrils, no bridge line, no wings.
   for (const sx of [-1, 1]) {
-    const nx = PX(sx * 0.0042), ny = PY(-0.0044);
-    const ng = c.createRadialGradient(nx, ny, 0, nx, ny, PW(0.0044));
+    const nx = PX(sx * 0.0044), ny = PY(0.0118);
+    const ng = c.createRadialGradient(nx, ny, 0, nx, ny, PW(0.0046));
     ng.addColorStop(0, 'rgba(196,132,116,0.46)');
     ng.addColorStop(1, 'rgba(196,132,116,0)');
     c.fillStyle = ng;
-    c.beginPath(); c.ellipse(nx, ny, PW(0.0044), PH(0.0030), 0, 0, TAU); c.fill();
+    c.beginPath(); c.ellipse(nx, ny, PW(0.0046), PH(0.0031), 0, 0, TAU); c.fill();
   }
 
   /* 口 : small, soft, and closed. An anime mouth at rest is a short curve
      with a hint of a lower lip under it — not a pair of lips. */
   const M = PX(0), lw = PW(0.0128);
-  const yM = PY(-0.0266);
+  const yM = PY(-0.0230);
   const lg = c.createLinearGradient(0, yM - PH(0.0030), 0, yM + PH(0.0058));
   lg.addColorStop(0.00, 'rgba(206,116,116,0.55)');
   lg.addColorStop(0.45, 'rgba(224,138,132,0.42)');
@@ -5898,13 +5898,13 @@ function headRelief(x, y) {
      the temple are the two that have to nearly vanish. The moment a face
      has visible bone in it, it stops reading as drawn — however large the
      eyes on the front of it are. */
-  const ox = (ax - 0.0335) / 0.0300, oy = (y - 0.0400) / 0.0230;
+  const ox = (ax - 0.0347) / 0.0310, oy = (y - 0.0600) / 0.0240;
   let d = -0.0026 * Math.exp(-ox * ox - oy * oy);                  // 眼窩
-  const kx = (ax - 0.0430) / 0.0250, ky = (y - 0.0090) / 0.0260;
+  const kx = (ax - 0.0430) / 0.0250, ky = (y - 0.0150) / 0.0260;
   d += 0.0013 * Math.exp(-kx * kx - ky * ky);                      // 頬骨
   const mx = x / 0.0300, my = (y + 0.0210) / 0.0300;
   d += 0.0020 * Math.exp(-mx * mx - my * my);                      // 上顎
-  const tx = (ax - 0.0640) / 0.0240, ty = (y - 0.0740) / 0.0300;
+  const tx = (ax - 0.0640) / 0.0240, ty = (y - 0.0900) / 0.0300;
   d -= 0.0011 * Math.exp(-tx * tx - ty * ty);                      // 側頭
   return d;
 }
@@ -5930,7 +5930,7 @@ function headZ(x, y) {
    the shell, plus this relief, faded to nothing at the border so it
    merges back into the skull with no edge at all. Every feature below is
    a form with a measured height in millimetres.                          */
-const FP_X = 0.0575, FP_Y0 = -0.0545, FP_Y1 = 0.0720, FP_LIFT = 0.0010;
+const FP_X = 0.0585, FP_Y0 = -0.0545, FP_Y1 = 0.0880, FP_LIFT = 0.0010;
 
 function faceRelief(x, y) {
   const ax = Math.abs(x);
@@ -5941,19 +5941,23 @@ function faceRelief(x, y) {
      all of it wrong for this face: the moment a nose casts a real shadow
      the drawing stops working. The mouth goes the same way: small, soft,
      and with no vermilion mass to catch light. */
-  const dy = y - 0.0020;
-  const nz = 0.0034 * G(dy, dy > 0 ? 0.0280 : 0.0090);
-  const nw = 0.0048 + 0.0026 * clamp((0.0380 - y) / 0.0440, 0, 1);
+  /* Landmark heights are the reference's, as fractions of head height:
+     nose tip 0.343, mouth 0.155, brow 0.61. Ours had the nose at 0.265 and
+     the eyes at 0.410 — the entire face was sitting a fifth of a head too
+     low, which no amount of work on the individual features can fix. */
+  const dy = y - 0.0195;
+  const nz = 0.0060 * G(dy, dy > 0 ? 0.0300 : 0.0105);
+  const nw = 0.0050 + 0.0028 * clamp((0.0560 - y) / 0.0460, 0, 1);
   d += nz * G(x, nw);                                             // 鼻背
-  d += 0.0009 * G(ax - 0.0070, 0.0038) * G(y + 0.0026, 0.0034);   // 小鼻
-  d -= 0.0005 * G(x, 0.0024) * G(y + 0.0148, 0.0048);             // 人中
+  d += 0.0013 * G(ax - 0.0074, 0.0040) * G(y - 0.0130, 0.0036);   // 小鼻
+  d -= 0.0006 * G(x, 0.0026) * G(y + 0.0022, 0.0050);             // 人中
   const LX = w => Math.exp(-Math.pow(ax / w, 3.0));
-  d += 0.0021 * G(y + 0.0228, 0.0044) * LX(0.0140);               // 上唇
-  d += 0.0026 * G(y + 0.0306, 0.0050) * LX(0.0128);               // 下唇
-  d -= 0.0009 * G(y + 0.0266, 0.0018) * LX(0.0146);               // 口裂
-  d -= 0.0010 * G(y + 0.0392, 0.0068) * LX(0.0150);               // 頤唇溝
-  d += 0.0016 * G(y + 0.0478, 0.0110) * G(x, 0.0170);             // 頤
-  d += 0.0012 * G(ax - 0.0320, 0.0210) * G(y - 0.0592, 0.0070);   // 眉弓
+  d += 0.0022 * G(y + 0.0192, 0.0046) * LX(0.0142);               // 上唇
+  d += 0.0027 * G(y + 0.0270, 0.0052) * LX(0.0130);               // 下唇
+  d -= 0.0010 * G(y + 0.0230, 0.0019) * LX(0.0148);               // 口裂
+  d -= 0.0011 * G(y + 0.0356, 0.0070) * LX(0.0152);               // 頤唇溝
+  d += 0.0017 * G(y + 0.0452, 0.0112) * G(x, 0.0172);             // 頤
+  d += 0.0013 * G(ax - 0.0330, 0.0215) * G(y - 0.0742, 0.0072);   // 眉弓
   d -= eyeSink(x, y);                                             // 眼窩
   return d;
 }
@@ -5986,11 +5990,15 @@ function faceZ(x, y) {
    face's own surface into it. Everything here — sclera, iris, lid — is a
    patch over (x,y) sharing one height field with the head, which is the
    same rule the nose and the mouth already live by.                       */
-const EYE_HW = 0.0186, EYE_HU = 0.0134, EYE_HD = 0.0116;  // 瞼裂 half-extents
-const IRIS_R = 0.0118;
-const EYE_P = [0.0338, 0.0345, 0];
-const EYE_SINK = 0.0036;                                  // 眼窩の彫り込み
-const BROW_X = 0.0332, BROW_Y = 0.0556;
+/* Aperture 0.158 x 0.088 of head height, centres 0.311 apart, eye line at
+   exactly 0.500 — all four straight off the reference. Ours was the right
+   width and far too round (0.112 tall), which is why it read as a doll
+   rather than as a drawing. */
+const EYE_HW = 0.0182, EYE_HU = 0.0114, EYE_HD = 0.0098;  // 瞼裂 half-extents
+const IRIS_R = 0.0112;
+const EYE_P = [0.0347, 0.0545, 0];
+const EYE_SINK = 0.0034;                                  // 眼窩の彫り込み
+const BROW_X = 0.0347, BROW_Y = 0.0730;
 
 /* the aperture radius, in metres, in a given direction round it */
 function eyeRad(ct, st) {
@@ -6148,10 +6156,27 @@ function mikoFacePatch(detail) {
   return g;
 }
 
+/* linear resample of the ring table — the authored rings stay put */
+function densifyHeadRings(rings, mult) {
+  const out = [];
+  for (let i = 0; i < rings.length - 1; i++)
+    for (let k = 0; k < mult; k++) {
+      const t = k / mult, a = rings[i], b = rings[i + 1];
+      out.push([lerp(a[0], b[0], t), lerp(a[1], b[1], t),
+                lerp(a[2], b[2], t), lerp(a[3], b[3], t)]);
+    }
+  out.push(rings[rings.length - 1]);
+  return out;
+}
+
 function mikoHead(detail) {
   const g = new Geo();
-  const SEG = detail ? 52 : 18;
-  const R = HEAD_RINGS, N = R.length;
+  const SEG = detail ? 88 : 20;
+  /* The reference meshes the face at a 4.0mm median edge; our shell ran at
+     9.6mm around and 16mm up. Most of the front is covered by the face
+     patch, but the jaw, the temples and the back of the skull are this
+     mesh, and they were faceting. */
+  const R = detail ? densifyHeadRings(HEAD_RINGS, 2) : HEAD_RINGS, N = R.length;
   const P = [], UV = [];
   for (let i = 0; i < N; i++) {
     const [y, rx, rz, cz] = R[i], row = [], urow = [];
@@ -6235,8 +6260,10 @@ function mikoHair(detail) {
   const S = detail ? 40 : 13;
   const PART = -0.016;                        // the parting, slightly off centre
 
-  g.merge(ellipsoid(0.0958, 0.1022, 0.1010, S, { rows: detail ? 20 : 7, mat: HAIR, uScale: 1.0, vScale: 1.0 }),
-    M4.compose(m, [0, 0.0770, -0.015], 0, [1, 1, 1]));
+  /* the reference's hair mass stands 0.151 of head height past the skull
+     on each side; ours stood 0.057, which is a swim cap */
+  g.merge(ellipsoid(0.1128, 0.1120, 0.0925, S, { rows: detail ? 22 : 8, mat: HAIR, uScale: 1.0, vScale: 1.0 }),
+    M4.compose(m, [0, 0.0790, -0.0125], 0, [1, 1, 1]));
 
   /* 前髪. Two things were wrong before. The locks were round tubes, and a
      round tube of hair is a straw; a lock is a RIBBON, wide across and
@@ -6250,23 +6277,26 @@ function mikoHair(detail) {
      fringe turned into string; this goes the other way — eleven wide, flat
      locks that overlap into one mass, each tapering to an actual point
      (w1 is 4% of w0, so the tip is a spike rather than a stub). */
-  const NB = detail ? 11 : 8;
-  const RX = 0.0620, RZ = 0.0650, RC = -0.015;      // the cap, at the hairline
+  const NB = detail ? 13 : 8;
+  const RX = 0.0700, RZ = 0.0740, RC = -0.019;      // the cap, at the hairline
   for (let i = 0; i < NB; i++) {
     const u = ((i + 0.5) / NB) * 2 - 1, sg = u < 0 ? -1 : 1, a = Math.abs(u);
     const ph = sg * (0.20 + a * 1.10);
     const xr = RX * Math.sin(ph), zr = RC + RZ * Math.cos(ph);
-    const x1 = PART * 0.5 + sg * (0.032 + a * 0.088);
+    const x1 = PART * 0.5 + sg * (0.034 + a * 0.098);
     // ends just above the brow in the middle, at the cheek at the sides
-    const L = 0.052 + 1.06 * Math.abs(x1) + ((i % 3) - 1) * 0.016;
-    const fz = 0.096 - 0.076 * Math.pow(Math.min(1, Math.abs(x1) / 0.120), 2);
+    // the eye line moved to 0.500 of head height, so the fringe has to
+    // end higher too — it was hanging over the whole eye
+    const L = 0.034 + 0.98 * Math.abs(x1) + ((i % 3) - 1) * 0.013;
+    // 0.185 of head height proud of the face, per the reference
+    const fz = 0.1190 - 0.088 * Math.pow(Math.min(1, Math.abs(x1) / 0.128), 2);
     const w = 0.031 + 0.013 * (1 - a);
     g.merge(sweptLock([
-      [xr, 0.152, zr],
-      [lerp(xr, x1, 0.32), 0.130, fz * 0.96],
-      [lerp(xr, x1, 0.70), 0.152 - L * 0.58, fz],
-      [x1, 0.152 - L, fz * 0.88],
-      [x1 + sg * 0.012, 0.152 - L * 1.08, fz * 0.62]
+      [xr, 0.156, zr],
+      [lerp(xr, x1, 0.30), 0.136, fz * 0.94],
+      [lerp(xr, x1, 0.68), 0.156 - L * 0.56, fz],
+      [x1, 0.156 - L, fz * 0.86],
+      [x1 + sg * 0.013, 0.156 - L * 1.08, fz * 0.58]
     ], w, w * 0.04, 0.0090, HAIR));
   }
   // short strands over the parting, so it is not a bald gap
@@ -6293,7 +6323,7 @@ function mikoHair(detail) {
     [[0.038, 0.150, 0.058], [0.066, 0.092, 0.084], [0.074, 0.020, 0.076],
      [0.062, -0.050, 0.056]]
   ];
-  const SW = [0.042, 0.032, 0.038, 0.029, 0.027, 0.022];
+  const SW = [0.048, 0.037, 0.044, 0.033, 0.031, 0.025];
   for (const sx of [-1, 1]) SIDE.forEach((pts, i) =>
     g.merge(sweptLock(pts.map(p => [sx * p[0], p[1], p[2]]), SW[i], SW[i] * 0.05, 0.0105, HAIR)));
 
