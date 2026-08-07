@@ -1,154 +1,117 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>日和見 — 伏見稲荷 千本鳥居 / 太陽プロトタイプ</title>
+<title>狐人 — キャラクタービューア</title>
 <style>
-  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{width:100%;height:100%;overflow:hidden;background:#05070a;
-    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;color:#e8e2da}
-  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
-  #ui{position:fixed;inset:0;pointer-events:none;z-index:10}
-  #panel{position:absolute;top:env(safe-area-inset-top,10px);left:10px;pointer-events:auto;
-    background:rgba(10,11,14,.62);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:11px 13px;width:236px;
-    max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;
-    box-shadow:0 10px 40px rgba(0,0,0,.5);transition:transform .28s cubic-bezier(.4,0,.2,1),opacity .28s}
-  #panel.collapsed{transform:translateX(calc(-100% - 14px));opacity:0}
-  #panel h1{font-size:12.5px;font-weight:600;letter-spacing:.06em;margin-bottom:9px;color:#f0e6da;opacity:.95}
-  #panel h1 span{display:block;font-size:9.5px;font-weight:400;opacity:.45;letter-spacing:.12em;margin-top:2px}
-  .row{margin:7px 0}
-  .row label{display:flex;justify-content:space-between;font-size:10px;opacity:.62;margin-bottom:3px;letter-spacing:.03em}
-  .row input[type=range]{width:100%;height:16px;-webkit-appearance:none;background:transparent}
-  .row input[type=range]::-webkit-slider-runnable-track{height:2px;background:rgba(255,255,255,.16);border-radius:2px}
-  .row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;
-    background:#e0592c;margin-top:-5px;box-shadow:0 0 0 3px rgba(224,89,44,.16)}
-  .row input[type=range]::-moz-range-track{height:2px;background:rgba(255,255,255,.16)}
-  .row input[type=range]::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:#e0592c}
-  select{width:100%;background:rgba(255,255,255,.06);color:#e8e2da;border:1px solid rgba(255,255,255,.1);
-    border-radius:7px;padding:5px 7px;font-size:11px;outline:none}
-  .btns{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
-  button{flex:1 1 auto;background:rgba(255,255,255,.06);color:#ded6cc;border:1px solid rgba(255,255,255,.1);
-    border-radius:7px;padding:6px 4px;font-size:10px;cursor:pointer;transition:background .15s;white-space:nowrap}
-  button:hover{background:rgba(255,255,255,.13)}
-  button:active{background:rgba(224,89,44,.3)}
-  #tab{position:absolute;top:env(safe-area-inset-top,10px);left:10px;pointer-events:auto;z-index:11;
-    background:rgba(10,11,14,.6);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.09);
-    border-radius:10px;width:34px;height:34px;font-size:15px;line-height:32px;text-align:center;cursor:pointer;
-    opacity:0;transition:opacity .25s}
-  #panel.collapsed ~ #tab{opacity:1}
-  @media (max-height:620px){ #panel{padding:8px 11px;width:214px} .row{margin:5px 0} #panel h1{margin-bottom:6px} }
-  .sep{font-size:9px;letter-spacing:.22em;opacity:.34;margin:11px 0 5px;padding-bottom:3px;
-    border-bottom:1px solid rgba(255,255,255,.07)}
-  .sep:first-of-type{margin-top:4px}
-  .btns.tight{gap:4px;margin-top:6px}
-  .btns.tight button{padding:5px 2px;font-size:9.5px;flex:1 1 0}
-  button.on{background:rgba(224,89,44,.34);border-color:rgba(224,89,44,.5);color:#ffe6d8}
-  #sp{width:100%;height:66px;display:block;margin:8px 0 2px;overflow:visible}
-  #sp line#sp_h{stroke:rgba(255,255,255,.20);stroke-width:1}
-  #sp .gg{fill:none;stroke:rgba(255,255,255,.15);stroke-width:1}
-  #sp .cc{fill:none;stroke:#e0592c;stroke-width:1.6;stroke-linejoin:round}
-  #sp .tt{stroke:rgba(255,255,255,.22);stroke-width:1;stroke-dasharray:2 3}
-  #sp .dd{fill:#ffd9a8;stroke:rgba(255,190,120,.42);stroke-width:3.4}
-  #astro{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:2px 6px;
-    font-size:9.5px;margin-top:5px;align-items:baseline}
-  #astro i{font-style:normal;opacity:.42;letter-spacing:.04em}
-  #astro b{font-weight:500;opacity:.9;font-variant-numeric:tabular-nums;text-align:right}
-  #fps{position:absolute;top:env(safe-area-inset-top,12px);right:12px;font-size:10px;opacity:.35;
-    font-variant-numeric:tabular-nums;pointer-events:none}
-  #hint{position:absolute;bottom:calc(env(safe-area-inset-bottom,12px) + 10px);left:0;right:0;text-align:center;
-    font-size:10px;opacity:.34;pointer-events:none;letter-spacing:.05em}
-  #hud{position:absolute;left:50%;transform:translateX(-50%);
-    bottom:calc(env(safe-area-inset-bottom,12px) + 32px);width:230px;pointer-events:none;
-    font-size:10px;letter-spacing:.06em}
-  #curseRow{display:flex;align-items:center;gap:7px}
-  #curseRow i{font-style:normal;opacity:.5;font-size:10px}
-  #curseWrap{flex:1;height:3px;background:rgba(255,255,255,.10);border-radius:2px;overflow:hidden}
-  #curseBar{height:100%;width:0%;background:linear-gradient(90deg,#7a2f4d,#c2352f);
-    transition:width .12s linear}
-  #hudInfo{display:flex;justify-content:space-between;margin-top:5px;opacity:.5}
-  #hudBell.cool{opacity:.28}
-  #joy{position:fixed;width:110px;height:110px;border-radius:50%;border:1.5px solid rgba(255,255,255,.16);
-    display:none;pointer-events:none;z-index:12}
-  #joyknob{position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;
-    background:rgba(255,255,255,.2);transition:transform .04s}
-  #loading{position:fixed;inset:0;background:#06080b;display:flex;align-items:center;justify-content:center;
-    flex-direction:column;z-index:100;transition:opacity .7s}
-  #loading .k{font-size:26px;letter-spacing:.5em;color:#d9502a;margin-bottom:14px;text-indent:.5em}
-  #status{font-size:11px;opacity:.4;letter-spacing:.08em}
-  #err{display:none;position:fixed;inset:0;background:#06080b;color:#ddd;z-index:200;
-    display:none;align-items:center;justify-content:center;padding:30px;text-align:center;font-size:13px;line-height:1.8}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#0a0c10;overflow:hidden;
+    font:13px/1.5 -apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+    color:#e6e9ef;-webkit-text-size-adjust:100%}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+  #gl:active{cursor:grabbing}
+  #ui{position:fixed;inset:0;pointer-events:none}
+  #panel{position:absolute;top:12px;left:12px;width:264px;max-height:calc(100% - 24px);
+    overflow-y:auto;pointer-events:auto;background:rgba(12,15,21,.82);
+    -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:12px 13px 14px}
+  h1{font-size:13px;margin:0 0 2px;letter-spacing:.10em;font-weight:600}
+  .sub{font-size:10.5px;color:#8b95a6;margin:0 0 11px;letter-spacing:.04em}
+  fieldset{border:0;border-top:1px solid rgba(255,255,255,.08);margin:11px 0 0;padding:9px 0 0}
+  legend{font-size:10px;color:#7f8a9c;letter-spacing:.14em;padding:0 5px 0 0}
+  .row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .row label{flex:0 0 52px;font-size:11px;color:#a6b0c0}
+  .row .v{flex:0 0 56px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px;color:#cfd6e2}
+  input[type=range]{flex:1;min-width:0;height:16px;-webkit-appearance:none;background:transparent}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:rgba(255,255,255,.16)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-5px;
+    border-radius:50%;background:#e6e9ef;border:0}
+  input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:rgba(255,255,255,.16)}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border:0;border-radius:50%;background:#e6e9ef}
+  .btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+  button,select{font:inherit;font-size:11px;color:#dfe4ec;background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:4px 9px;cursor:pointer}
+  button:hover{background:rgba(255,255,255,.14)}
+  .chk{display:flex;align-items:center;gap:6px;font-size:11px;color:#a6b0c0;margin:5px 0}
+  .chk input{accent-color:#c9d3e4}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+  #stat{position:absolute;top:12px;right:12px;pointer-events:none;text-align:right;
+    font-variant-numeric:tabular-nums;font-size:11px;color:#93a0b3;line-height:1.7;
+    background:rgba(12,15,21,.62);border-radius:9px;padding:7px 11px;
+    border:1px solid rgba(255,255,255,.07)}
+  #stat b{color:#e6e9ef;font-weight:600}
+  #hint{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:10.5px;
+    color:#6f7b8d;pointer-events:none}
+  #loading{position:fixed;inset:0;background:#0a0c10;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:12px;transition:opacity .6s;z-index:9}
+  #loading .k{font-size:22px;letter-spacing:.34em;color:#d8dee9}
+  #status{font-size:11px;color:#79839a;letter-spacing:.06em}
+  #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:#0a0c10;color:#e6e9ef;padding:24px;text-align:center;z-index:10}
+  @media(max-width:560px){#panel{width:calc(100% - 24px)}}
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
 <div id="ui">
   <div id="panel">
-    <h1>日和見 — 千本鳥居<span>SOLAR PROTOTYPE / 34.97&deg;N 135.77&deg;E</span></h1>
-    <div class="row"><label>画質<span></span></label>
-      <select id="qual"><option value="0">低（軽量）</option><option value="1">中</option><option value="2">高</option></select></div>
-    <div class="row"><label>解像度<span id="rscalev">100%</span></label>
-      <input type="range" id="rscale" min="0.5" max="1.3" step="0.05" value="1"></div>
-    <div class="sep">暇 と 日</div>
-    <div class="row"><label>節気<span id="sekkiv"></span></label>
-      <input type="range" id="sekki" min="0" max="23" step="1" value="15"></div>
-    <div class="row"><label>時刻<span id="hourv"></span></label>
-      <input type="range" id="hour" min="0" max="24" step="0.0025" value="6.2"></div>
-    <svg id="sp" viewBox="0 0 212 76" preserveAspectRatio="none">
-      <line id="sp_h" x1="3" y1="64" x2="209" y2="64"></line>
-      <polyline id="sp_s" class="gg"></polyline>
-      <polyline id="sp_w" class="gg"></polyline>
-      <polyline id="sp_c" class="cc"></polyline>
-      <line id="sp_t" class="tt"></line>
-      <circle id="sp_d" class="dd" r="3.2" cx="-9" cy="-9"></circle>
-    </svg>
-    <div id="astro">
-      <i>高度</i><b id="a_el">—</b><i>方位</i><b id="a_az">—</b>
-      <i>影長</i><b id="a_sh">—</b><i>南中</i><b id="a_noon">—</b>
-      <i>日の出</i><b id="a_rise">—</b><i>日の入</i><b id="a_set">—</b>
-    </div>
-    <div class="btns tight">
-      <button data-sekki="3">春分</button><button data-sekki="9">夏至</button>
-      <button data-sekki="15">秋分</button><button data-sekki="21">冬至</button>
-    </div>
-    <div class="btns tight">
-      <button data-when="rise">日の出</button><button data-when="noon">南中</button>
-      <button data-when="set">日の入</button><button id="btnlapse">早送り</button>
-    </div>
-    <div class="btns tight">
-      <button id="btnfly">俯瞰</button><button id="btnzin">拡大</button><button id="btnzout">縮小</button>
-    </div>
-    <div class="sep">見え方</div>
-    <div class="row"><label>露出補正<span id="expov"></span></label>
-      <input type="range" id="expo" min="0.4" max="2.4" step="0.01"></div>
-    <div class="row"><label>路面の濡れ<span id="wetv"></span></label>
-      <input type="range" id="wet" min="0" max="1" step="0.01"></div>
-    <div class="row"><label>靄・光条<span id="fogv"></span></label>
-      <input type="range" id="fog" min="0" max="0.20" step="0.002"></div>
-    <div class="row"><label>画角<span id="fovsv"></span></label>
-      <input type="range" id="fovs" min="20" max="80" step="1"></div>
-    <div class="btns">
-      <button id="btnwalk">自動歩行 ON</button>
-      <button id="btndof">被写界深度 ON</button>
-      <button id="btnshot">撮影</button>
-      <button id="btnhide">隠す</button>
-    </div>
+    <h1>狐人 — キャラクタービューア</h1>
+    <p class="sub">神社は組み込まず、造形だけを見るための版</p>
+
+    <fieldset><legend>ショット</legend>
+      <div class="btns">
+        <button data-shot="full">全身</button>
+        <button data-shot="half">上半身</button>
+        <button data-shot="face">顔</button>
+        <button data-shot="hand">手</button>
+        <button data-shot="foot">足</button>
+        <button data-shot="wide">引き</button>
+      </div>
+      <div class="btns" style="margin-top:6px">
+        <button data-yaw="0">正面</button>
+        <button data-yaw="45">斜め</button>
+        <button data-yaw="90">真横</button>
+        <button data-yaw="180">背面</button>
+      </div>
+      <div class="chk"><input type="checkbox" id="spin"><label for="spin">ターンテーブル（R）</label></div>
+      <div class="row"><label>画角</label><input type="range" id="fovs" min="14" max="60" step="1"><span class="v" id="fovs_v"></span></div>
+    </fieldset>
+
+    <fieldset><legend>表示</legend>
+      <div class="grid2">
+        <div class="chk"><input type="checkbox" id="g_cloth" checked><label for="g_cloth">衣装</label></div>
+        <div class="chk"><input type="checkbox" id="g_hair" checked><label for="g_hair">髪</label></div>
+        <div class="chk"><input type="checkbox" id="g_ears" checked><label for="g_ears">耳</label></div>
+        <div class="chk"><input type="checkbox" id="g_tail" checked><label for="g_tail">尾</label></div>
+      </div>
+    </fieldset>
+
+    <fieldset><legend>光</legend>
+      <div class="row"><label>時刻</label><input type="range" id="hour" min="0" max="24" step="0.02"><span class="v" id="hour_v"></span></div>
+      <div class="row"><label>節気</label><input type="range" id="sekki" min="0" max="23" step="1"><span class="v" id="sekki_v"></span></div>
+      <div class="row"><label>露出</label><input type="range" id="expo" min="0.4" max="2.4" step="0.01"><span class="v" id="expo_v"></span></div>
+    </fieldset>
+
+    <fieldset><legend>描画</legend>
+      <div class="row"><label>解像度</label><input type="range" id="rscale" min="0.5" max="1.6" step="0.05"><span class="v" id="rscale_v"></span></div>
+      <div class="chk"><input type="checkbox" id="dof" checked><label for="dof">被写界深度</label></div>
+      <div class="btns"><select id="qual"><option value="0">低</option><option value="1">中</option><option value="2">高</option></select></div>
+    </fieldset>
   </div>
-  <div id="tab">☰</div>
-  <div id="fps"></div>
-  <div id="hint">WASD 歩く（Shift 走る） ／ ホイール 拡大縮小 ／ F 俯瞰 ／ Q・E 時刻 ／ Z・X 節気 ／ K 狐人 ／ G 参道へ</div>
-  <div id="hud">
-    <div id="curseRow"><i>呪</i><div id="curseWrap"><div id="curseBar"></div></div></div>
-    <div id="hudInfo"><span id="hudCount">—</span><span id="hudBell">鈴</span></div>
+
+  <div id="stat">
+    <div><b id="fps">—</b></div>
+    <div>三角形 <b id="a_tri">—</b></div>
+    <div>距離 <b id="a_cam">—</b></div>
+    <div><b id="a_hm">—</b> / <b id="a_sk">—</b></div>
+    <div>高度 <b id="a_el">—</b> 方位 <b id="a_az">—</b></div>
   </div>
+  <div id="hint">ドラッグで回転 / ホイールで寄り引き / 1–6 ショット / R ターンテーブル / H パネル</div>
 </div>
-<div id="joy"><div id="joyknob"></div></div>
-<div id="loading"><div class="k">日和見</div><div id="status">初期化中…</div></div>
+<div id="loading"><div class="k">狐人</div><div id="status">初期化中…</div></div>
 <div id="err">お使いのブラウザは WebGL2 に対応していません。</div>
 <script>
-(function(){
-"use strict";
 /* ==== a_core.js ==== */
 /* =========================================================================
    CORE : math, GL helpers, geometry builders
@@ -2527,9 +2490,14 @@ in vec2 vUV; out vec4 outC;
 void main(){ outC = texture(uTex,vUV); }
 `;
 
-/* ==== c_scene.js ==== */
+/* ==== c_studio.js ==== */
 /* =========================================================================
-   SCENE : 伏見稲荷大社 千本鳥居 — geometry construction
+   STUDIO : キャラクターだけを見るための最小の世界
+
+   本編の伏見稲荷は丸ごと外してある。残っているのは、キャラクターが
+   立つ床と、レンダラが世界に対して尋ねてくる数個の口だけ。地面が平ら
+   だと接地とプロポーションの誤りがそのまま出るので、評価用としては
+   境内より正確でもある。
    ========================================================================= */
 
 const MAT = {
@@ -2548,582 +2516,73 @@ const MAT = {
   CLOTH: 22                              // 布 — toon cloth
 };
 
-/* ---------------- path through the mountain ---------------- */
-const PATH_LEN = 210;
-/* scalar forms: the sun occlusion march calls these tens of thousands of
-   times a second and must not allocate */
-const pathXAt = t => 7.2 * Math.sin(t * 0.0455) + 3.1 * Math.sin(t * 0.0192 + 1.35) - 0.35 * Math.sin(t * 0.061);
-const pathYAt = t => t * 0.055 + 0.5 * Math.sin(t * 0.035 + 0.4) + 0.20 * Math.sin(t * 0.09);
-function pathPos(t) { return [pathXAt(t), pathYAt(t), t]; }
-function pathTan(t) {
-  const a = pathPos(t - 0.25), b = pathPos(t + 0.25);
-  return norm(sub(b, a));
-}
-function pathRight(t) {
-  const tg = pathTan(t);
-  return norm(cross([0, 1, 0], tg));   // points to -X-ish for tg=+Z  => actually +X
-}
-function pathY(t) { return pathPos(t)[1]; }
 
-/* ---------------- TORII (稲荷鳥居 / 台輪鳥居) ---------------- */
-function buildTorii(detail) {
-  const g = new Geo();
-  const RS = detail ? 22 : 8;                 // radial segments
-  const CS = detail ? 3 : 1;                  // corner segments of sections
-  const SW = detail ? 11 : 4;                 // sweep path nodes
+/* the renderer asks the world for these; here they are trivial */
+const KY = { lights: [], list: [] };
+const WORLD = {
+  areas: [], boxes: [],
+  groundAt(x, z) { return { y: 0, solid: true }; },
+  resolve(p, r) { }
+};
+function keidaiGroundY(x, z) { return 0; }
+function groundHeightAt(x, z) { return { y: 0, s: 0, t: 0 }; }
 
-  const clear = 1.86;                          // inner clear width
-  const rBase = 0.152, rTop = 0.126;
-  const px = clear * 0.5 + rBase;              // pillar centre x
-  const hPillar = 2.90;
-  const lean = 0.022;                          // inward lean (radians)
-
-  // ---- stone plinth ----
-  const plinth = roundedBox(0.50, 0.20, 0.50, 0.025, detail ? 2 : 1, { mat: MAT.GRANITE, uScale: 0.5, vScale: 0.5 });
-  // ---- black root wrap (根巻) ----
-  const nemakiProf = [
-    [0.0, 0.075], [0.175, 0.075], [0.186, 0.10], [0.186, 0.40], [0.176, 0.425], [0.0, 0.425]
-  ].map(p => [p[0], p[1], p[1] * 1.4]);
-  const nemaki = lathe(nemakiProf, RS, { mat: MAT.BLACK, uScale: 1.0 });
-
-  // ---- pillar ----
-  const prof = [];
-  prof.push([0.0, 0.40, 0.0]);
-  prof.push([rBase * 0.99, 0.40, 0.0]);
-  for (let i = 0; i <= (detail ? 7 : 2); i++) {
-    const k = i / (detail ? 7 : 2);
-    const y = lerp(0.40, hPillar - 0.05, k);
-    const r = lerp(rBase, rTop, k) * (1 + 0.004 * Math.sin(k * 9));
-    prof.push([r, y, y * 0.55]);
-  }
-  prof.push([rTop * 0.97, hPillar - 0.012, hPillar * 0.55]);
-  prof.push([rTop * 0.90, hPillar, hPillar * 0.55]);
-  prof.push([0.0, hPillar + 0.004, hPillar * 0.55]);
-  const pillar = lathe(prof, RS, { mat: MAT.VERMILLION, uScale: 1.0 });
-
-  // ---- daiwa (台輪) : square collar under the nuki-top ----
-  const daiwa = roundedBox(0.46, 0.085, 0.46, 0.014, detail ? 2 : 1, { mat: MAT.VERMILLION, uScale: 0.4, vScale: 0.12 });
-
-  const m = M4.create();
-  for (const sgn of [-1, 1]) {
-    const x0 = sgn * px;
-    // plinth
-    M4.compose(m, [x0, 0.06, 0], 0, [1, 1, 1]);
-    g.merge(plinth, m);
-    // leaning column parts : rotate about Z so the top tips inward
-    const rz = -sgn * lean;
-    M4.compose(m, [x0, 0, 0], 0, [1, 1, 1], 0, rz);
-    g.merge(nemaki, m);
-    g.merge(pillar, m);
-    const dy = 2.40;
-    M4.compose(m, [x0 - sgn * Math.sin(lean) * dy, dy, 0], 0, [1, 1, 1], 0, rz);
-    g.merge(daiwa, m);
-  }
-
-  // ---- nuki (貫) : through-beam ----
-  const nukiLen = px * 2 + 0.66;
-  const nukiSec = roundedRect(0.175, 0.235, 0.022, CS);
-  const nukiPath = [];
-  for (let i = 0; i <= SW; i++) {
-    const k = i / SW, x = lerp(-nukiLen / 2, nukiLen / 2, k);
-    const taper = 1.0 - 0.10 * smoothstep(0.80, 1.0, Math.abs(k * 2 - 1));
-    nukiPath.push({ p: [x, 1.94, 0], sx: taper, sy: taper });
-  }
-  g.merge(sweep(nukiPath, nukiSec, { mat: MAT.VERMILLION, uScale: 0.55, vScale: 0.30 }));
-
-  // ---- kusabi (楔) wedges either side of each pillar ----
-  const kus = roundedBox(0.075, 0.20, 0.20, 0.012, 1, { mat: MAT.VERMILLION, uScale: 0.2, vScale: 0.2 });
-  for (const sgn of [-1, 1]) for (const o of [-1, 1]) {
-    M4.compose(m, [sgn * px + o * (rBase + 0.05), 1.94, 0], 0, [1, 1.06, 1]);
-    g.merge(kus, m);
-  }
-
-  // ---- shimaki (島木) : thick curved beam ----
-  const shLen = px * 2 + 1.06;
-  const sori = 0.155;
-  const shSec = roundedRect(0.315, 0.225, 0.028, CS);
-  const shPath = [];
-  for (let i = 0; i <= SW * 2; i++) {
-    const k = i / (SW * 2), u = k * 2 - 1;
-    const x = u * shLen / 2;
-    const y = 2.735 + sori * u * u * 0.55;
-    const endTaper = 1.0 - 0.16 * smoothstep(0.86, 1.0, Math.abs(u));
-    shPath.push({ p: [x, y, 0], sx: endTaper, sy: 1.0 - 0.28 * smoothstep(0.90, 1.0, Math.abs(u)) });
-  }
-  g.merge(sweep(shPath, shSec, { mat: MAT.VERMILLION, uScale: 0.5, vScale: 0.28 }));
-
-  // ---- kasagi (笠木) : top beam, more sori, dark upper face ----
-  const kaLen = px * 2 + 1.34;
-  const kaSec = roundedRect(0.375, 0.135, 0.026, CS);
-  const kaPath = [];
-  for (let i = 0; i <= SW * 2; i++) {
-    const k = i / (SW * 2), u = k * 2 - 1;
-    const x = u * kaLen / 2;
-    const y = 2.955 + (sori * 1.35) * u * u * 0.62;
-    const endT = 1.0 - 0.13 * smoothstep(0.84, 1.0, Math.abs(u));
-    kaPath.push({ p: [x, y, 0], sx: endT, sy: 1.0 - 0.34 * smoothstep(0.88, 1.0, Math.abs(u)) });
-  }
-  g.merge(sweep(kaPath, kaSec, { mat: MAT.BLACK, uScale: 0.5, vScale: 0.26 }));
-
-  // ---- gakuzuka (額束) centre strut ----
-  const gz = roundedBox(0.145, 0.60, 0.185, 0.016, 1, { mat: MAT.VERMILLION, uScale: 0.15, vScale: 0.5 });
-  M4.compose(m, [0, 2.35, 0], 0, [1, 1, 1]);
-  g.merge(gz, m);
-
-  return g;
-}
-
-/* ---------------- inscription decal strips on the pillar faces ---------------- */
-function buildInscriptionDecals() {
-  const g = new Geo();
-  const clear = 1.86, rBase = 0.152, rTop = 0.126;
-  const px = clear * 0.5 + rBase;
-  const y0 = 0.62, y1 = 2.16;
-  const seg = 5, rows = 6;
-  const half = 0.52;                       // arc half-angle (rad)
-  for (const sgn of [-1, 1]) {
-    const vBase = sgn < 0 ? 0.0 : 0.5;     // atlas row: left pillar / right pillar
-    const grid = [];
-    for (let r = 0; r <= rows; r++) {
-      const line = [];
-      const ky = r / rows;
-      const y = lerp(y0, y1, ky);
-      const rad = lerp(rBase, rTop, (y - 0.4) / 2.5) + 0.008;
-      for (let i = 0; i <= seg; i++) {
-        const k = i / seg;
-        const a = -PI / 2 + lerp(-half, half, k);   // centred on -Z
-        const cx = sgn * px + Math.sin(a + PI / 2) * 0 + Math.cos(a) * rad;
-        const cz = Math.sin(a) * rad;
-        const nx = Math.cos(a), nz = Math.sin(a);
-        line.push(g.push(cx, y, cz, nx, 0, nz, k, vBase + ky * 0.5, MAT.VERMILLION));
-      }
-      grid.push(line);
-    }
-    for (let r = 0; r < rows; r++) for (let i = 0; i < seg; i++)
-      g.quad(grid[r][i], grid[r][i + 1], grid[r + 1][i + 1], grid[r + 1][i]);
-  }
-  return g;
-}
-
-/* ---------------- ground: path surface + banks ---------------- */
-function bankHeight(s) {
-  const a = Math.abs(s);
-  if (a < 1.42) return -0.010 * a * a;
-  const k = a - 1.42;
-  // shallow gutter, then a steep wooded slope
-  return -0.02 + 0.42 * Math.min(k, 0.55) / 0.55
-    + 0.92 * Math.max(Math.min(k, 7.0) - 0.55, 0)
-    + 0.62 * Math.max(k - 7.0, 0);
-}
-function groundNoise(s, t) {
-  const n = Math.sin(s * 2.3 + t * 0.7) * 0.012 + Math.sin(t * 1.7 - s * 1.1) * 0.010 + Math.sin(t * 0.31 + s * 0.5) * 0.03;
-  return n;
-}
-
-/* CORRIDOR_T0 is the seam with the precinct. Nothing the corridor scatters
-   may reach back past it or it lands in the plaza. */
-const CORRIDOR_T0 = 1.0;
-function buildGroundStrip(sMin, sMax, matId, nS, tStep, yOff, uvScale) {
-  const g = new Geo();
-  const rows = [];
-  for (let t = CORRIDOR_T0; t <= PATH_LEN + 12; t += tStep) {
-    const P = pathPos(t), R = pathRight(t);
+/* ---------------- the set ----------------
+   A flat plaza, and a low stone dais under the character. The dais is not
+   decoration: a contact shadow against a known plane is the fastest way to
+   see whether the feet are actually on the ground.                        */
+function buildPlane(size, n, mat, uv) {
+  const g = new Geo(), idx = [];
+  for (let i = 0; i <= n; i++) {
     const row = [];
-    for (let i = 0; i <= nS; i++) {
-      const s = lerp(sMin, sMax, i / nS);
-      const h = bankHeight(s) + groundNoise(s, t) * (Math.abs(s) > 1.4 ? 3.0 : 1.0);
-      const x = P[0] + R[0] * s, z = P[2] + R[2] * s;
-      const y = P[1] + h + yOff;
-      row.push({ x, y, z, s, t });
+    for (let j = 0; j <= n; j++) {
+      const x = (j / n - 0.5) * size, z = (i / n - 0.5) * size;
+      row.push(g.push(x, 0, z, 0, 1, 0, (x / size + 0.5) * uv, (z / size + 0.5) * uv, mat));
     }
-    rows.push(row);
+    idx.push(row);
   }
-  const ids = [];
-  for (let r = 0; r < rows.length; r++) {
-    const row = [];
-    for (let i = 0; i < rows[r].length; i++) {
-      const c = rows[r][i];
-      // normal by neighbours
-      const cL = rows[r][Math.max(i - 1, 0)], cR = rows[r][Math.min(i + 1, rows[r].length - 1)];
-      const cD = rows[Math.max(r - 1, 0)][i], cU = rows[Math.min(r + 1, rows.length - 1)][i];
-      const du = [cR.x - cL.x, cR.y - cL.y, cR.z - cL.z];
-      const dv = [cU.x - cD.x, cU.y - cD.y, cU.z - cD.z];
-      const n = norm(cross(dv, du));
-      if (n[1] < 0) { n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2]; }
-      row.push(g.push(c.x, c.y, c.z, n[0], n[1], n[2], c.s * uvScale, c.t * uvScale, matId));
-    }
-    ids.push(row);
-  }
-  for (let r = 0; r < ids.length - 1; r++)
-    for (let i = 0; i < ids[r].length - 1; i++)
-      g.quad(ids[r][i], ids[r + 1][i], ids[r + 1][i + 1], ids[r][i + 1]);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++)
+    g.quad(idx[i][j], idx[i + 1][j], idx[i + 1][j + 1], idx[i][j + 1]);
   return g;
 }
 
-/* ---------------- stone lantern (石灯籠) ---------------- */
-function buildLantern(detail) {
-  const g = new Geo(); const RS = detail ? 16 : 8; const m = M4.create();
-  const P = (r, y) => [r, y, y * 0.8];
-  // base
-  g.merge(lathe([P(0, 0), P(0.30, 0), P(0.32, 0.05), P(0.30, 0.14), P(0.22, 0.18), P(0.20, 0.24), P(0, 0.24)], RS, { mat: MAT.GRANITE }));
-  // shaft
-  g.merge(lathe([P(0, 0.24), P(0.115, 0.24), P(0.105, 0.55), P(0.118, 0.86), P(0.10, 0.92), P(0, 0.92)], RS, { mat: MAT.GRANITE }));
-  // platform
-  g.merge(lathe([P(0, 0.92), P(0.20, 0.94), P(0.26, 1.00), P(0.24, 1.06), P(0.16, 1.09), P(0, 1.09)], RS, { mat: MAT.GRANITE }));
-  // fire box: 4 corner posts + top ring
-  const post = roundedBox(0.055, 0.36, 0.055, 0.008, 1, { mat: MAT.GRANITE });
-  for (let i = 0; i < 4; i++) {
-    const a = i / 4 * TAU + PI / 4;
-    M4.compose(m, [Math.cos(a) * 0.145, 1.27, Math.sin(a) * 0.145], 0, [1, 1, 1]);
-    g.merge(post, m);
+function buildDais(r, h, seg, mat) {
+  const g = new Geo(), top = [], bot = [];
+  for (let j = 0; j <= seg; j++) {
+    const a = (j / seg) * TAU, c = Math.cos(a), s = Math.sin(a);
+    top.push(g.push(r * c, h, r * s, 0, 1, 0, 0.5 + c * 0.5, 0.5 + s * 0.5, mat));
+    bot.push(g.push(r * c, 0, r * s, 0, 1, 0, 0.5 + c * 0.5, 0.5 + s * 0.5, mat));
   }
-  g.merge(lathe([P(0, 1.09), P(0.175, 1.09), P(0.175, 1.13), P(0, 1.13)], RS, { mat: MAT.GRANITE }));
-  g.merge(lathe([P(0, 1.44), P(0.185, 1.44), P(0.185, 1.49), P(0, 1.49)], RS, { mat: MAT.GRANITE }));
-  // roof
-  g.merge(lathe([P(0, 1.49), P(0.16, 1.50), P(0.34, 1.60), P(0.40, 1.70), P(0.38, 1.76), P(0.30, 1.80), P(0.14, 1.83), P(0, 1.84)], RS, { mat: MAT.GRANITE }));
-  // finial
-  g.merge(lathe([P(0, 1.83), P(0.07, 1.86), P(0.085, 1.92), P(0.055, 1.99), P(0.03, 2.03), P(0, 2.05)], RS, { mat: MAT.GRANITE }));
+  const ctr = g.push(0, h, 0, 0, 1, 0, 0.5, 0.5, mat);
+  for (let j = 0; j < seg; j++) g.tri(ctr, top[j], top[j + 1]);
+  // the rim, with its own normals so it catches a highlight
+  const rt = [], rb = [];
+  for (let j = 0; j <= seg; j++) {
+    const a = (j / seg) * TAU, c = Math.cos(a), s = Math.sin(a);
+    rt.push(g.push(r * c, h, r * s, c, 0, s, (j / seg) * 6, 0, mat));
+    rb.push(g.push(r * c, 0, r * s, c, 0, s, (j / seg) * 6, 0.5, mat));
+  }
+  for (let j = 0; j < seg; j++) g.quad(rt[j], rb[j], rb[j + 1], rt[j + 1]);
   return g;
 }
 
-/* ---------------- cedar trunk ---------------- */
-function buildTrunk(detail) {
-  const RS = detail ? 12 : 6;
-  const prof = [];
-  const H = 17.0;
-  for (let i = 0; i <= (detail ? 9 : 3); i++) {
-    const k = i / (detail ? 9 : 3);
-    const y = k * H;
-    let r = lerp(0.42, 0.13, Math.pow(k, 0.72));
-    r *= 1 + 0.06 * Math.sin(k * 11) + 0.10 * Math.exp(-k * 14);
-    prof.push([r, y, y * 0.30]);
-  }
-  prof.push([0.02, H + 0.4, H * 0.30]);
-  return lathe(prof, RS, { mat: MAT.BARK, uScale: 1.6 });
-}
-
-/* ---------------- canopy cluster : crossed cards of cedar foliage ---------------- */
-function buildCanopyClump(seed, n) {
-  const g = new Geo();
-  const rnd = mulberry32(seed);
-  for (let i = 0; i < n; i++) {
-    const a = rnd() * TAU;
-    const tilt = (rnd() - 0.5) * 1.1;
-    const w = 1.5 + rnd() * 2.2, h = 1.2 + rnd() * 1.9;
-    const cx = (rnd() - 0.5) * 2.4, cy = (rnd() - 0.5) * 1.9, cz = (rnd() - 0.5) * 2.4;
-    const ux = Math.cos(a), uz = Math.sin(a);
-    const vx = -Math.sin(a) * Math.sin(tilt), vy = Math.cos(tilt), vz = Math.cos(a) * Math.sin(tilt);
-    const nx = uz * vy - 0 * vz, ny = 0 * vx - ux * vz, nz = ux * vy - uz * vx;
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    const N = [nx / nl, ny / nl, nz / nl];
-    const P = (sx, sy) => g.push(
-      cx + ux * sx * w * 0.5 + vx * sy * h * 0.5,
-      cy + vy * sy * h * 0.5,
-      cz + uz * sx * w * 0.5 + vz * sy * h * 0.5,
-      N[0], N[1], N[2], sx * 0.5 + 0.5, sy * 0.5 + 0.5, MAT.FOLIAGE);
-    const a0 = P(-1, -1), b0 = P(1, -1), c0 = P(1, 1), d0 = P(-1, 1);
-    g.quad(a0, b0, c0, d0);
-    g.quad(d0, c0, b0, a0);
-  }
-  return g;
-}
-
-/* ---------------- foliage card (fern / undergrowth) ---------------- */
-function buildFernClump() {
-  const g = new Geo();
-  const rnd = mulberry32(7331);
-  for (let i = 0; i < 7; i++) {
-    const a = rnd() * TAU;
-    const len = 0.42 + rnd() * 0.55;
-    const w = 0.13 + rnd() * 0.10;
-    const bend = 0.35 + rnd() * 0.5;
-    const seg = 5;
-    const dirx = Math.cos(a), dirz = Math.sin(a);
-    const rows = [];
-    for (let j = 0; j <= seg; j++) {
-      const k = j / seg;
-      const y = len * k - bend * len * k * k * 0.9;
-      const rr = len * k * 0.8;
-      const cx = dirx * rr, cz = dirz * rr;
-      const nx = -dirz, nz = dirx;
-      const hw = w * (1 - k * 0.15) * 0.5;
-      const nrm = norm([dirx * 0.35 + 0, 0.9, dirz * 0.35]);
-      rows.push([
-        g.push(cx - nx * hw, y, cz - nz * hw, nrm[0], nrm[1], nrm[2], 0, k, MAT.FOLIAGE),
-        g.push(cx + nx * hw, y, cz + nz * hw, nrm[0], nrm[1], nrm[2], 1, k, MAT.FOLIAGE)
-      ]);
-    }
-    for (let j = 0; j < seg; j++) {
-      g.quad(rows[j][0], rows[j][1], rows[j + 1][1], rows[j + 1][0]);
-      g.quad(rows[j + 1][0], rows[j + 1][1], rows[j][1], rows[j][0]);
-    }
-  }
-  return g;
-}
-
-/* ---------------- fallen leaf ---------------- */
-function buildLeaf() {
-  const g = new Geo();
-  const w = 0.055, l = 0.085;
-  const n = [0, 1, 0];
-  const a = g.push(-w, 0, -l, n[0], n[1], n[2], 0, 0, MAT.MOSS);
-  const b = g.push(w, 0.004, -l, n[0], n[1], n[2], 1, 0, MAT.MOSS);
-  const c = g.push(w, 0.008, l, n[0], n[1], n[2], 1, 1, MAT.MOSS);
-  const d = g.push(-w, 0.002, l, n[0], n[1], n[2], 0, 1, MAT.MOSS);
-  g.quad(a, b, c, d);
-  return g;
-}
-
-/* ---------------- fox (狐) — simplified seated form ---------------- */
-function buildFox() {
-  const g = new Geo(); const m = M4.create(); const RS = 12;
-  const P = (r, y) => [r, y, y];
-  // pedestal
-  g.merge(roundedBox(0.62, 0.50, 0.52, 0.03, 2, { mat: MAT.GRANITE }), M4.compose(m, [0, 0.25, 0], 0, [1, 1, 1]));
-  // haunches / body: tapered lathe leaning forward
-  const body = lathe([P(0, 0), P(0.17, 0.02), P(0.19, 0.16), P(0.165, 0.36), P(0.125, 0.56), P(0.10, 0.66), P(0, 0.68)], RS, { mat: MAT.GRANITE });
-  g.merge(body, M4.compose(m, [0, 0.50, 0.02], 0, [1.0, 1.0, 1.25], 0.12, 0));
-  // chest
-  g.merge(lathe([P(0, 0), P(0.12, 0.04), P(0.13, 0.20), P(0.10, 0.34), P(0, 0.38)], RS, { mat: MAT.GRANITE }),
-    M4.compose(m, [0, 0.72, 0.14], 0, [1, 1, 1.1]));
-  // head
-  g.merge(lathe([P(0, 0), P(0.085, 0.02), P(0.098, 0.10), P(0.082, 0.19), P(0.045, 0.235), P(0, 0.245)], RS, { mat: MAT.GRANITE }),
-    M4.compose(m, [0, 1.03, 0.13], 0, [1.05, 1, 1.15], -0.15, 0));
-  // muzzle
-  g.merge(lathe([P(0, 0), P(0.052, 0.01), P(0.045, 0.10), P(0.028, 0.16), P(0, 0.17)], RS, { mat: MAT.GRANITE }),
-    M4.compose(m, [0, 1.09, 0.20], 0, [1, 1, 1], 1.25, 0));
-  // ears
-  for (const sx of [-1, 1])
-    g.merge(lathe([P(0, 0), P(0.048, 0.01), P(0.030, 0.10), P(0, 0.175)], 8, { mat: MAT.GRANITE }),
-      M4.compose(m, [sx * 0.055, 1.20, 0.10], 0, [1, 1, 0.55], -0.18, sx * 0.20));
-  // front legs
-  for (const sx of [-1, 1])
-    g.merge(lathe([P(0, 0), P(0.045, 0.02), P(0.040, 0.30), P(0.055, 0.40), P(0, 0.42)], 10, { mat: MAT.GRANITE }),
-      M4.compose(m, [sx * 0.075, 0.50, 0.20], 0, [1, 1, 1], -0.06, 0));
-  // tail: sweep curving up behind
-  const tp = [];
-  for (let i = 0; i <= 8; i++) {
-    const k = i / 8;
-    tp.push({ p: [0, 0.52 + k * 0.72 - 0.12 * Math.sin(k * 2.4), -0.16 - 0.20 * Math.sin(k * 1.7)], sx: 1 - k * 0.35, sy: 1 - k * 0.35 });
-  }
-  g.merge(sweep(tp, roundedRect(0.13, 0.15, 0.05, 3), { mat: MAT.GRANITE, uScale: 0.5, vScale: 0.5 }));
-  return g;
-}
-
-/* =========================================================================
-   Scene assembly
-   ========================================================================= */
 function buildScene(quality) {
-  const rnd = mulberry32(20240815);
-  const draws = [];
-  const shadowDraws = [];
-  const lights = [];
-
+  const draws = [], shadowDraws = [], lights = [];
   const detail = quality >= 2;
-  const toriiSpacingBase = quality >= 2 ? 0.545 : 0.70;
 
-  /* -------- torii -------- */
-  const toriiGeo = buildTorii(true);
-  const toriiLow = buildTorii(false);
-  const toriiMesh = new Mesh(toriiGeo);
-  const toriiShadow = new Mesh(toriiLow);
-  const inst = [];
-  let t = 1.0;
-  while (t < PATH_LEN) {
-    const P = pathPos(t), T = pathTan(t);
-    const ry = Math.atan2(T[0], T[2]);
-    const big = rnd() < 0.07;
-    const scale = (big ? 1.14 + rnd() * 0.12 : 0.93 + rnd() * 0.14);
-    const wide = 0.96 + rnd() * 0.11;
-    const m = M4.create();
-    // torii plane is XY in local space, path direction is +Z -> rotate so local +X is lateral
-    M4.compose(m, [P[0], P[1] - 0.03, P[2]], ry, [scale * wide, scale, scale],
-      0, (rnd() - 0.5) * 0.014);
-    const age = Math.pow(rnd(), 0.8);
-    const tint = [
-      1.06 - age * 0.36 + (rnd() - 0.5) * 0.10,
-      1.00 - age * 0.16 + (rnd() - 0.5) * 0.09,
-      0.98 - age * 0.06 + (rnd() - 0.5) * 0.09,
-      rnd()
-    ];
-    inst.push({ m, tint, t });
-    // occasional break in the run — light floods in through the gap
-    const gapRoll = rnd();
-    if (gapRoll < 0.030) t += 1.5 + rnd() * 2.6;
-    else if (gapRoll < 0.075) t += 0.5 + rnd() * 0.7;
-    t += toriiSpacingBase + rnd() * 0.14;
-  }
-  R.toriiTs = inst.map(o => o.t);      // the sun occlusion model reads these
-  toriiMesh.setInstances(inst);
-  toriiShadow.setInstances(inst);
-  draws.push({ mesh: toriiMesh, name: 'torii' });
-  shadowDraws.push({ mesh: toriiShadow });
+  const floor = new Mesh(buildPlane(90, detail ? 48 : 16, MAT.STONE, 26));
+  draws.push({ mesh: floor, name: 'floor' });
+  shadowDraws.push({ mesh: floor });
 
-  const decalMesh = new Mesh(buildInscriptionDecals());
-  decalMesh.setInstances(inst);
-  draws.push({ mesh: decalMesh, name: 'decals', decal: 1, normalStrength: 0.0 });
+  const dais = new Mesh(buildDais(1.65, 0.075, detail ? 72 : 24, MAT.GRANITE));
+  draws.push({ mesh: dais, name: 'dais' });
+  shadowDraws.push({ mesh: dais });
 
-  /* -------- ground -------- */
-  const pathGeo = buildGroundStrip(-1.45, 1.45, MAT.STONE, quality >= 2 ? 12 : 6, quality >= 2 ? 0.45 : 0.9, 0.0, 0.60);
-  const pathMesh = new Mesh(pathGeo);
-  draws.push({ mesh: pathMesh, name: 'path' });
+  for (const m of [floor, dais]) m.setInstances([{ m: M4.create(), tint: [1, 1, 1, 0.3] }]);
 
-  const bankL = buildGroundStrip(-13.0, -1.30, MAT.MOSS, quality >= 2 ? 16 : 8, quality >= 2 ? 0.9 : 1.8, -0.02, 0.30);
-  const bankR = buildGroundStrip(1.30, 13.0, MAT.MOSS, quality >= 2 ? 16 : 8, quality >= 2 ? 0.9 : 1.8, -0.02, 0.30);
-  const farL = buildGroundStrip(-46.0, -12.6, MAT.MOSS, 7, 4.0, -0.02, 0.16);
-  const farR = buildGroundStrip(12.6, 46.0, MAT.MOSS, 7, 4.0, -0.02, 0.16);
-  const bankGeo = new Geo(); bankGeo.merge(bankL); bankGeo.merge(bankR); bankGeo.merge(farL); bankGeo.merge(farR);
-  const bankMesh = new Mesh(bankGeo);
-  draws.push({ mesh: bankMesh, name: 'bank' });
-  shadowDraws.push({ mesh: bankMesh });
-  shadowDraws.push({ mesh: pathMesh });
-
-  /* -------- kerb stones along the path edge -------- */
-  const kerbGeo = roundedBox(0.20, 0.22, 0.55, 0.02, 1, { mat: MAT.GRANITE, uScale: 0.3, vScale: 0.5 });
-  const kerbMesh = new Mesh(kerbGeo);
-  const kerbInst = [];
-  for (let tt = CORRIDOR_T0; tt < PATH_LEN + 6; tt += 0.62) {
-    const P = pathPos(tt), R = pathRight(tt), T = pathTan(tt);
-    const ry = Math.atan2(T[0], T[2]);
-    for (const sgn of [-1, 1]) {
-      const s = sgn * (1.40 + rnd() * 0.05);
-      const m = M4.create();
-      M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.06 + (rnd() - .5) * 0.02, P[2] + R[2] * s],
-        ry + (rnd() - .5) * 0.09, [1, 0.85 + rnd() * 0.4, 1]);
-      kerbInst.push({ m, tint: [0.85 + rnd() * 0.3, 0.85 + rnd() * 0.3, 0.85 + rnd() * 0.3, rnd()], t: tt });
-    }
-  }
-  kerbMesh.setInstances(kerbInst);
-  draws.push({ mesh: kerbMesh, name: 'kerb' });
-  shadowDraws.push({ mesh: kerbMesh });
-
-  /* -------- cedar trunks -------- */
-  const trunkMesh = new Mesh(buildTrunk(detail));
-  const trunkLow = new Mesh(buildTrunk(false));
-  const trunkInst = [];
-  for (let tt = CORRIDOR_T0 + 1.0; tt < PATH_LEN + 30; tt += 1.05) {
-    for (const sgn of [-1, 1]) {
-      if (rnd() > 0.72) continue;
-      const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);
-      const P = pathPos(tt + (rnd() - .5) * 2.2), R = pathRight(tt);
-      const m = M4.create();
-      const sc = 0.7 + rnd() * 0.75;
-      M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.25, P[2] + R[2] * s],
-        rnd() * TAU, [sc, sc * (0.8 + rnd() * 0.5), sc], (rnd() - .5) * 0.09, (rnd() - .5) * 0.09);
-      trunkInst.push({ m, tint: [0.8 + rnd() * 0.45, 0.8 + rnd() * 0.4, 0.8 + rnd() * 0.4, rnd()], t: tt });
-    }
-  }
-  trunkMesh.setInstances(trunkInst); trunkLow.setInstances(trunkInst);
-  draws.push({ mesh: trunkMesh, name: 'trunks' });
-  shadowDraws.push({ mesh: trunkLow });
-
-  /* -------- canopy overhead : closes the sky and breaks the light -------- */
-  const canopyMesh = new Mesh(buildCanopyClump(4711, detail ? 9 : 5));
-  const canopyInst = [];
-  const canopyCount = quality >= 2 ? 1150 : 480;
-  for (let i = 0; i < canopyCount; i++) {
-    const tt = -16 + rnd() * (PATH_LEN + 40);
-    const s = (rnd() - 0.5) * 40.0;
-    const P = pathPos(tt), Rp = pathRight(tt);
-    const base = P[1] + bankHeight(Math.abs(s));
-    // hug the corridor: lower over the path, higher out on the slopes
-    const hgt = base + 5.0 + rnd() * 9.0 + Math.abs(s) * 0.32;
-    const m = M4.create();
-    const sc = 1.0 + rnd() * 1.9;
-    M4.compose(m, [P[0] + Rp[0] * s, hgt, P[2] + Rp[2] * s], rnd() * TAU,
-      [sc, sc * (0.75 + rnd() * 0.6), sc], (rnd() - .5) * 0.4, (rnd() - .5) * 0.4);
-    canopyInst.push({ m, tint: [0.55 + rnd() * 0.75, 0.65 + rnd() * 0.6, 0.5 + rnd() * 0.6, rnd()], t: tt });
-  }
-  canopyMesh.setInstances(canopyInst);
-  draws.push({ mesh: canopyMesh, name: 'canopy', alphaMask: 1, wind: 0.012, twoSided: true, normalStrength: 0.0 });
-  shadowDraws.push({ mesh: canopyMesh, alphaMask: 1, wind: 0.012, twoSided: true });
-
-  /* -------- undergrowth -------- */
-  const fernMesh = new Mesh(buildFernClump());
-  const fernInst = [];
-  const fernCount = quality >= 2 ? 1500 : 600;
-  for (let i = 0; i < fernCount; i++) {
-    const tt = -6 + rnd() * (PATH_LEN + 20);
-    const sgn = rnd() < 0.5 ? -1 : 1;
-    const s = sgn * (1.95 + Math.pow(rnd(), 0.7) * 10.0);
-    const P = pathPos(tt), R = pathRight(tt);
-    const m = M4.create();
-    const sc = 0.6 + rnd() * 0.9;
-    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.04, P[2] + R[2] * s],
-      rnd() * TAU, [sc, sc * (0.8 + rnd() * 0.6), sc]);
-    fernInst.push({ m, tint: [0.6 + rnd() * 0.7, 0.75 + rnd() * 0.5, 0.55 + rnd() * 0.5, rnd()], t: tt });
-  }
-  fernMesh.setInstances(fernInst);
-  draws.push({ mesh: fernMesh, name: 'ferns', alphaMask: 1, wind: 0.05, twoSided: true });
-  shadowDraws.push({ mesh: fernMesh, alphaMask: 1, wind: 0.05, twoSided: true });
-
-  /* -------- fallen leaves -------- */
-  const leafMesh = new Mesh(buildLeaf());
-  const leafInst = [];
-  const leafCount = quality >= 2 ? 2400 : 900;
-  for (let i = 0; i < leafCount; i++) {
-    const tt = -4 + rnd() * (PATH_LEN + 14);
-    const s = (rnd() - 0.5) * 9.0;
-    const onPath = Math.abs(s) < 1.4;
-    if (onPath && rnd() > 0.35) continue;
-    const P = pathPos(tt), R = pathRight(tt);
-    const m = M4.create();
-    const sc = 0.7 + rnd() * 0.9;
-    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) + 0.012, P[2] + R[2] * s],
-      rnd() * TAU, [sc, 1, sc], (rnd() - .5) * 0.5, (rnd() - .5) * 0.5);
-    const br = 0.5 + rnd() * 0.9;
-    leafInst.push({ m, tint: [br * 1.35, br * 0.85, br * 0.5, rnd()], t: tt });
-  }
-  leafMesh.setInstances(leafInst);
-  draws.push({ mesh: leafMesh, name: 'leaves', twoSided: true });
-
-  /* -------- stone lanterns -------- */
-  const lanternMesh = new Mesh(buildLantern(detail));
-  const lanternInst = [];
-  const lanternTs = [6.5, 23.0, 41.5, 58.0, 76.5, 95.0, 112.0];
-  for (let i = 0; i < lanternTs.length; i++) {
-    const tt = lanternTs[i];
-    const sgn = i % 2 === 0 ? -1 : 1;
-    const s = sgn * 2.15;
-    const P = pathPos(tt), R = pathRight(tt), T = pathTan(tt);
-    const wx = P[0] + R[0] * s, wz = P[2] + R[2] * s, wy = P[1] + bankHeight(Math.abs(s)) - 0.05;
-    const m = M4.create();
-    M4.compose(m, [wx, wy, wz], Math.atan2(T[0], T[2]) + (rnd() - .5) * 0.3, [1, 1, 1]);
-    lanternInst.push({ m, tint: [0.9 + rnd() * 0.2, 0.9 + rnd() * 0.2, 0.9 + rnd() * 0.2, rnd()], t: tt });
-    lights.push({ pos: [wx, wy + 1.27, wz], radius: 6.2, color: [1.0, 0.60, 0.26], intensity: 3.4, flicker: rnd() * 10 });
-  }
-  lanternMesh.setInstances(lanternInst);
-  draws.push({ mesh: lanternMesh, name: 'lanterns' });
-  shadowDraws.push({ mesh: lanternMesh });
-
-  /* glowing lantern cores */
-  const coreGeo = roundedBox(0.16, 0.26, 0.16, 0.05, 2, { mat: MAT.PLASTER });
-  const coreMesh = new Mesh(coreGeo);
-  coreMesh.setInstances(lanternInst.map((li, i) => {
-    const m = M4.create(); m.set(li.m);
-    m[13] += 1.27;
-    return { m, tint: [1, 1, 1, i], t: li.t };
-  }));
-  draws.push({ mesh: coreMesh, name: 'cores', emissive: [3.6, 1.55, 0.55] });
-
-  /* -------- fox statues at the entrance -------- */
-  const foxMesh = new Mesh(buildFox());
-  const foxInst = [];
-  for (const [tt, sgn] of [[0.2, -1], [0.2, 1]]) {
-    const P = pathPos(tt), R = pathRight(tt), T = pathTan(tt);
-    const s = sgn * 2.45;
-    const m = M4.create();
-    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.06, P[2] + R[2] * s],
-      Math.atan2(T[0], T[2]) + PI + sgn * 0.22, [1, 1, 1]);
-    foxInst.push({ m, tint: [1, 1, 1, 0.3] });
-  }
-  foxMesh.setInstances(foxInst);
-  draws.push({ mesh: foxMesh, name: 'fox' });
-  shadowDraws.push({ mesh: foxMesh });
-
-  return { draws, shadowDraws, lights, toriiCount: inst.length };
+  R.toriiTs = [];
+  return { draws, shadowDraws, lights };
 }
-
 /* ==== c2_astro.js ==== */
 /* =========================================================================
    SOLAR ASTRONOMY
@@ -4006,1320 +3465,6 @@ function updateSun(dt) {
 /* ---------------- camera update ---------------- */
 const KEYS = {};
 let touchLook = null, joy = { active: false, x: 0, y: 0, id: -1 };
-
-function groundHeightAt(x, z) {
-  // find nearest path param by search (path is monotone in z)
-  let t = z;
-  for (let i = 0; i < 4; i++) {
-    const P = pathPos(t);
-    t += (z - P[2]) * 1.0;
-  }
-  const P = pathPos(t), Rt = pathRight(t);
-  const s = (x - P[0]) * Rt[0] + (z - P[2]) * Rt[2];
-  return { y: P[1] + bankHeight(Math.abs(s)), s, t };
-}
-
-/* The two halves of the shrine, registered most-specific first. Adding a
-   third area later means adding one entry here plus its ground function;
-   nothing in the camera or the renderer needs to know about it. */
-function registerAreas() {
-  WORLD.areas.length = 0;
-  WORLD.add({
-    name: 'keidai',
-    contains: (x, z) => z < 1.0,
-    ground: (x, z) => ({ y: keidaiGroundY(x, z), solid: true })
-  });
-  WORLD.add({
-    name: 'senbon',
-    contains: () => true,
-    ground: (x, z) => { const g = groundHeightAt(x, z); return { y: g.y, s: g.s, t: g.t, corridor: true }; }
-  });
-}
-
-function updateCamera(dt) {
-  // zoom is damped rather than snapped: at 18 degrees a hard step is nauseating
-  CAM.fov += (CAM.fovTarget - CAM.fov) * Math.min(1, dt * 11);
-
-  if (CFG.fly) {
-    /* Detached camera. Movement runs along the look direction so that
-       looking down and pushing forward descends — no separate axis to
-       learn, and it is the fastest way to get above the whole shrine. */
-    const spd = (KEYS['shift'] ? 34 : 11) * dt;
-    const cp = Math.cos(CAM.pitch);
-    const F = [Math.sin(CAM.yaw) * cp, Math.sin(CAM.pitch), -Math.cos(CAM.yaw) * cp];
-    const Rt = [Math.cos(CAM.yaw), 0, Math.sin(CAM.yaw)];
-    let f = 0, s = 0;
-    if (KEYS['w'] || KEYS['arrowup']) f += 1;
-    if (KEYS['s'] || KEYS['arrowdown']) f -= 1;
-    if (KEYS['a'] || KEYS['arrowleft']) s -= 1;
-    if (KEYS['d'] || KEYS['arrowright']) s += 1;
-    if (joy.active) { s += joy.x; f += -joy.y; }
-    CAM.pos[0] += (F[0] * f + Rt[0] * s) * spd;
-    CAM.pos[1] += F[1] * f * spd + (KEYS[' '] ? spd : 0);
-    CAM.pos[2] += (F[2] * f + Rt[2] * s) * spd;
-    CAM.vel[0] = CAM.vel[2] = 0;
-  } else if (CFG.autoWalk) {
-    CAM.t += dt * 0.85;
-    if (CAM.t > PATH_LEN - 12) CAM.t = 2.0;
-    const P = pathPos(CAM.t);
-    const look = pathPos(CAM.t + 7);
-    const bob = Math.sin(R.time * 2.6) * 0.017 + Math.sin(R.time * 5.1) * 0.006;
-    const sway = Math.sin(R.time * 1.3) * 0.10;
-    CAM.pos = [P[0] + sway * 0.3, P[1] + CFG.eyeHeight + bob, P[2]];
-    const d = norm(sub([look[0], look[1] + 1.35, look[2]], CAM.pos));
-    CAM.yaw = Math.atan2(d[0], -d[2]) + Math.sin(R.time * 0.43) * 0.05;
-    CAM.pitch = Math.asin(clamp(d[1], -1, 1)) + Math.sin(R.time * 0.31) * 0.012;
-  } else {
-    let fx = 0, fz = 0;
-    if (KEYS['w'] || KEYS['arrowup']) fz += 1;
-    if (KEYS['s'] || KEYS['arrowdown']) fz -= 1;
-    if (KEYS['a'] || KEYS['arrowleft']) fx -= 1;
-    if (KEYS['d'] || KEYS['arrowright']) fx += 1;
-    if (joy.active) { fx += joy.x; fz += -joy.y; }
-    const l = Math.hypot(fx, fz);
-    if (l > 1) { fx /= l; fz /= l; }
-    const run = KEYS['shift'] ? 1 : 0;
-    const want = (run ? CFG.runSpeed : CFG.walkSpeed) * (fz < 0 ? 0.72 : 1.0);
-    const sy = Math.sin(CAM.yaw), cy = Math.cos(CAM.yaw);
-    // accelerate toward the wanted velocity rather than snapping to it
-    const wx = (-sy * fz + cy * fx) * want, wz = (-cy * fz - sy * fx) * want;
-    const acc = Math.min(1, dt * (l > 0.01 ? 11 : 15));
-    CAM.vel[0] += (wx - CAM.vel[0]) * acc;
-    CAM.vel[2] += (wz - CAM.vel[2]) * acc;
-    CAM.pos[0] += CAM.vel[0] * dt;
-    CAM.pos[2] += CAM.vel[2] * dt;
-    let g = WORLD.groundAt(CAM.pos[0], CAM.pos[2]);
-    if (g.corridor) {
-      // The precinct is 60m across and the corridor is 5m. Funnel rather
-      // than clamp, or crossing the seam off-axis snaps the player sideways.
-      const half = lerp(5.0, CFG.corridorHalf, smoothstep(0.0, 8.0, CAM.pos[2]));
-      if (Math.abs(g.s) > half) {
-        const k = (Math.abs(g.s) - half) * Math.sign(g.s);
-        const Rt = pathRight(g.t);
-        CAM.pos[0] -= Rt[0] * k * 0.42; CAM.pos[2] -= Rt[2] * k * 0.42;
-      }
-    } else {
-      WORLD.resolve(CAM.pos, 0.42);
-    }
-    g = WORLD.groundAt(CAM.pos[0], CAM.pos[2]);
-    const gy = g.y;
-    const spd = Math.hypot(CAM.vel[0], CAM.vel[2]);
-    R.stride += spd * dt * 2.15;
-    const bob = Math.sin(R.stride) * 0.021 * Math.min(1, spd / CFG.walkSpeed)
-              + Math.sin(R.stride * 2) * 0.006;
-    CAM.pos[1] += (gy + CFG.eyeHeight + bob - CAM.pos[1]) * Math.min(1, dt * 13);
-    if (g.t !== undefined) CAM.t = g.t;
-  }
-  CAM.pitch = clamp(CAM.pitch, -1.25, 1.25);
-
-  const dir = [Math.sin(CAM.yaw) * Math.cos(CAM.pitch), Math.sin(CAM.pitch), -Math.cos(CAM.yaw) * Math.cos(CAM.pitch)];
-  M4.copy(CAM.prevViewProj, CAM.viewProj);
-  M4.lookAt(CAM.view, CAM.pos, add(CAM.pos, dir), [0, 1, 0]);
-  M4.perspective(CAM.projNoJitter, CAM.fov, R.w / R.h, CAM.near, CAM.far);
-  M4.copy(CAM.proj, CAM.projNoJitter);
-  if (CFG.taa) {
-    const i = R.jitterIdx % 8;
-    const jx = (HALTON2[i] - 0.5) * 2 / R.w;
-    const jy = (HALTON3[i] - 0.5) * 2 / R.h;
-    CAM.proj[8] += jx; CAM.proj[9] += jy;
-    R.jitterIdx++;
-  }
-  M4.mul(CAM.viewProj, CAM.proj, CAM.view);
-  M4.invert(CAM.invViewProj, CAM.viewProj);
-  M4.invert(CAM.invProj, CAM.proj);
-
-  // autofocus: distance to what is straight ahead, smoothed
-  if (CFG.dof) {
-    const g = groundHeightAt(CAM.pos[0] + dir[0] * 8, CAM.pos[2] + dir[2] * 8);
-    const target = 9.5;
-    CFG.focusDist += (target - CFG.focusDist) * Math.min(1, dt * 2);
-  }
-}
-
-/* ==== f_kyonshi.js ==== */
-/* =========================================================================
-   KYONSHI  (キョンシー / 殭屍)
-
-   The renderer has no skinning, and here that costs nothing. A kyonshi is
-   *defined* by moving as a rigid body: rigor mortis locks the knees and the
-   elbows, so it travels in hops with its arms held straight out. The
-   creature is four rigid parts on a hand-built hierarchy, and the animation
-   is the hop arc plus the lag between the parts.
-
-   They burn in direct sunlight. That is what turns the calendar from a
-   viewing control into a weapon: to clear a stretch of corridor you have to
-   work out which hour of which solar term puts light on it.
-   ========================================================================= */
-
-/* ---------------- sun occlusion against the corridor ----------------
-
-   The shadow map cannot be read back cheaply, so the burn test marches the
-   sun ray against an analytic model of the torii run. The path's z
-   coordinate IS its parameter and the tangent never leaves +Z by more than
-   about 18 degrees, so the local frame comes straight off the world
-   position with no closest-point solve. Beam occupancy along the path is
-   baked into a 5cm lookup, which makes each sample a handful of ops.       */
-
-const OCC_RES = 20;                       // cells per metre
-const OCC = { roof: null, nuki: null, pillar: null, n: 0 };
-
-function buildOcclusion(toriiTs) {
-  const n = Math.ceil(PATH_LEN * OCC_RES) + 8;
-  const roof = new Uint8Array(n), nuki = new Uint8Array(n), pil = new Uint8Array(n);
-  const stamp = (arr, t, half) => {
-    const a = Math.max(0, Math.floor((t - half) * OCC_RES));
-    const b = Math.min(n - 1, Math.ceil((t + half) * OCC_RES));
-    for (let i = a; i <= b; i++) arr[i] = 1;
-  };
-  for (const t of toriiTs) {
-    stamp(roof, t, 0.190);                // kasagi is 0.375 deep
-    stamp(nuki, t, 0.090);
-    stamp(pil, t, 0.152);
-  }
-  OCC.roof = roof; OCC.nuki = nuki; OCC.pillar = pil; OCC.n = n;
-}
-
-function sunExposure(x, y, z) {
-  const S = R.sunDir;
-  if (!S || S[1] <= 0.010 || !OCC.roof) return 0;
-  const STEP = 0.13;
-  let cx = x, cy = y, cz = z;
-  for (let i = 0; i < 190; i++) {
-    cx += S[0] * STEP; cy += S[1] * STEP; cz += S[2] * STEP;
-    if (cz < 0 || cz > PATH_LEN) break;
-    const ly = cy - pathYAt(cz);
-    if (ly > 3.25) break;                 // clear of the roof, the beam gets through
-    const cell = (cz * OCC_RES) | 0;
-    if (cell < 0 || cell >= OCC.n) break;
-    const ax = Math.abs(cx - pathXAt(cz));
-    if (OCC.roof[cell] && ly > 2.56 && ly < 3.16 && ax < 1.80) return 0;
-    if (OCC.nuki[cell] && ly > 1.79 && ly < 2.09 && ax < 1.45) return 0;
-    if (OCC.pillar[cell] && ly < 2.92 && ax > 0.89 && ax < 1.31) return 0;
-  }
-  /* The cedar canopy is not in the analytic model; it dapples rather than
-     blocks, so light through it still burns, only slower. Keeping it soft
-     also keeps the mechanic legible: the torii are what the player reasons
-     about, and the torii are what actually stop the beam. */
-  const d = Math.sin(x * 0.61 + 1.7) * Math.sin(z * 0.43 - 0.9);
-  return clamp(0.55 + 0.45 * d, 0.28, 1.0);
-}
-
-/* ---------------- geometry ---------------- */
-
-function buildKyonshiBody(detail) {
-  const g = new Geo(), m = M4.create();
-  const RS = detail ? 18 : 9, CS = detail ? 2 : 1;
-  const V = (r, y) => [r, y, y * 0.8];
-
-  // the robe, squashed on Z so it reads as a body rather than a bottle
-  g.merge(lathe([
-    V(0.000, 0.055), V(0.300, 0.062), V(0.335, 0.118), V(0.330, 0.30),
-    V(0.315, 0.52), V(0.292, 0.74), V(0.254, 0.92), V(0.236, 1.02),
-    V(0.262, 1.14), V(0.278, 1.26), V(0.260, 1.37), V(0.214, 1.44),
-    V(0.120, 1.478), V(0.084, 1.50), V(0.000, 1.506)
-  ], RS, { mat: MAT.SILK, uScale: 1.4 }), M4.compose(m, [0, 0, 0], 0, [1.0, 1.0, 0.70]));
-
-  // 補子 : the rank badge on the chest
-  g.merge(roundedBox(0.230, 0.230, 0.045, 0.012, CS, { mat: MAT.SILK, uScale: 0.5, vScale: 0.5 }),
-    M4.compose(m, [0, 1.185, 0.172], 0, [1, 1, 1], -0.07, 0));
-
-  // sash and collar
-  g.merge(lathe([V(0.238, 0.0), V(0.256, 0.014), V(0.258, 0.086), V(0.240, 0.102)], RS,
-    { mat: MAT.BLACK, uScale: 1.6 }), M4.compose(m, [0, 0.950, 0], 0, [1.0, 1.0, 0.71]));
-  g.merge(lathe([V(0.088, 0.0), V(0.128, 0.016), V(0.132, 0.086), V(0.102, 0.106)], RS,
-    { mat: MAT.BLACK, uScale: 1.2 }), M4.compose(m, [0, 1.428, 0.004], 0, [1.05, 1.0, 0.86]));
-
-  // court boots, toes turned up
-  for (const sx of [-1, 1]) {
-    g.merge(roundedBox(0.112, 0.112, 0.250, 0.034, CS, { mat: MAT.BLACK, uScale: 0.6, vScale: 0.6 }),
-      M4.compose(m, [sx * 0.083, 0.058, 0.028], 0, [1, 1, 1]));
-    g.merge(roundedBox(0.098, 0.068, 0.072, 0.028, CS, { mat: MAT.BLACK, uScale: 0.5, vScale: 0.5 }),
-      M4.compose(m, [sx * 0.083, 0.086, 0.142], 0, [1, 1, 1], 0.44, 0));
-  }
-  return g;
-}
-
-/* head, queue and official's cap, origin at the neck */
-function buildKyonshiHead(detail) {
-  const g = new Geo(), m = M4.create();
-  const RS = detail ? 16 : 8, CS = detail ? 2 : 1;
-  const V = (r, y) => [r, y, y];
-
-  g.merge(lathe([V(0, 0), V(0.056, 0.006), V(0.058, 0.070), V(0.063, 0.098)], RS,
-    { mat: MAT.CORPSE, uScale: 1.5 }), M4.compose(m, [0, 0, 0], 0, [1, 1, 0.92]));
-
-  // skull
-  g.merge(lathe([
-    V(0.000, 0.000), V(0.056, 0.012), V(0.078, 0.058), V(0.089, 0.120),
-    V(0.091, 0.182), V(0.083, 0.232), V(0.060, 0.264), V(0.000, 0.274)
-  ], RS, { mat: MAT.CORPSE, uScale: 1.0 }),
-    M4.compose(m, [0, 0.074, 0.004], 0, [1.0, 1.0, 0.90]));
-
-  // the face is drawn tight over the bone: brow, cheekbones, jaw
-  g.merge(roundedBox(0.138, 0.032, 0.046, 0.013, CS, { mat: MAT.CORPSE, uScale: 0.8, vScale: 0.8 }),
-    M4.compose(m, [0, 0.248, 0.068], 0, [1, 1, 1], -0.22, 0));
-  for (const sx of [-1, 1])
-    g.merge(roundedBox(0.054, 0.050, 0.046, 0.017, CS, { mat: MAT.CORPSE, uScale: 0.8, vScale: 0.8 }),
-      M4.compose(m, [sx * 0.052, 0.198, 0.056], 0, [1, 1, 1], 0.10, sx * 0.16));
-  g.merge(roundedBox(0.112, 0.072, 0.088, 0.025, CS, { mat: MAT.CORPSE, uScale: 0.8, vScale: 0.8 }),
-    M4.compose(m, [0, 0.126, 0.052], 0, [1, 1, 1], 0.15, 0));
-
-  // sunken sockets
-  for (const sx of [-1, 1])
-    g.merge(lathe([V(0, 0), V(0.031, 0.005), V(0.026, 0.023), V(0, 0.030)], 10, { mat: MAT.BLACK }),
-      M4.compose(m, [sx * 0.040, 0.214, 0.072], 0, [1.15, 1, 1], 1.42, 0));
-
-  // 辮髪 : the queue, hanging down the back
-  const qp = [];
-  for (let i = 0; i <= 7; i++) {
-    const k = i / 7;
-    qp.push({ p: [0, 0.300 - k * 0.62 - 0.05 * k * k, -0.075 - 0.055 * Math.sin(k * 1.9)],
-      sx: 1 - k * 0.45, sy: 1 - k * 0.45 });
-  }
-  g.merge(sweep(qp, roundedRect(0.048, 0.048, 0.020, CS), { mat: MAT.BLACK, uScale: 0.5, vScale: 1.4 }));
-
-  // 官帽 : flat crown, wide brim, finial
-  g.merge(lathe([V(0.000, 0.000), V(0.196, 0.006), V(0.202, 0.020), V(0.190, 0.034), V(0.000, 0.030)],
-    RS, { mat: MAT.BLACK, uScale: 1.0 }), M4.compose(m, [0, 0.296, 0.004], 0, [1, 1, 1]));
-  g.merge(lathe([
-    V(0.104, 0.000), V(0.112, 0.030), V(0.118, 0.130), V(0.114, 0.176),
-    V(0.086, 0.196), V(0.000, 0.202)
-  ], RS, { mat: MAT.BLACK, uScale: 1.0 }), M4.compose(m, [0, 0.318, 0.004], 0, [1, 1, 0.94]));
-  g.merge(lathe([V(0, 0), V(0.026, 0.008), V(0.030, 0.028), V(0.018, 0.044), V(0, 0.048)], 10,
-    { mat: MAT.VERMILLION, uScale: 0.4 }), M4.compose(m, [0, 0.512, 0.004], 0, [1, 1, 1]));
-  return g;
-}
-
-/* both arms as one rigid pair, origin at the shoulder centre */
-function buildKyonshiArms(detail) {
-  const g = new Geo(), m = M4.create();
-  const CS = detail ? 2 : 1, SEG = detail ? 7 : 3;
-  for (const sx of [-1, 1]) {
-    const pth = [];
-    for (let i = 0; i <= SEG; i++) {
-      const k = i / SEG;
-      // the arm swings outward as it goes forward, so the two sleeves stay
-      // clear of the torso silhouette instead of stacking on top of it
-      pth.push({
-        p: [sx * (0.196 + k * 0.072), -0.014 - k * 0.130 + Math.sin(k * PI) * 0.026, 0.048 + k * 0.760],
-        sx: 1.0 - k * 0.30, sy: 1.0 - k * 0.24
-      });
-    }
-    g.merge(sweep(pth, roundedRect(0.128, 0.140, 0.042, CS), { mat: MAT.SILK, uScale: 0.9, vScale: 0.8 }));
-    // one cuff ring, then a single tapered hand: separate fingers read as
-    // teeth once the arm is pointing at the camera
-    const hx = sx * 0.268, hy = -0.144, hz = 0.808;
-    g.merge(lathe([[0.070, 0, 0], [0.082, 0.012, 0.1], [0.080, 0.052, 0.4], [0.062, 0.064, 0.5]], 12,
-      { mat: MAT.SILK, uScale: 0.8 }), M4.compose(m, [hx, hy, hz - 0.052], 0, [1, 1, 1], 1.40, 0));
-    // a box reads as a fist end-on; a lathe reads as a ball
-    g.merge(roundedBox(0.086, 0.104, 0.128, 0.030, CS, { mat: MAT.CORPSE, uScale: 0.7, vScale: 0.7 }),
-      M4.compose(m, [hx, hy - 0.004, hz + 0.030], 0, [1, 1, 1], 0.30, 0));
-    g.merge(roundedBox(0.030, 0.034, 0.072, 0.014, 1, { mat: MAT.CORPSE, uScale: 0.4, vScale: 0.4 }),
-      M4.compose(m, [hx - sx * 0.050, hy + 0.010, hz + 0.048], 0, [1, 1, 1], 0.42, sx * 0.30));
-  }
-  return g;
-}
-
-/* 符 : the paper strip, origin at the top so it swings as a pendulum */
-function buildKyonshiTalisman() {
-  const g = new Geo();
-  const W = 0.068, H = 0.285, NY = 6, NX = 2;
-  for (const side of [1, -1]) {
-    const rows = [];
-    for (let j = 0; j <= NY; j++) {
-      const v = j / NY, row = [];
-      for (let i = 0; i <= NX; i++) {
-        const u = i / NX;
-        const curl = (1 - Math.cos((u - 0.5) * 2.4)) * 0.034 * v;
-        row.push(g.push((u - 0.5) * W, -v * H, side * 0.0022 - curl,
-          0, 0, side, u, 1 - v, MAT.TALISMAN));
-      }
-      rows.push(row);
-    }
-    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
-      const a = rows[j][i], b = rows[j][i + 1], c = rows[j + 1][i + 1], d = rows[j + 1][i];
-      if (side > 0) g.quad(a, d, c, b); else g.quad(a, b, c, d);
-    }
-  }
-  return g;
-}
-
-/* ---------------- the hop ----------------
-   Crouch, launch, arc, land, settle. All of the forward travel happens in
-   the air, which is what makes the gait read as hopping rather than
-   sliding. */
-function hopCurve(ph) {
-  if (ph < 0.18) { const k = ph / 0.18; return { y: 0, sq: Math.sin(k * PI) * 0.62, adv: 0 }; }
-  if (ph < 0.66) {
-    const k = (ph - 0.18) / 0.48;
-    return { y: 4 * k * (1 - k), sq: -0.26 * Math.sin(k * PI), adv: k * k * (3 - 2 * k) };
-  }
-  if (ph < 0.80) { const k = (ph - 0.66) / 0.14; return { y: 0, sq: Math.sin(k * PI) * 0.80, adv: 1 }; }
-  const k = (ph - 0.80) / 0.20;
-  return { y: 0, sq: Math.sin(k * PI) * 0.20 * (1 - k), adv: 1 };
-}
-
-/* ---------------- state ---------------- */
-const KY = {
-  list: [], mesh: {}, lights: [], emissive: [0, 0, 0],
-  inst: { b: [], h: [], a: [], t: [] },
-  burn: { b: [], h: [], a: [], t: [] }
-};
-/* Heat inside the char, not a lantern. The corridor at dawn sits around
-   0.1-0.5 in scene linear, so anything much above 1.0 here clips the
-   creature into a flat orange cut-out. */
-const EMBER = [1.05, 0.26, 0.05];
-const HOP_T = 0.92;
-
-function kyonshiSpawn(t, s, rn) {
-  const P = pathPos(t), Rt = pathRight(t);
-  const x = P[0] + Rt[0] * s, z = P[2] + Rt[2] * s;
-  return {
-    id: KY.list.length,
-    pos: [x, groundHeightAt(x, z).y, z],
-    from: [x, z], to: [x, z],
-    face: PI, phase: rn(), cyc: HOP_T * (0.90 + rn() * 0.24),
-    seed: rn(), scale: 0.95 + rn() * 0.13,
-    state: 'sleep', sun: 0, sunT: 0, burn: 0, ash: 0, stun: 0,
-    bodyY: 0, headY: 0, armY: 0, vy: 0, talA: 0, talV: 0,
-    kx: 0, kz: 0, scan: rn() * 6.0, home: t,
-    mB: M4.create(), mH: M4.create(), mA: M4.create(), mT: M4.create()
-  };
-}
-
-function kyonshiReset() {
-  KY.list.length = 0;
-  const rn = mulberry32(20260807);
-  const spots = [[34, -0.9], [52, 1.0], [70, -0.6], [88, 0.8], [106, -1.0], [124, 0.7], [142, -0.5]];
-  for (const [t, s] of spots) KY.list.push(kyonshiSpawn(t, s, rn));
-  CFG.curse = 0;
-}
-
-function ringBell() {
-  if (R.bellCd > 0) return;
-  R.bellCd = 3.4; R.bellFlash = 1;
-  for (const K of KY.list) {
-    if (K.state !== 'hunt') continue;
-    const dx = K.pos[0] - CAM.pos[0], dz = K.pos[2] - CAM.pos[2];
-    const d = Math.hypot(dx, dz);
-    if (d > 6.2) continue;
-    const f = 1 - d / 6.2;
-    K.stun = 1.3 + f * 1.4;
-    K.kx = (dx / (d || 1)) * 4.2 * f;
-    K.kz = (dz / (d || 1)) * 4.2 * f;
-  }
-}
-
-function updateKyonshi(dt) {
-  if (!KY.mesh.body) return;
-  R.bellCd = Math.max(0, R.bellCd - dt);
-  R.bellFlash = Math.max(0, R.bellFlash - dt * 2.2);
-  const px = CAM.pos[0], pz = CAM.pos[2];
-  let threat = 0, alive = 0;
-  KY.lights.length = 0;
-
-  for (const K of KY.list) {
-    if (K.state === 'ash') { K.ash = Math.min(1, K.ash + dt * 0.5); continue; }
-    alive++;
-
-    // sun exposure, staggered so only a couple of rays march per frame
-    if (((R.frame + K.id) & 3) === 0) K.sunT = sunExposure(K.pos[0], K.pos[1] + 1.10, K.pos[2]);
-    K.sun += (K.sunT - K.sun) * Math.min(1, dt * 5.0);
-    if (K.sun > 0.30) K.burn += dt * K.sun * 0.60;
-    else K.burn = Math.max(0, K.burn - dt * 0.15);
-    if (K.burn >= 1) { K.state = 'ash'; K.ash = 0; continue; }
-
-    const dx = px - K.pos[0], dz = pz - K.pos[2];
-    const d = Math.hypot(dx, dz);
-    if (K.state === 'sleep' && d < 26) K.state = 'hunt';
-    K.stun = Math.max(0, K.stun - dt);
-    K.scan += dt * 0.7;
-
-    // rigor mortis: they turn slowly
-    if (K.state === 'hunt') {
-      const want = Math.atan2(dx, dz);
-      let da = ((want - K.face + PI * 3) % (PI * 2)) - PI;
-      K.face += clamp(da, -1.8 * dt, 1.8 * dt);
-    }
-
-    const canMove = K.state === 'hunt' && K.stun <= 0 && K.burn < 0.34;
-    K.phase += dt / (canMove ? K.cyc : K.cyc * 2.8);
-    if (K.phase >= 1) {
-      K.phase -= 1;
-      const reach = canMove && d > 1.25 ? 1.30 : 0.0;
-      K.from = [K.pos[0], K.pos[2]];
-      let tx = K.pos[0] + Math.sin(K.face) * reach;
-      let tz = K.pos[2] + Math.cos(K.face) * reach;
-      const g = groundHeightAt(tx, tz);
-      if (Math.abs(g.s) > 1.55) {          // they keep between the pillars
-        const Rt = pathRight(g.t), k = (Math.abs(g.s) - 1.55) * Math.sign(g.s);
-        tx -= Rt[0] * k; tz -= Rt[2] * k;
-      }
-      K.to = [tx, tz];
-    }
-
-    // knockback translates the whole hop so it cannot fight the lerp
-    if (K.kx || K.kz) {
-      const kdx = K.kx * dt, kdz = K.kz * dt;
-      K.from[0] += kdx; K.from[1] += kdz; K.to[0] += kdx; K.to[1] += kdz;
-      const decay = Math.exp(-dt * 4.5);
-      K.kx *= decay; K.kz *= decay;
-      if (Math.abs(K.kx) < 0.01) K.kx = 0;
-      if (Math.abs(K.kz) < 0.01) K.kz = 0;
-    }
-
-    const H = hopCurve(K.phase);
-    K.pos[0] = lerp(K.from[0], K.to[0], H.adv);
-    K.pos[2] = lerp(K.from[1], K.to[1], H.adv);
-    const gy = groundHeightAt(K.pos[0], K.pos[2]).y;
-    K.pos[1] = gy;
-    const prevY = K.bodyY || gy;
-    K.bodyY = gy + H.y * 0.30 - H.sq * 0.085;
-    K.vy = clamp((K.bodyY - prevY) / Math.max(dt, 1e-4), -6, 6);
-
-    // the head and arms lag the body, the talisman is a driven pendulum
-    K.headY += (K.bodyY - K.headY) * Math.min(1, dt * 17);
-    K.armY += (K.bodyY - K.armY) * Math.min(1, dt * 10);
-    K.talV += (-K.talA * 34 - K.talV * 5.2 - K.vy * 2.8) * dt;
-    K.talA = clamp(K.talA + K.talV * dt, -1.15, 1.15);
-
-    if (K.burn > 0.05) {
-      KY.lights.push({
-        pos: [K.pos[0], K.bodyY + 1.0, K.pos[2]], radius: 5.0 + K.burn * 3.0,
-        color: [1.0, 0.44, 0.13], dyn: 1,
-        intensity: 1.1 + K.burn * 4.6, flicker: K.seed * 10
-      });
-    }
-    if (d < 1.20 && K.state === 'hunt' && K.burn < 0.55) threat += (1.20 - d) * 2.2;
-  }
-
-  R.kyonshiAlive = alive;
-  CFG.curse = clamp(CFG.curse + threat * dt * 0.42 - dt * 0.055, 0, 1);
-  if (CFG.curse >= 1) {
-    // taken. drop back down the approach and scatter what was on you
-    const back = Math.max(2.5, CAM.t - 16);
-    const P = pathPos(back);
-    CAM.pos[0] = P[0]; CAM.pos[2] = P[2]; CAM.t = back;
-    CAM.vel[0] = CAM.vel[2] = 0;
-    CFG.curse = 0.34; R.bellCd = 0;
-    for (const K of KY.list) if (K.state === 'hunt') K.stun = 2.6;
-  }
-  kyonshiInstances();
-}
-
-function kyonshiInstances() {
-  const I = KY.inst, B = KY.burn;
-  I.b.length = 0; I.h.length = 0; I.a.length = 0; I.t.length = 0;
-  B.b.length = 0; B.h.length = 0; B.a.length = 0; B.t.length = 0;
-  let hot = 0, nHot = 0;
-  for (const K of KY.list) {
-    if (K.state === 'ash' && K.ash >= 1) continue;
-    const H = hopCurve(K.phase);
-    const sink = K.state === 'ash' ? K.ash : 0;
-    const sc = K.scale * (1 - sink * 0.52);
-    const sy = (1 - H.sq * 0.15) * sc, sxz = (1 + H.sq * 0.085) * sc;
-    // char toward charcoal as they burn, then collapse into ash
-    const c = clamp(1 - K.burn * 0.52 - sink * 0.30, 0.22, 1);
-    const tint = [c, c * 0.955, c * 0.925, K.seed];
-    const lean = -0.05 - H.sq * 0.10 + (K.stun > 0 ? 0.12 : 0);
-    // once alight they go on their own list; below that they are just scenery
-    const lit = K.burn > 0.08;
-    const Q = lit ? B : I;
-    if (lit) { hot += K.burn; nHot++; }
-    const tremor = K.state === 'hunt' ? Math.sin(R.time * 21 + K.seed * 9) * 0.006 : 0;
-
-    Q.b.push({ m: M4.compose(K.mB, [K.pos[0], K.bodyY, K.pos[2]],
-      K.face, [sxz, sy, sxz], lean, tremor), tint });
-
-    const lag = K.bodyY - K.headY;
-    const hy = K.bodyY + 1.506 * sy - lag * 0.55;
-    const hYaw = K.face + Math.sin(K.scan) * 0.16;
-    Q.h.push({ m: M4.compose(K.mH, [K.pos[0], hy, K.pos[2]],
-      hYaw, [sxz, sy, sxz], lean * 0.5 - 0.06 + lag * 0.25, tremor * 2), tint });
-
-    const alag = K.bodyY - K.armY;
-    const ay = K.bodyY + 1.340 * sy - alag * 0.75;
-    Q.a.push({ m: M4.compose(K.mA, [K.pos[0], ay, K.pos[2]],
-      K.face, [sxz, sy, sxz], clamp(-K.vy * 0.03, -0.12, 0.12) - 0.02, tremor * 3), tint });
-
-    // the talisman hangs off the front of the hat brim and swings
-    const ca = Math.cos(hYaw), sa = Math.sin(hYaw);
-    const ox = 0, oz = 0.158 * sc, oy = 0.302 * sc;
-    Q.t.push({ m: M4.compose(K.mT,
-      [K.pos[0] + ox * ca + oz * sa, hy + oy, K.pos[2] - ox * sa + oz * ca],
-      hYaw, [sc, sc, sc], K.talA + 0.06, Math.sin(R.time * 3.7 + K.seed * 5) * 0.10 * (0.3 + Math.abs(K.talA))),
-      tint: [1, 1, 1, K.seed] });
-  }
-  KY.mesh.body.updateInstances(I.b);
-  KY.mesh.head.updateInstances(I.h);
-  KY.mesh.arms.updateInstances(I.a);
-  KY.mesh.talis.updateInstances(I.t);
-  KY.mesh.bodyB.updateInstances(B.b);
-  KY.mesh.headB.updateInstances(B.h);
-  KY.mesh.armsB.updateInstances(B.a);
-  KY.mesh.talisB.updateInstances(B.t);
-  // embers breathe: the average of whoever is currently alight
-  const k = nHot ? hot / nHot : 0;
-  const flick = 0.82 + 0.18 * Math.sin(R.time * 9.3) + 0.09 * Math.sin(R.time * 23.1);
-  // the glow arrives late: first they char, only then do they light up
-  const ramp = smoothstep(0.15, 1.0, k);
-  const e = ramp * ramp * flick;
-  for (let i = 0; i < 3; i++) KY.emissive[i] = EMBER[i] * e;
-}
-
-function initKyonshi(detail) {
-  const G = {
-    body: buildKyonshiBody(detail), head: buildKyonshiHead(detail),
-    arms: buildKyonshiArms(detail), talis: buildKyonshiTalisman()
-  };
-  // the same geometry twice: one copy for the cold, one for the burning
-  for (const k in G) { KY.mesh[k] = new Mesh(G[k]); KY.mesh[k + 'B'] = new Mesh(G[k]); }
-  const seed = [{ m: M4.create(), tint: [1, 1, 1, 0] }];
-  for (const k in KY.mesh) { KY.mesh[k].setInstances(seed); KY.mesh[k].instT = null; }
-  const D = [
-    { mesh: KY.mesh.body, name: 'ky_body' },
-    { mesh: KY.mesh.head, name: 'ky_head' },
-    { mesh: KY.mesh.arms, name: 'ky_arms' },
-    { mesh: KY.mesh.talis, name: 'ky_talis', twoSided: true },
-    { mesh: KY.mesh.bodyB, name: 'ky_body_b', emissive: KY.emissive },
-    { mesh: KY.mesh.headB, name: 'ky_head_b', emissive: KY.emissive },
-    { mesh: KY.mesh.armsB, name: 'ky_arms_b', emissive: KY.emissive },
-    { mesh: KY.mesh.talisB, name: 'ky_talis_b', emissive: KY.emissive, twoSided: true }
-  ];
-  for (const d of D) { R.scene.draws.push(d); R.scene.shadowDraws.push({ mesh: d.mesh }); }
-  buildOcclusion(R.toriiTs || []);
-  kyonshiReset();
-}
-
-/* ==== g_keidai.js ==== */
-/* =========================================================================
-   境内 — THE PRECINCT
-
-   Built as a separate AREA so the two halves of the shrine can be worked on
-   apart and joined later. An area owns its ground, its colliders and its
-   content; the camera asks WORLD and WORLD asks whichever area the player
-   is standing in. The corridor is everything above z = 0, the precinct is
-   everything below, and the two are levelled to meet at the seam.
-
-   Real layout, walking in from the west: 一之鳥居, 二之鳥居, 楼門 (Hideyoshi's
-   gate, 1589), 外拝殿, then the 本殿 on its terrace, and past it the climb to
-   奥宮 and the 千本鳥居. Terraces step up the whole way, which is both true to
-   the site and a free difficulty curve for anything built on top of it.
-   ========================================================================= */
-
-const WORLD = {
-  areas: [],
-  boxes: [],                     // AABB colliders in world space
-  add(a) { this.areas.push(a); return a; },
-  areaAt(x, z) {
-    for (const a of this.areas) if (a.contains(x, z)) return a;
-    return this.areas.length ? this.areas[this.areas.length - 1] : null;
-  },
-  groundAt(x, z) {
-    const a = this.areaAt(x, z);
-    return a ? a.ground(x, z) : { y: 0, free: true };
-  },
-  /* push a vertical capsule out of whatever it has walked into. Boxes are
-     axis aligned, so resolve on the shallowest axis and stop. */
-  resolve(p, r) {
-    for (let pass = 0; pass < 2; pass++) {
-      let hit = false;
-      for (const b of this.boxes) {
-        if (p[1] > b.y1 || p[1] + 1.6 < b.y0) continue;
-        const cx = clamp(p[0], b.x0, b.x1), cz = clamp(p[2], b.z0, b.z1);
-        const dx = p[0] - cx, dz = p[2] - cz;
-        if (dx * dx + dz * dz > r * r) continue;
-        if (dx || dz) {                                  // outside, nearest face
-          const d = Math.hypot(dx, dz) || 1e-4;
-          p[0] = cx + dx / d * r; p[2] = cz + dz / d * r;
-        } else {                                         // inside, shallowest exit
-          const l = p[0] - b.x0 + r, ri = b.x1 - p[0] + r;
-          const u = p[2] - b.z0 + r, dn = b.z1 - p[2] + r;
-          const m = Math.min(l, ri, u, dn);
-          if (m === l) p[0] = b.x0 - r; else if (m === ri) p[0] = b.x1 + r;
-          else if (m === u) p[2] = b.z0 - r; else p[2] = b.z1 + r;
-        }
-        hit = true;
-      }
-      if (!hit) break;
-    }
-  }
-};
-
-function addBox(x, z, w, d, y0, h) {
-  x += KX;
-  WORLD.boxes.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, y0, y1: y0 + h });
-}
-
-/* ---------------- the precinct floor ----------------
-   Flat terraces joined by flights of steps, climbing from the first torii
-   up to the honden and levelling out where the corridor begins. */
-const TERRACE = [
-  { z: -300, y: -4.30 }, { z: -62, y: -4.30 }, { z: -56, y: -3.10 },
-  { z: -47, y: -3.10 }, { z: -42, y: -1.70 }, { z: -25, y: -1.70 },
-  { z: -20, y: -0.55 }, { z: -12, y: -0.55 }, { z: -8, y: 0.20 },
-  { z: 400, y: 0.20 }
-];
-const STEP_RISE = 0.18;
-/* The corridor's centreline is not at x = 0, so the precinct is authored
-   about its own axis and offset onto the corridor's mouth. Everything that
-   crosses into world space goes through KX. */
-const KX = 3.02;
-
-function keidaiGroundY(xw, z) {
-  const x = xw - KX;
-  let y = TERRACE[0].y;
-  for (let i = 0; i < TERRACE.length - 1; i++) {
-    const a = TERRACE[i], b = TERRACE[i + 1];
-    if (z >= a.z && z <= b.z) {
-      if (a.y === b.y) { y = a.y; break; }
-      // a flight of steps rather than a ramp: quantise the rise
-      const k = (z - a.z) / (b.z - a.z);
-      const n = Math.max(1, Math.round(Math.abs(b.y - a.y) / STEP_RISE));
-      y = a.y + (b.y - a.y) * (Math.floor(k * n) + 1) / n;
-      break;
-    }
-    y = b.y;
-  }
-  // the plaza falls away into trees outside the retaining walls
-  // outside the retaining walls the ground falls into the hillside the
-  // shrine is cut into, steeply at first and then out to the ridge
-  const ax = Math.abs(x);
-  if (ax > 20) {
-    const k = ax - 20;
-    y -= 0.30 * Math.min(k, 3.0) + 0.85 * Math.max(Math.min(k, 14.0) - 3.0, 0)
-       + 0.34 * Math.max(k - 14.0, 0);
-  }
-  if (z < -84) y -= (-84 - z) * 0.42;
-  return y;
-}
-
-/* ---------------- Japanese roof ----------------
-
-   Height over the plan rectangle is driven by the normalised inset from the
-   eave. Taking the MIN of the inset in x and in z produces the correct 45
-   degree hip lines for free; raising it to a power below 1 gives the
-   concave sag (照り) that a plain pyramid lacks. Sori, the lift of the eave
-   toward the corners, is added at the eave and faded out toward the ridge.
-   Everything else about a Japanese roof — that it reads as heavy, that the
-   corners fly — falls out of those two curves.                             */
-function roofShell(o) {
-  const ex = o.ex, ezF = o.ezF, ezB = o.ezB === undefined ? o.ezF : o.ezB;
-  const ey = o.ey, ry = o.ry, rx = o.rx || 0;
-  const thick = o.thick || 0.22, sori = o.sori === undefined ? 0.55 : o.sori;
-  const gable = !!o.gable, mat = o.mat === undefined ? MAT.HIWADA : o.mat;
-  const NX = o.nx || 30, NZ = o.nz || 22, uv = o.uvScale || 0.42;
-
-  const H = (x, z) => {
-    const ez = z >= 0 ? ezF : ezB;
-    const az = Math.min(1, Math.abs(z) / ez), ax = Math.min(1, Math.abs(x) / ex);
-    const iz = 1 - az;
-    const ix = gable ? 1 : (ex > rx ? clamp((ex - Math.abs(x)) / (ex - rx), 0, 1) : 1);
-    const k = clamp(Math.min(iz, ix), 0, 1);
-    const lift = sori * (0.10 + 0.90 * Math.pow(ax * az, 1.15));
-    return ey + lift * Math.pow(1 - k, 1.4) + (ry - ey) * Math.pow(k, 0.74);
-  };
-  const g = new Geo();
-  const top = [], bot = [];
-  for (let j = 0; j <= NZ; j++) {
-    const z = lerp(-ezB, ezF, j / NZ);
-    const rt = [], rb = [];
-    for (let i = 0; i <= NX; i++) {
-      const x = lerp(-ex, ex, i / NX);
-      const y = H(x, z), e = 0.02;
-      const nx = -(H(x + e, z) - H(x - e, z)) / (2 * e);
-      const nz = -(H(x, z + e) - H(x, z - e)) / (2 * e);
-      const l = Math.hypot(nx, 1, nz);
-      rt.push(g.push(x, y, z, nx / l, 1 / l, nz / l, x * uv, z * uv, mat));
-      rb.push(g.push(x, y - thick, z, -nx / l, -1 / l, -nz / l, x * uv, z * uv, mat));
-    }
-    top.push(rt); bot.push(rb);
-  }
-  for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
-    g.quad(top[j][i], top[j + 1][i], top[j + 1][i + 1], top[j][i + 1]);
-    g.quad(bot[j][i], bot[j][i + 1], bot[j + 1][i + 1], bot[j + 1][i]);
-  }
-  // the eave band. On a bark roof this is 200mm of stacked shingle and it
-  // is most of what you actually see from below.
-  const skirt = (a, b, flip) => {
-    for (let i = 0; i < a.length - 1; i++) {
-      const p = [a[i], a[i + 1], b[i + 1], b[i]];
-      g.quad(flip ? p[3] : p[0], flip ? p[2] : p[1], flip ? p[1] : p[2], flip ? p[0] : p[3]);
-    }
-  };
-  skirt(top[NZ], bot[NZ], false);
-  skirt(top[0], bot[0], true);
-  const lt = [], lb = [], rt2 = [], rb2 = [];
-  for (let j = 0; j <= NZ; j++) { lt.push(top[j][0]); lb.push(bot[j][0]); rt2.push(top[j][NX]); rb2.push(bot[j][NX]); }
-  skirt(lt, lb, true); skirt(rt2, rb2, false);
-  return g;
-}
-
-/* 唐破風 : the cusped ogee gable over a shrine's front porch. The silhouette
-   is the whole point — concave rising off the corners, convex over the
-   centre — and cos^3 has exactly that inflection built in. A little lift at
-   the tips gives the 兎毛通 turn-up. */
-function karahafu(W, H, board, depth) {
-  const g = new Geo(), N = 30;
-  const prof = u => {
-    const c = Math.cos(u * PI / 2);
-    return H * c * c * c + H * 0.20 * Math.pow(Math.abs(u), 4);
-  };
-  const A = [], B = [], C = [], D = [];        // front top/bot, back top/bot
-  for (let i = 0; i <= N; i++) {
-    const u = i / N * 2 - 1, x = u * W / 2, y = prof(u), v = i / N;
-    const dy = (prof(Math.min(1, u + 0.02)) - prof(Math.max(-1, u - 0.02)));
-    const nl = Math.hypot(dy, W / N) || 1;
-    A.push(g.push(x, y, depth / 2, 0, 0, 1, v * 2.2, 0, MAT.VERMILLION));
-    B.push(g.push(x, y - board, depth / 2, 0, 0, 1, v * 2.2, 0.5, MAT.VERMILLION));
-    C.push(g.push(x, y, -depth / 2, 0, 0, -1, v * 2.2, 0, MAT.VERMILLION));
-    D.push(g.push(x, y - board, -depth / 2, 0, 0, -1, v * 2.2, 0.5, MAT.VERMILLION));
-    // the moulded top edge, which is where the gilt runs
-    g.push(x, y, depth / 2, 0, 1, 0, v * 2.2, 0, MAT.BRONZE);
-  }
-  for (let i = 0; i < N; i++) {
-    g.quad(A[i], B[i], B[i + 1], A[i + 1]);
-    g.quad(C[i], C[i + 1], D[i + 1], D[i]);
-    g.quad(A[i], A[i + 1], C[i + 1], C[i]);    // top edge
-    g.quad(B[i], D[i], D[i + 1], B[i + 1]);    // bottom edge
-  }
-  return g;
-}
-
-/* 蟇股 : the frog-leg strut that sits between beams. Built from a top block
-   and two splayed legs rather than a cut outline — at the distance these
-   are ever seen, the silhouette is all that survives. */
-function kaerumata(w, h, d, mat) {
-  const g = new Geo(), m = M4.create();
-  const M2 = mat === undefined ? MAT.VERMILLION : mat;
-  g.merge(roundedBox(w * 0.34, h * 0.34, d, 0.012, 1, { mat: M2, uScale: 0.3, vScale: 0.3 }),
-    M4.compose(m, [0, h * 0.82, 0], 0, [1, 1, 1]));
-  for (const sx of [-1, 1]) {
-    g.merge(roundedBox(w * 0.17, h * 0.94, d * 0.92, 0.012, 1, { mat: M2, uScale: 0.2, vScale: 0.6 }),
-      M4.compose(m, [sx * w * 0.30, h * 0.46, 0], 0, [1, 1, 1], 0, sx * 0.46));
-    g.merge(roundedBox(w * 0.20, h * 0.20, d * 0.9, 0.010, 1, { mat: M2, uScale: 0.2, vScale: 0.2 }),
-      M4.compose(m, [sx * w * 0.44, h * 0.10, 0], 0, [1, 1, 1]));
-    // the carved fill, read as a mass of gilt at any distance
-    g.merge(roundedBox(w * 0.22, h * 0.42, d * 0.55, 0.02, 1, { mat: MAT.BRONZE, uScale: 0.3, vScale: 0.3 }),
-      M4.compose(m, [sx * w * 0.15, h * 0.44, 0], 0, [1, 1, 1], 0, sx * 0.2));
-  }
-  return g;
-}
-
-/* 懸魚 : the gable pendant */
-function gegyo(s) {
-  const g = new Geo(), m = M4.create();
-  g.merge(lathe([[0, 0, 0], [0.30, 0.09, 0.2], [0.27, 0.40, 0.6], [0.14, 0.58, 0.9], [0, 0.64, 1]], 14,
-    { mat: MAT.BRONZE, uScale: 0.5 }), M4.compose(m, [0, 0, 0], 0, [s, s, s * 0.32], PI, 0));
-  for (const sx of [-1, 1])
-    g.merge(lathe([[0, 0, 0], [0.14, 0.05, 0.3], [0.09, 0.20, 0.8], [0, 0.24, 1]], 10,
-      { mat: MAT.BRONZE, uScale: 0.4 }), M4.compose(m, [sx * 0.26 * s, -0.20 * s, 0], 0, [s, s, s * 0.3], PI, sx * 0.5));
-  return g;
-}
-
-/* the gilt collar that caps a shrine column */
-function giltCap(r, mat) {
-  return lathe([[r * 0.98, 0, 0], [r * 1.10, 0.02, 0.2], [r * 1.12, 0.10, 0.7], [r * 1.02, 0.13, 1]],
-    14, { mat: mat === undefined ? MAT.BRONZE : mat, uScale: 0.5 });
-}
-
-/* 賽銭箱 and the bell rope above it */
-function saisen() {
-  const g = new Geo(), m = M4.create();
-  g.merge(roundedBox(2.4, 0.75, 0.95, 0.03, 2, { mat: MAT.BARK, uScale: 1.6, vScale: 0.6 }),
-    M4.compose(m, [0, 0.375, 0], 0, [1, 1, 1]));
-  for (let i = 0; i < 15; i++)
-    g.merge(roundedBox(0.045, 0.10, 0.90, 0.008, 1, { mat: MAT.BLACK, uScale: 0.1, vScale: 0.6 }),
-      M4.compose(m, [-1.12 + i * 0.16, 0.78, 0], 0, [1, 1, 1]));
-  return g;
-}
-function suzuo(len) {
-  const g = new Geo(), m = M4.create();
-  g.merge(lathe([[0, 0, 0], [0.26, 0.10, 0.2], [0.30, 0.34, 0.6], [0.20, 0.50, 0.9], [0, 0.54, 1]], 14,
-    { mat: MAT.BRONZE, uScale: 0.6 }), M4.compose(m, [0, -0.54, 0], 0, [1, 1, 1]));
-  const pth = [];
-  for (let i = 0; i <= 6; i++) {
-    const k = i / 6;
-    pth.push({ p: [0, -0.54 - k * len, Math.sin(k * 2.1) * 0.04], sx: 1 + k * 0.5, sy: 1 + k * 0.5 });
-  }
-  g.merge(sweep(pth, roundedRect(0.115, 0.115, 0.05, 2), { mat: MAT.PLASTER, uScale: 0.4, vScale: 2.2 }));
-  return g;
-}
-
-/* 斗栱 : one bracket set. The stacked blocks under an eave are the single
-   detail that makes a building read as Japanese rather than generic. */
-function bracketSet(s, mat) {
-  const g = new Geo(), m = M4.create();
-  s = s || 1;
-  const M2 = mat === undefined ? MAT.VERMILLION : mat;
-  g.merge(roundedBox(0.42 * s, 0.20 * s, 0.42 * s, 0.02, 1, { mat: M2, uScale: 0.4, vScale: 0.4 }),
-    M4.compose(m, [0, 0.10 * s, 0], 0, [1, 1, 1]));                       // 大斗
-  g.merge(roundedBox(1.34 * s, 0.15 * s, 0.20 * s, 0.02, 1, { mat: M2, uScale: 0.9, vScale: 0.2 }),
-    M4.compose(m, [0, 0.275 * s, 0], 0, [1, 1, 1]));                      // 肘木
-  for (const dx of [-0.52, 0, 0.52])                                      // 巻斗
-    g.merge(roundedBox(0.26 * s, 0.14 * s, 0.26 * s, 0.018, 1, { mat: M2, uScale: 0.3, vScale: 0.3 }),
-      M4.compose(m, [dx * s, 0.42 * s, 0], 0, [1, 1, 1]));
-  g.merge(roundedBox(0.22 * s, 0.13 * s, 1.18 * s, 0.02, 1, { mat: M2, uScale: 0.2, vScale: 0.8 }),
-    M4.compose(m, [0, 0.275 * s, 0.30 * s], 0, [1, 1, 1]));               // 尾垂木
-  return g;
-}
-
-/* 垂木 : the rafter row that shows under every eave */
-function rafterRow(g, x0, x1, z, y, n, len, s, ry) {
-  const m = M4.create();
-  const bar = roundedBox(0.085 * s, 0.085 * s, len, 0.012, 1, { mat: MAT.VERMILLION, uScale: 0.1, vScale: 0.8 });
-  for (let i = 0; i <= n; i++) {
-    const x = lerp(x0, x1, i / n);
-    M4.compose(m, [x, y, z], ry || 0, [1, 1, 1], -0.30, 0);
-    g.merge(bar, m);
-  }
-}
-
-/* 高欄 : balcony rail with 擬宝珠 finials */
-function railing(g, x0, x1, z, y, s, ry, cx, cz) {
-  const m = M4.create();
-  const n = Math.max(2, Math.round(Math.abs(x1 - x0) / (1.05 * s)));
-  const post = roundedBox(0.10 * s, 0.62 * s, 0.10 * s, 0.012, 1, { mat: MAT.VERMILLION, uScale: 0.1, vScale: 0.5 });
-  const gib = lathe([[0, 0, 0], [0.075, 0.03, 0.2], [0.085, 0.085, 0.5], [0.052, 0.14, 0.8], [0.030, 0.175, 0.9], [0, 0.20, 1]],
-    10, { mat: MAT.BRONZE, uScale: 0.4 });
-  const rot = ry || 0, cs = Math.cos(rot), sn = Math.sin(rot);
-  const put = (geo, lx, ly, lz) => {
-    M4.compose(m, [(cx || 0) + lx * cs + lz * sn, ly, (cz || 0) - lx * sn + lz * cs], rot, [1, 1, 1]);
-    g.merge(geo, m);
-  };
-  for (let i = 0; i <= n; i++) {
-    const x = lerp(x0, x1, i / n);
-    put(post, x, y + 0.31 * s, z);
-    put(gib, x, y + 0.62 * s, z);
-  }
-  for (const hy of [0.26, 0.56]) {
-    const rail = roundedBox(Math.abs(x1 - x0), 0.07 * s, 0.09 * s, 0.012, 1,
-      { mat: MAT.VERMILLION, uScale: 1.4, vScale: 0.1 });
-    put(rail, (x0 + x1) / 2, y + hy * s, z);
-  }
-}
-
-/* ---------------- 楼門 (1589) ----------------
-   The gate is the shrine's signature: two storeys, three bays, a balcony
-   running right round the upper floor, and a hip-and-gable roof. */
-function buildRomon() {
-  const g = new Geo(), m = M4.create();
-  const W = 11.4, D = 6.2, H1 = 5.3, H2 = 3.5;
-  const cols = [-4.3, -1.45, 1.45, 4.3], rows = [-1.9, 1.9];
-
-  for (const cx of cols) for (const cz of rows) {
-    g.merge(lathe([[0, 0, 0], [0.62, 0.10, 0.1], [0.60, 0.34, 0.3], [0, 0.40, 0.4]], 14,
-      { mat: MAT.GRANITE, uScale: 0.6 }), M4.compose(m, [cx, 0, cz], 0, [1, 1, 1]));   // 礎石
-    g.merge(lathe([[0.30, 0.34, 0], [0.315, 0.50, 0.1], [0.300, H1 * 0.6, 0.5], [0.276, H1, 0.95], [0.268, H1 + 0.12, 1]], 16,
-      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, 0, cz], 0, [1, 1, 1]));
-  }
-  // 貫 through-beams, and the white plaster panels between the outer bays
-  for (const cz of rows) for (const hy of [1.55, 3.35]) {
-    g.merge(roundedBox(W - 0.6, 0.34, 0.24, 0.02, 2, { mat: MAT.VERMILLION, uScale: 2.0, vScale: 0.2 }),
-      M4.compose(m, [0, hy, cz], 0, [1, 1, 1]));
-  }
-  for (const sx of [-1, 1]) for (const cz of rows)
-    g.merge(roundedBox(2.55, 3.6, 0.20, 0.02, 2, { mat: MAT.PLASTER, uScale: 1.2, vScale: 1.6 }),
-      M4.compose(m, [sx * 2.875, 3.3, cz], 0, [1, 1, 1]));
-
-  // first-floor beam, brackets and rafters
-  g.merge(roundedBox(W + 0.5, 0.42, D + 0.5, 0.03, 2, { mat: MAT.VERMILLION, uScale: 2.4, vScale: 1.4 }),
-    M4.compose(m, [0, H1 + 0.33, 0], 0, [1, 1, 1]));
-  const bs = bracketSet(1.0);
-  for (const cx of cols) for (const cz of rows)
-    g.merge(bs, M4.compose(m, [cx, H1 + 0.54, cz], cz > 0 ? 0 : PI, [1, 1, 1]));
-
-  // balcony floor and rail
-  g.merge(roundedBox(W + 2.3, 0.16, D + 2.3, 0.02, 2, { mat: MAT.VERMILLION, uScale: 3.0, vScale: 2.0 }),
-    M4.compose(m, [0, H1 + 1.02, 0], 0, [1, 1, 1]));
-  for (const sz of [-1, 1]) railing(g, -(W + 2.3) / 2, (W + 2.3) / 2, sz * (D + 2.3) / 2, H1 + 1.10, 1.0, 0, 0, 0);
-  for (const sx of [-1, 1]) railing(g, -(D + 2.3) / 2, (D + 2.3) / 2, sx * (W + 2.3) / 2, H1 + 1.10, 1.0, PI / 2, 0, 0);
-
-  // upper storey
-  for (const cx of [-3.5, -1.2, 1.2, 3.5]) for (const cz of [-1.55, 1.55])
-    g.merge(lathe([[0.24, 0, 0], [0.246, 0.12, 0.1], [0.228, H2, 0.95], [0.222, H2 + 0.10, 1]], 14,
-      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, H1 + 1.10, cz], 0, [1, 1, 1]));
-  for (const sx of [-1, 1]) for (const cz of [-1.55, 1.55])
-    g.merge(roundedBox(2.1, H2 - 0.5, 0.16, 0.02, 2, { mat: MAT.PLASTER, uScale: 1.0, vScale: 1.4 }),
-      M4.compose(m, [sx * 2.35, H1 + 1.10 + H2 / 2, cz], 0, [1, 1, 1]));
-  // 連子窓 : the slatted window over the centre bay
-  for (let i = 0; i < 13; i++)
-    g.merge(roundedBox(0.055, 1.5, 0.10, 0.008, 1, { mat: MAT.BLACK, uScale: 0.1, vScale: 0.6 }),
-      M4.compose(m, [-1.05 + i * 0.175, H1 + 2.55, 1.58], 0, [1, 1, 1]));
-
-  const topY = H1 + 1.10 + H2;
-  g.merge(roundedBox(W - 2.2, 0.34, D - 1.4, 0.03, 2, { mat: MAT.VERMILLION, uScale: 2.0, vScale: 1.2 }),
-    M4.compose(m, [0, topY + 0.16, 0], 0, [1, 1, 1]));
-  const bs2 = bracketSet(0.85);
-  for (const cx of [-3.5, -1.2, 1.2, 3.5]) for (const cz of [-1.55, 1.55])
-    g.merge(bs2, M4.compose(m, [cx, topY + 0.32, cz], cz > 0 ? 0 : PI, [1, 1, 1]));
-  for (const sz of [-1, 1])
-    rafterRow(g, -6.6, 6.6, sz * 3.0, topY + 0.62, 42, 1.9, 1.0, sz > 0 ? 0 : PI);
-
-  // the roof
-  g.merge(roofShell({ ex: 7.5, ezF: 4.5, ezB: 4.5, ey: topY + 0.52, ry: topY + 4.15,
-    rx: 2.6, thick: 0.32, sori: 1.05, nx: 34, nz: 24 }));
-  g.merge(roundedBox(5.6, 0.46, 0.62, 0.10, 2, { mat: MAT.HIWADA, uScale: 1.2, vScale: 0.2 }),
-    M4.compose(m, [0, topY + 4.30, 0], 0, [1, 1, 1]));                     // 棟
-  // 懸魚 : the pendant that hangs off the gable point
-  for (const sz of [-1, 1])
-    g.merge(lathe([[0, 0, 0], [0.34, 0.10, 0.2], [0.30, 0.42, 0.6], [0.16, 0.62, 0.9], [0, 0.68, 1]], 12,
-      { mat: MAT.BRONZE, uScale: 0.5 }), M4.compose(m, [0, topY + 2.30, sz * 3.30], 0, [1, 1, 0.35], PI, 0));
-  return g;
-}
-
-/* ---------------- 外拝殿 : the outer worship hall, open on all sides ---- */
-function buildGehaiden() {
-  const g = new Geo(), m = M4.create();
-  const W = 13.6, D = 8.0, H = 4.1;
-  g.merge(roundedBox(W + 1.6, 0.62, D + 1.6, 0.04, 2, { mat: MAT.GRANITE, uScale: 4.0, vScale: 2.4 }),
-    M4.compose(m, [0, -0.31, 0], 0, [1, 1, 1]));
-  g.merge(roundedBox(W + 0.9, 0.20, D + 0.9, 0.03, 2, { mat: MAT.VERMILLION, uScale: 4.0, vScale: 2.4 }),
-    M4.compose(m, [0, 0.10, 0], 0, [1, 1, 1]));
-  const cols = [-5.6, -2.8, 0, 2.8, 5.6], rows = [-3.0, 3.0];
-  for (const cx of cols) for (const cz of rows) {
-    g.merge(lathe([[0.255, 0.20, 0], [0.262, 0.34, 0.1], [0.246, H, 0.95], [0.240, H + 0.10, 1]], 16,
-      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, 0, cz], 0, [1, 1, 1]));
-    g.merge(bracketSet(0.92), M4.compose(m, [cx, H + 0.30, cz], cz > 0 ? 0 : PI, [1, 1, 1]));
-  }
-  for (const cz of rows)
-    g.merge(roundedBox(W, 0.36, 0.26, 0.02, 2, { mat: MAT.VERMILLION, uScale: 2.6, vScale: 0.2 }),
-      M4.compose(m, [0, H + 0.12, cz], 0, [1, 1, 1]));
-  for (const sz of [-1, 1]) rafterRow(g, -7.4, 7.4, sz * 4.3, H + 0.72, 46, 1.8, 1.0, sz > 0 ? 0 : PI);
-  g.merge(roofShell({ ex: 8.6, ezF: 5.6, ezB: 5.6, ey: H + 0.62, ry: H + 4.70,
-    rx: 3.4, thick: 0.30, sori: 1.15, nx: 34, nz: 24 }));
-  g.merge(roundedBox(6.9, 0.42, 0.58, 0.09, 2, { mat: MAT.HIWADA, uScale: 1.4, vScale: 0.2 }),
-    M4.compose(m, [0, H + 4.86, 0], 0, [1, 1, 1]));
-  /* the twelve zodiac lanterns hung along the front eave, which is what
-     everyone photographs this building for */
-  for (let i = 0; i < 12; i++) {
-    const x = -6.6 + i * 1.2;
-    g.merge(roundedBox(0.05, 0.42, 0.05, 0.01, 1, { mat: MAT.BLACK }),
-      M4.compose(m, [x, H + 0.40, 5.15], 0, [1, 1, 1]));
-    g.merge(lathe([[0, 0, 0], [0.16, 0.05, 0.1], [0.185, 0.20, 0.4], [0.175, 0.40, 0.7], [0.12, 0.50, 0.9], [0, 0.53, 1]],
-      12, { mat: MAT.BRONZE, uScale: 0.6 }), M4.compose(m, [x, H - 0.13, 5.15], 0, [1, 1, 1]));
-    g.merge(lathe([[0, 0, 0], [0.235, 0.035, 0.2], [0.20, 0.10, 0.7], [0, 0.125, 1]], 12,
-      { mat: MAT.BRONZE, uScale: 0.5 }), M4.compose(m, [x, H + 0.36, 5.15], 0, [1, 1, 1]));
-  }
-  return g;
-}
-
-/* ---------------- 本殿 : 五間社流造 (1494) ----------------
-   Nagare-zukuri: a gabled roof whose front slope runs on past the wall to
-   shelter the porch, so roofShell just takes a different eave depth front
-   and back. What makes it Fushimi Inari rather than a generic shrine is
-   the 向拝 pushed out in front under a 唐破風, the row of carved 蟇股
-   between the beams, and gilt on every column cap and every edge.        */
-function buildHonden() {
-  const g = new Geo(), m = M4.create();
-  const W = 10.6, D = 5.2, H = 4.1, FL = 1.55;
-  const bay = W / 5, colX = [-2 * bay, -bay, 0, bay, 2 * bay];
-  const VZ = D / 2 + 2.9;                      // veranda edge
-  const KZ = D / 2 + 4.05;                     // 向拝 columns
-
-  // 亀腹 podium, veranda deck, 高欄
-  g.merge(roundedBox(W + 2.6, FL, D + 7.0, 0.05, 2, { mat: MAT.GRANITE, uScale: 3.6, vScale: 2.8 }),
-    M4.compose(m, [0, FL / 2, 1.1], 0, [1, 1, 1]));
-  g.merge(roundedBox(W + 1.7, 0.24, D + 5.6, 0.03, 2, { mat: MAT.VERMILLION, uScale: 3.6, vScale: 2.8 }),
-    M4.compose(m, [0, FL + 0.12, 0.9], 0, [1, 1, 1]));
-  const dz = FL + 0.24;
-  railing(g, -(W + 1.7) / 2, (W + 1.7) / 2, -(D + 5.6) / 2 + 0.9, dz, 0.95, 0, 0, 0);
-  for (const sx of [-1, 1])
-    railing(g, -(D + 5.6) / 2 + 0.9, (D + 5.6) / 2 + 0.9, sx * (W + 1.7) / 2, dz, 0.95, PI / 2, 0, 0);
-
-  // columns with gilt caps top and bottom
-  for (const cx of colX) for (const cz of [-D / 2, D / 2]) {
-    g.merge(lathe([[0.225, 0, 0], [0.232, 0.14, 0.1], [0.214, H, 0.95], [0.208, H + 0.09, 1]], 16,
-      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, dz, cz], 0, [1, 1, 1]));
-    g.merge(giltCap(0.234), M4.compose(m, [cx, dz + 0.05, cz], 0, [1, 1, 1]));
-    g.merge(giltCap(0.220), M4.compose(m, [cx, dz + H - 0.16, cz], 0, [1, 1, 1]));
-  }
-  // white walls and vermillion board doors
-  for (const sz of [-1, 1])
-    g.merge(roundedBox(W - 0.1, H - 0.4, 0.20, 0.02, 2, { mat: MAT.PLASTER, uScale: 2.6, vScale: 1.7 }),
-      M4.compose(m, [0, dz + (H - 0.4) / 2 + 0.2, sz * D / 2], 0, [1, 1, 1]));
-  for (const sx of [-1, 1])
-    g.merge(roundedBox(0.20, H - 0.4, D - 0.35, 0.02, 2, { mat: MAT.PLASTER, uScale: 1.4, vScale: 1.7 }),
-      M4.compose(m, [sx * W / 2, dz + (H - 0.4) / 2 + 0.2, 0], 0, [1, 1, 1]));
-  for (const cx of colX) {
-    g.merge(roundedBox(bay - 0.62, H - 1.0, 0.10, 0.015, 2, { mat: MAT.VERMILLION, uScale: 1.0, vScale: 1.3 }),
-      M4.compose(m, [cx, dz + 1.90, D / 2 + 0.12], 0, [1, 1, 1]));
-    for (const sy of [-1, 1])                                    // door fittings
-      g.merge(roundedBox(0.24, 0.24, 0.045, 0.02, 1, { mat: MAT.BRONZE, uScale: 0.3, vScale: 0.3 }),
-        M4.compose(m, [cx, dz + 1.90 + sy * 0.95, D / 2 + 0.19], 0, [1, 1, 1]));
-  }
-  // 長押 rails, 蟇股 between them, brackets over every column
-  for (const sz of [-1, 1]) for (const hy of [1.35, H - 0.24])
-    g.merge(roundedBox(W + 0.5, 0.20, 0.16, 0.015, 1, { mat: MAT.VERMILLION, uScale: 2.6, vScale: 0.2 }),
-      M4.compose(m, [0, dz + hy, sz * (D / 2 + 0.14)], 0, [1, 1, 1]));
-  const km = kaerumata(0.92, 0.62, 0.24);
-  for (let i = 0; i < 5; i++) {
-    g.merge(km, M4.compose(m, [-2 * bay + i * bay, dz + H - 0.14, D / 2 + 0.14], 0, [1, 1, 1]));
-    g.merge(km, M4.compose(m, [-2 * bay + i * bay, dz + H - 0.14, -(D / 2 + 0.14)], PI, [1, 1, 1]));
-  }
-  for (const cx of colX) {
-    g.merge(bracketSet(0.82), M4.compose(m, [cx, dz + H + 0.12, D / 2], 0, [1, 1, 1]));
-    g.merge(bracketSet(0.82), M4.compose(m, [cx, dz + H + 0.12, -D / 2], PI, [1, 1, 1]));
-  }
-
-  // ---- 向拝 : the porch pushed out in front, under its own 唐破風 ----
-  for (const sx of [-1, 1]) {
-    g.merge(lathe([[0.185, 0, 0], [0.192, 0.12, 0.1], [0.176, 3.35, 0.95], [0.170, 3.44, 1]], 14,
-      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [sx * 1.30, dz, KZ], 0, [1, 1, 1]));
-    g.merge(giltCap(0.194), M4.compose(m, [sx * 1.30, dz + 0.05, KZ], 0, [1, 1, 1]));
-    g.merge(giltCap(0.182), M4.compose(m, [sx * 1.30, dz + 3.22, KZ], 0, [1, 1, 1]));
-    g.merge(bracketSet(0.70), M4.compose(m, [sx * 1.30, dz + 3.46, KZ], 0, [1, 1, 1]));
-  }
-  g.merge(roundedBox(3.5, 0.26, 0.20, 0.02, 2, { mat: MAT.VERMILLION, uScale: 1.2, vScale: 0.2 }),
-    M4.compose(m, [0, dz + 3.52, KZ], 0, [1, 1, 1]));
-  g.merge(kaerumata(1.15, 0.78, 0.26), M4.compose(m, [0, dz + 3.62, KZ], 0, [1, 1, 1]));
-
-  const ey = dz + H + 0.62;
-  for (const sz of [-1, 1]) rafterRow(g, -6.1, 6.1, sz * 3.0, ey + 0.10, 42, 1.7, 0.95, sz > 0 ? 0 : PI);
-  g.merge(roofShell({ ex: 6.7, ezF: 7.6, ezB: 3.6, ey, ry: ey + 3.35,
-    gable: true, thick: 0.32, sori: 0.88, nx: 32, nz: 30 }));
-
-  // the 唐破風 sits on the front slope over the porch
-  g.merge(karahafu(4.9, 1.30, 0.42, 0.26),
-    M4.compose(m, [0, dz + 4.16, KZ + 0.72], 0, [1, 1, 1]));
-  g.merge(roofShell({ ex: 2.55, ezF: 0.95, ezB: 1.55, ey: dz + 4.30, ry: dz + 5.05,
-    gable: true, thick: 0.20, sori: 0.30, nx: 18, nz: 12 }),
-    M4.compose(m, [0, 0, KZ + 0.10], 0, [1, 1, 1]));
-  g.merge(gegyo(0.85), M4.compose(m, [0, dz + 4.30, KZ + 0.90], 0, [1, 1, 1]));
-
-  // gable walls, ridge, 千木 and 鰹木
-  for (const sx of [-1, 1]) {
-    g.merge(roundedBox(0.22, 2.35, 3.1, 0.02, 2, { mat: MAT.PLASTER, uScale: 0.6, vScale: 1.0 }),
-      M4.compose(m, [sx * 6.6, ey + 1.72, -0.30], 0, [1, 1, 1]));
-    g.merge(gegyo(1.05), M4.compose(m, [sx * 6.62, ey + 2.62, -0.30], PI / 2, [1, 1, 1]));
-  }
-  g.merge(roundedBox(13.6, 0.46, 0.62, 0.10, 2, { mat: MAT.HIWADA, uScale: 2.4, vScale: 0.2 }),
-    M4.compose(m, [0, ey + 3.49, 0], 0, [1, 1, 1]));
-  for (const sx of [-1, 1]) for (const r of [-1, 1])
-    g.merge(roundedBox(0.21, 3.2, 0.21, 0.03, 1, { mat: MAT.BRONZE, uScale: 0.2, vScale: 1.2 }),
-      M4.compose(m, [sx * 6.05, ey + 4.02, r * 0.44], 0, [1, 1, 1], r * 0.26, sx * 0.30));
-  for (let i = 0; i < 5; i++)
-    g.merge(lathe([[0, 0, 0], [0.21, 0.03, 0.1], [0.225, 0.55, 0.5], [0.21, 1.09, 0.9], [0, 1.12, 1]], 12,
-      { mat: MAT.BRONZE, uScale: 0.5 }),
-      M4.compose(m, [-4.2 + i * 2.1, ey + 3.61, -0.56], 0, [1, 1, 1], PI / 2, 0));
-
-  // 木階 : the steps the long slope exists to cover
-  for (let i = 0; i < 8; i++)
-    g.merge(roundedBox(4.4, STEP_RISE, 0.38, 0.01, 1, { mat: MAT.VERMILLION, uScale: 1.6, vScale: 0.2 }),
-      M4.compose(m, [0, dz - 0.12 - i * STEP_RISE, VZ + 0.6 + i * 0.38], 0, [1, 1, 1]));
-  return g;
-}
-
-/* ---------------- 内拝殿 : where you actually stand and pray ---------- */
-function buildNaihaiden() {
-  const g = new Geo(), m = M4.create();
-  const W = 9.6, D = 6.0, H = 3.9;
-  g.merge(roundedBox(W + 1.4, 0.55, D + 1.4, 0.04, 2, { mat: MAT.GRANITE, uScale: 3.0, vScale: 2.0 }),
-    M4.compose(m, [0, -0.275, 0], 0, [1, 1, 1]));
-  g.merge(roundedBox(W + 0.7, 0.20, D + 0.7, 0.03, 2, { mat: MAT.VERMILLION, uScale: 3.0, vScale: 2.0 }),
-    M4.compose(m, [0, 0.10, 0], 0, [1, 1, 1]));
-  for (const cx of [-4.0, -1.35, 1.35, 4.0]) for (const cz of [-2.4, 2.4]) {
-    g.merge(lathe([[0.235, 0.20, 0], [0.242, 0.34, 0.1], [0.226, H, 0.95], [0.220, H + 0.09, 1]], 16,
-      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [cx, 0, cz], 0, [1, 1, 1]));
-    g.merge(giltCap(0.244), M4.compose(m, [cx, 0.26, cz], 0, [1, 1, 1]));
-    g.merge(bracketSet(0.86), M4.compose(m, [cx, H + 0.24, cz], cz > 0 ? 0 : PI, [1, 1, 1]));
-  }
-  for (const sz of [-1, 1]) {
-    g.merge(roundedBox(W, 0.24, 0.18, 0.02, 1, { mat: MAT.VERMILLION, uScale: 2.4, vScale: 0.2 }),
-      M4.compose(m, [0, H + 0.06, sz * 2.4], 0, [1, 1, 1]));
-    rafterRow(g, -5.6, 5.6, sz * 3.4, H + 0.62, 36, 1.6, 0.9, sz > 0 ? 0 : PI);
-  }
-  const km = kaerumata(0.86, 0.58, 0.22);
-  for (const cx of [-2.7, 0, 2.7]) g.merge(km, M4.compose(m, [cx, H + 0.18, 2.4], 0, [1, 1, 1]));
-  g.merge(roofShell({ ex: 6.6, ezF: 4.4, ezB: 4.4, ey: H + 0.54, ry: H + 4.05,
-    rx: 2.2, thick: 0.28, sori: 0.95, nx: 30, nz: 22 }));
-  g.merge(roundedBox(4.6, 0.40, 0.56, 0.09, 2, { mat: MAT.HIWADA, uScale: 1.2, vScale: 0.2 }),
-    M4.compose(m, [0, H + 4.20, 0], 0, [1, 1, 1]));
-  for (const sz of [-1, 1]) g.merge(gegyo(0.95), M4.compose(m, [0, H + 2.55, sz * 2.75], sz > 0 ? 0 : PI, [1, 1, 1]));
-  // 鈴緒 over the offertory box, which is the thing everybody walks up to
-  for (const dx of [-2.4, 0, 2.4]) {
-    g.merge(suzuo(1.85), M4.compose(m, [dx, H + 0.10, 3.05], 0, [1, 1, 1]));
-    g.merge(saisen(), M4.compose(m, [dx, 0.20, 3.55], 0, [0.9, 0.9, 0.9]));
-  }
-  return g;
-}
-
-/* ---------------- 絵馬掛け ---------------- */
-function buildEmakake() {
-  const g = new Geo(), m = M4.create();
-  const rnd = mulberry32(4471);
-  for (const sx of [-1, 1])
-    g.merge(roundedBox(0.14, 2.05, 0.14, 0.016, 1, { mat: MAT.VERMILLION, uScale: 0.2, vScale: 1.2 }),
-      M4.compose(m, [sx * 1.9, 1.02, 0], 0, [1, 1, 1]));
-  g.merge(roundedBox(4.1, 0.11, 0.11, 0.014, 1, { mat: MAT.VERMILLION, uScale: 1.4, vScale: 0.1 }),
-    M4.compose(m, [0, 1.98, 0], 0, [1, 1, 1]));
-  for (let i = 0; i < 26; i++) {
-    const x = -1.72 + (i % 13) * 0.287, row = i < 13 ? 0 : 1;
-    g.merge(roundedBox(0.23, 0.19, 0.022, 0.008, 1, { mat: MAT.PLASTER, uScale: 0.3, vScale: 0.3 }),
-      M4.compose(m, [x, 1.80 - row * 0.235, (rnd() - 0.5) * 0.05], 0, [1, 1, 1],
-        (rnd() - 0.5) * 0.10, (rnd() - 0.5) * 0.16));
-  }
-  return g;
-}
-
-/* ---------------- 手水舎 ---------------- */
-function buildChozuya() {
-  const g = new Geo(), m = M4.create();
-  const H = 2.55;
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    g.merge(lathe([[0, 0, 0], [0.34, 0.14, 0.2], [0.32, 0.26, 0.4], [0, 0.30, 0.5]], 12,
-      { mat: MAT.GRANITE, uScale: 0.5 }), M4.compose(m, [sx * 1.5, 0, sz * 1.1], 0, [1, 1, 1]));
-    g.merge(lathe([[0.15, 0.24, 0], [0.155, 0.4, 0.1], [0.142, H, 0.95], [0.138, H + 0.08, 1]], 12,
-      { mat: MAT.VERMILLION, uScale: 1.0 }), M4.compose(m, [sx * 1.5, 0, sz * 1.1], 0, [1, 1, 1]));
-    g.merge(bracketSet(0.55), M4.compose(m, [sx * 1.5, H + 0.16, sz * 1.1], sz > 0 ? 0 : PI, [1, 1, 1]));
-  }
-  for (const sz of [-1, 1]) rafterRow(g, -2.5, 2.5, sz * 1.9, H + 0.46, 18, 1.1, 0.7, sz > 0 ? 0 : PI);
-  g.merge(roofShell({ ex: 2.9, ezF: 2.4, ezB: 2.4, ey: H + 0.40, ry: H + 2.30,
-    rx: 0.9, thick: 0.22, sori: 0.52, nx: 22, nz: 18 }));
-  g.merge(roundedBox(1.9, 0.28, 0.40, 0.07, 2, { mat: MAT.HIWADA, uScale: 0.8, vScale: 0.2 }),
-    M4.compose(m, [0, H + 2.42, 0], 0, [1, 1, 1]));
-  // the basin
-  g.merge(roundedBox(2.5, 0.62, 1.45, 0.06, 2, { mat: MAT.GRANITE, uScale: 1.6, vScale: 0.9 }),
-    M4.compose(m, [0, 0.31, 0], 0, [1, 1, 1]));
-  g.merge(roundedBox(2.16, 0.20, 1.12, 0.05, 2, { mat: MAT.STONE, uScale: 1.4, vScale: 0.8 }),
-    M4.compose(m, [0, 0.60, 0], 0, [1, 1, 1]));
-  return g;
-}
-
-/* ---------------- 玉垣 : the vermillion fence ---------------- */
-function buildTamagaki(len, n) {
-  const g = new Geo(), m = M4.create();
-  for (let i = 0; i <= n; i++) {
-    const x = -len / 2 + (len / n) * i;
-    g.merge(roundedBox(0.155, 1.42, 0.155, 0.016, 1, { mat: MAT.VERMILLION, uScale: 0.15, vScale: 0.9 }),
-      M4.compose(m, [x, 0.71, 0], 0, [1, 1, 1]));
-    g.merge(lathe([[0, 0, 0], [0.085, 0.03, 0.3], [0.055, 0.10, 0.8], [0, 0.12, 1]], 8,
-      { mat: MAT.BLACK, uScale: 0.3 }), M4.compose(m, [x, 1.42, 0], 0, [1, 1, 1]));
-  }
-  for (const hy of [0.52, 1.14])
-    g.merge(roundedBox(len, 0.10, 0.085, 0.012, 1, { mat: MAT.VERMILLION, uScale: 3.0, vScale: 0.1 }),
-      M4.compose(m, [0, hy, 0], 0, [1, 1, 1]));
-  return g;
-}
-
-/* ---------------- assemble the precinct ---------------- */
-function buildKeidai(detail) {
-  const draws = [], shadowDraws = [], lights = [];
-  const rnd = mulberry32(83551);
-  const one = (geo, x, y, z, ry, sc, name, tint) => {
-    const mesh = new Mesh(geo);
-    const m = M4.create();
-    M4.compose(m, [x + KX, y, z], ry || 0, [sc || 1, sc || 1, sc || 1]);
-    mesh.setInstances([{ m, tint: tint || [1, 1, 1, rnd()] }]);
-    mesh.instT = null;
-    draws.push({ mesh, name });
-    shadowDraws.push({ mesh });
-    return mesh;
-  };
-  const GY = z => keidaiGroundY(0, z);
-
-  // --- the floor: terraces, step treads and the retaining walls ---
-  {
-    const g = new Geo(), m = M4.create();
-    const NX = 78, NZ = 220;
-    const rows = [];
-    for (let j = 0; j <= NZ; j++) {
-      const z = lerp(-104, 6, j / NZ), row = [];
-      for (let i = 0; i <= NX; i++) {
-        const x = lerp(-58, 58, i / NX);
-        const y = keidaiGroundY(x + KX, z);
-        const mat = Math.abs(x) > 19.5 ? MAT.MOSS : MAT.STONE;
-        row.push(g.push(x, y, z, 0, 1, 0, x * 0.34, z * 0.34, mat));
-      }
-      rows.push(row);
-    }
-    for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++)
-      g.quad(rows[j][i], rows[j + 1][i], rows[j + 1][i + 1], rows[j][i + 1]);
-    one(g, 0, 0, 0, 0, 1, 'keidai_ground');
-  }
-
-  // --- torii on the approach, reusing the corridor's builder at scale ---
-  const toriiG = buildTorii(detail);
-  for (const [z, sc] of [[-78, 2.55], [-58, 2.05]]) {
-    one(toriiG, 0, GY(z), z, 0, sc, 'keidai_torii');
-    addBox(-1.09 * sc, z, 0.5 * sc, 0.5 * sc, GY(z), 3 * sc);
-    addBox(1.09 * sc, z, 0.5 * sc, 0.5 * sc, GY(z), 3 * sc);
-  }
-
-  // --- the buildings ---
-  one(buildRomon(), 0, GY(-44), -44, 0, 1, 'romon');
-  for (const cx of [-4.3, -1.45, 1.45, 4.3]) for (const cz of [-1.9, 1.9])
-    addBox(cx, -44 + cz, 0.9, 0.9, GY(-44), 6);
-  for (const sx of [-1, 1]) addBox(sx * 2.9, -44, 3.0, 4.4, GY(-44), 6);   // the closed bays
-
-  one(buildGehaiden(), 0, GY(-30), -30, 0, 1, 'gehaiden');
-  for (const cx of [-5.6, -2.8, 0, 2.8, 5.6]) for (const cz of [-3.0, 3.0])
-    addBox(cx, -30 + cz, 0.75, 0.75, GY(-30), 5);
-
-  one(buildHonden(), 0, GY(-8), -8, 0, 1, 'honden');
-  addBox(0, -8, 11.6, 6.2, GY(-8), 7.0);
-  addBox(0, -3.6, 3.2, 1.2, GY(-8), 4.0);                    // 向拝 columns
-
-  one(buildNaihaiden(), 0, GY(-21.5), -21.5, 0, 1, 'naihaiden');
-  for (const cx of [-4.0, -1.35, 1.35, 4.0]) for (const cz of [-2.4, 2.4])
-    addBox(cx, -21.5 + cz, 0.7, 0.7, GY(-21.5), 4.5);
-
-  for (const [x, z, ry] of [[-11.5, -26, 0], [11.5, -26, 0], [-13.5, -40, PI / 2]])
-    { one(buildEmakake(), x, GY(z), z, ry, 1, 'ema'); addBox(x, z, 4.3, 0.5, GY(z), 2.2); }
-
-  /* the precinct's own trees. The corridor's scatter is clipped at the seam
-     now, so without these the plaza sits in a void. */
-  {
-    const trunkG = buildTrunk(detail), canG = buildCanopyClump(7, detail ? 5 : 3);
-    for (let i = 0; i < 64; i++) {
-      const side = i % 2 ? 1 : -1;
-      const z = -100 + rnd() * 104;
-      // they belong on the hillside outside the walls, not over the plaza:
-      // from above, a canopy at 16m simply erases the buildings
-      const off = 22.0 + Math.pow(rnd(), 0.65) * 30.0;
-      if (z > -4 && off < 26) continue;                       // keep the seam clear
-      const x = side * off, y = keidaiGroundY(x + KX, z) - 0.25;
-      const sc = 0.9 + rnd() * 0.85;
-      one(trunkG, x, y, z, rnd() * TAU, sc, 'keidai_trunk',
-        [0.8 + rnd() * 0.4, 0.8 + rnd() * 0.35, 0.8 + rnd() * 0.35, rnd()]);
-      one(canG, x, y + 8.6 * sc, z, rnd() * TAU, 0.9 + rnd() * 0.55, 'keidai_canopy',
-        [0.75 + rnd() * 0.5, 0.85 + rnd() * 0.4, 0.7 + rnd() * 0.4, rnd()]);
-    }
-  }
-
-  one(buildChozuya(), -12.5, GY(-52), -52, 0, 1, 'chozuya');
-  addBox(-12.5, -52, 3.4, 2.6, GY(-52), 3);
-
-  // --- 狛狐 flanking the gate and the hall ---
-  const foxG = buildFox();
-  for (const [z, off, sc] of [[-49.5, 3.6, 1.35], [-34.5, 4.4, 1.2], [-14.0, 5.2, 1.15]])
-    for (const sx of [-1, 1]) {
-      one(foxG, sx * off, GY(z), z, sx > 0 ? -0.28 : 0.28, sc, 'keidai_fox');
-      addBox(sx * off, z, 0.9, 0.9, GY(z), 1.4);
-    }
-
-  // --- stone lanterns down the approach, and the fence along the terraces ---
-  const lanG = buildLantern(detail);
-  for (let i = 0; i < 9; i++) {
-    const z = -74 + i * 4.6;
-    if (z > -50) break;
-    for (const sx of [-1, 1]) {
-      one(lanG, sx * 7.2, GY(z), z, rnd() * 0.4, 1.15, 'keidai_lantern');
-      lights.push({ pos: [sx * 7.2, GY(z) + 1.5, z], radius: 6.4,
-        color: [1.0, 0.62, 0.28], intensity: 3.0, flicker: rnd() * 10 });
-      addBox(sx * 7.2, z, 0.7, 0.7, GY(z), 2.0);
-    }
-  }
-  const fenceG = buildTamagaki(9.0, 9);
-  for (const [z, x0] of [[-24.5, 11.5], [-24.5, -11.5], [-13.0, 12.5], [-13.0, -12.5]])
-    one(fenceG, x0, GY(z), z, 0, 1, 'tamagaki');
-  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++)
-    one(fenceG, sx * 13.5, GY(-46 + i * 9), -46 + i * 9, PI / 2, 1, 'tamagaki');
-
-  /* canopy cards are alpha masked and two sided, like the corridor's */
-  for (const d of draws) if (d.name === 'keidai_canopy') { d.alphaMask = 1; d.twoSided = true; d.wind = 0.05; }
-  return { draws, shadowDraws, lights };
-}
 
 /* ==== h_kitsune.js ==== */
 /* =========================================================================
@@ -6702,9 +4847,9 @@ function placeKitsune(x, y, z, yaw) {
   poseKitsune();
 }
 
-/* ==== e_main.js ==== */
+/* ==== e_char.js ==== */
 /* =========================================================================
-   MAIN : boot, input, UI
+   VIEWER : boot, orbit camera, UI
    ========================================================================= */
 
 const QUALITY = [
@@ -6713,74 +4858,6 @@ const QUALITY = [
   { name: '高', scale: 1.00, shadow: 2048, mat: 1024, ao: true, ssr: true, vol: true, taa: true, dof: true },
 ];
 
-/* vertical donor inscriptions, drawn to a 4x2 atlas (col = variant, row = pillar side) */
-const INSCRIPTIONS = [
-  ['奉納', '株式會社 山邑商店', '令和五年三月吉日'],
-  ['奉納', '伏見 中村 光雄', '平成三十一年二月'],
-  ['奉納', '有限會社 藤田運送', '令和二年十一月吉日'],
-  ['奉納', '京都 小林 志づ', '平成二十七年九月'],
-  ['奉納', '大阪 森下製作所', '令和四年五月吉日'],
-  ['奉納', '神戸 岡本 清一郎', '平成二十四年十月'],
-  ['奉納', '宇治 白川屋本店', '令和元年七月吉日'],
-  ['奉納', '東京 渡邊 とみ子', '平成二十二年四月'],
-];
-function makeInscriptionAtlas() {
-  const CW = 256, CH = 512;                 // cell
-  const cv = document.createElement('canvas');
-  cv.width = CW * 4; cv.height = CH * 2;
-  const c = cv.getContext('2d');
-  c.clearRect(0, 0, cv.width, cv.height);
-  const fonts = '"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Sans CJK JP","Noto Sans JP","MS Mincho",serif';
-  for (let row = 0; row < 2; row++) for (let col = 0; col < 4; col++) {
-    const set = INSCRIPTIONS[row * 4 + col];
-    // row 0 = donor name (right-hand column of the pair), row 1 = date
-    const text = row === 0 ? set[1] : set[2];
-    const head = row === 0 ? set[0] : '';
-    const ox = col * CW, oy = row * CH;
-    c.save();
-    c.translate(ox, oy);
-    c.fillStyle = '#000';
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    let y = 34;
-    if (head) {
-      c.font = '700 60px ' + fonts;
-      for (const ch of head) { c.fillText(ch, CW * 0.5, y); y += 64; }
-      y += 22;
-    }
-    const size = text.length > 8 ? 44 : 52;
-    c.font = '600 ' + size + 'px ' + fonts;
-    const step = size * 1.08;
-    for (const ch of text) {
-      if (y > CH - 20) break;
-      c.fillText(ch, CW * 0.5, y);
-      y += step;
-    }
-    c.restore();
-  }
-  // weather the ink a little
-  const img = c.getImageData(0, 0, cv.width, cv.height);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const x = (i / 4) % cv.width, yy = Math.floor((i / 4) / cv.width);
-    const n = (Math.sin(x * 0.7) * Math.sin(yy * 0.53) + Math.sin(x * 0.13 + yy * 0.21)) * 0.5;
-    d[i + 3] = clamp(d[i + 3] * (0.82 + 0.3 * n), 0, 255);
-  }
-  c.putImageData(img, 0, 0);
-  const t = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, t);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  R.decalTex = t;
-  R.decalCanvas = cv;
-}
-
 function isMobile() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
     (navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 900);
@@ -6788,7 +4865,7 @@ function isMobile() {
 
 function resize() {
   const q = QUALITY[R.quality];
-  const dpr = Math.min(window.devicePixelRatio || 1, isMobile() ? 2.0 : 2.0);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
   const cw = R.canvas.clientWidth || window.innerWidth;
   const ch = R.canvas.clientHeight || window.innerHeight;
   const w = Math.max(320, Math.round(cw * dpr * q.scale * R.userScale));
@@ -6810,6 +4887,200 @@ function applyQuality(qi, rebuildShadows) {
   resize();
 }
 
+/* ---------------- orbit camera ----------------
+   The character is the subject, so the camera goes round it rather than
+   through it. Distance and target height are damped; a hard cut between
+   framings makes it impossible to tell whether a change is in the model or
+   in the shot.                                                             */
+const ORB = {
+  yaw: 0.24, pitch: -0.03,
+  dist: 3.3, distT: 3.3,
+  ty: 0.86, tyT: 0.86,
+  spin: false, spinSpeed: 0.35
+};
+
+/* named framings. Heights are the character's own landmarks, so they stay
+   correct when the model changes underneath them. */
+const SHOTS = {
+  full:  { dist: 3.30, ty: 0.86, fov: 30 },
+  half:  { dist: 1.55, ty: 1.24, fov: 30 },
+  face:  { dist: 0.50, ty: 1.575, fov: 30 },
+  hand:  { dist: 0.46, ty: 0.80, fov: 30 },
+  foot:  { dist: 0.60, ty: 0.16, fov: 32 },
+  wide:  { dist: 5.60, ty: 0.90, fov: 34 }
+};
+function shot(k, yaw) {
+  const s = SHOTS[k]; if (!s) return;
+  ORB.distT = s.dist; ORB.tyT = s.ty;
+  CAM.fovTarget = s.fov * PI / 180;
+  if (yaw !== undefined) ORB.yaw = yaw;
+  R.expoSnap = true; R.histValid = false;
+}
+
+function updateCamera(dt) {
+  CAM.fov += (CAM.fovTarget - CAM.fov) * Math.min(1, dt * 11);
+  if (ORB.spin) ORB.yaw += dt * ORB.spinSpeed;
+  ORB.dist += (ORB.distT - ORB.dist) * Math.min(1, dt * 8);
+  ORB.ty += (ORB.tyT - ORB.ty) * Math.min(1, dt * 8);
+  ORB.pitch = clamp(ORB.pitch, -1.15, 1.15);
+
+  const cp = Math.cos(ORB.pitch);
+  CAM.pos = [Math.sin(ORB.yaw) * cp * ORB.dist,
+             ORB.ty + Math.sin(ORB.pitch) * ORB.dist,
+             Math.cos(ORB.yaw) * cp * ORB.dist];
+  const dir = norm(sub([0, ORB.ty, 0], CAM.pos));
+  CAM.yaw = Math.atan2(dir[0], -dir[2]);
+  CAM.pitch = Math.asin(clamp(dir[1], -1, 1));
+
+  M4.copy(CAM.prevViewProj, CAM.viewProj);
+  M4.lookAt(CAM.view, CAM.pos, add(CAM.pos, dir), [0, 1, 0]);
+  M4.perspective(CAM.projNoJitter, CAM.fov, R.w / R.h, CAM.near, CAM.far);
+  M4.copy(CAM.proj, CAM.projNoJitter);
+  if (CFG.taa) {
+    const i = R.jitterIdx % 8;
+    CAM.proj[8] += (HALTON2[i] - 0.5) * 2 / R.w;
+    CAM.proj[9] += (HALTON3[i] - 0.5) * 2 / R.h;
+    R.jitterIdx++;
+  }
+  M4.mul(CAM.viewProj, CAM.proj, CAM.view);
+  M4.invert(CAM.invViewProj, CAM.viewProj);
+  M4.invert(CAM.invProj, CAM.proj);
+  if (CFG.dof) CFG.focusDist += (ORB.dist - CFG.focusDist) * Math.min(1, dt * 3);
+}
+
+/* ---------------- part visibility ----------------
+   Stripping the costume off is the only way to judge the body, and hiding
+   the hair is the only way to judge the skull. The draw lists are rebuilt
+   from a master copy rather than flagged, so nothing in the renderer has to
+   learn about visibility. */
+const GROUPS = {
+  clothes: ['top', 'sleeve', 'hakama', 'obi'],
+  hair: ['hair'],
+  ears: ['ear', 'earIn'],
+  tail: ['tail0', 'tail1', 'tail2', 'tail3']
+};
+const HIDDEN = {};
+function setGroup(name, on) {
+  HIDDEN[name] = !on;
+  const dead = new Set();
+  for (const k in HIDDEN) if (HIDDEN[k]) for (const p of GROUPS[k]) dead.add('kit_' + p);
+  const live = R.kitDraws.filter(d => !dead.has(d.name));
+  R.scene.draws.length = 0;
+  R.scene.draws.push(...R.baseDraws, ...live);
+  R.scene.shadowDraws.length = 0;
+  R.scene.shadowDraws.push(...R.shadowBase);
+  for (const d of live) R.scene.shadowDraws.push({ mesh: d.mesh, zMax: d.zMax });
+  R.histValid = false;
+}
+
+/* ---------------- sun controls ---------------- */
+function setHour(v, snap) {
+  CFG.hourTarget = ((v % 24) + 24) % 24;
+  const el = document.getElementById('hour');
+  if (el && snap) el.value = CFG.hourTarget;
+}
+function setSekki(v, snap) {
+  CFG.sekkiTarget = ((Math.round(v) % 24) + 24) % 24;
+  const el = document.getElementById('sekki');
+  if (el && snap) el.value = CFG.sekkiTarget;
+}
+function refreshLiveReadout() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('a_el', (CFG.sunElev * 180 / PI).toFixed(1) + '°');
+  set('a_az', worldToBearing(R.sunDir).toFixed(0) + '°');
+  set('a_hm', fmtHM(CFG.hour));
+  set('a_sk', SEKKI[Math.round(CFG.sekki) % 24]);
+}
+function refreshHUD() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('a_tri', (R.triCount || 0).toLocaleString());
+  set('a_cam', ORB.dist.toFixed(2) + ' m');
+}
+
+/* ---------------- input ---------------- */
+function setupInput() {
+  const c = R.canvas;
+  let drag = null;
+  const pos = e => ({ x: e.touches ? e.touches[0].clientX : e.clientX,
+                      y: e.touches ? e.touches[0].clientY : e.clientY });
+  const down = e => { drag = pos(e); };
+  const move = e => {
+    if (!drag) return;
+    const p = pos(e);
+    ORB.yaw -= (p.x - drag.x) * 0.006;
+    ORB.pitch += (p.y - drag.y) * 0.005;
+    drag = p;
+    if (e.touches) e.preventDefault();
+  };
+  const up = () => { drag = null; };
+  c.addEventListener('mousedown', down);
+  addEventListener('mousemove', move);
+  addEventListener('mouseup', up);
+  c.addEventListener('touchstart', down, { passive: true });
+  c.addEventListener('touchmove', move, { passive: false });
+  addEventListener('touchend', up);
+  c.addEventListener('wheel', e => {
+    e.preventDefault();
+    ORB.distT = clamp(ORB.distT * Math.exp(e.deltaY * 0.0012), 0.28, 14);
+  }, { passive: false });
+
+  addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    KEYS[k] = true;
+    if (k === '1') shot('full');
+    if (k === '2') shot('half');
+    if (k === '3') shot('face');
+    if (k === '4') shot('hand');
+    if (k === '5') shot('foot');
+    if (k === '6') shot('wide');
+    if (k === 'f') shot(null, ORB.yaw = 0);
+    if (k === 'g') ORB.yaw = PI;
+    if (k === 'r') { ORB.spin = !ORB.spin; syncUI(); }
+    if (k === 'h') { CFG.showUI = !CFG.showUI; document.getElementById('ui').style.display = CFG.showUI ? '' : 'none'; }
+    if (k === ' ') e.preventDefault();
+  });
+  addEventListener('keyup', e => { KEYS[e.key.toLowerCase()] = false; });
+}
+
+/* ---------------- UI ---------------- */
+function bindSlider(id, get, set, fmt) {
+  const el = document.getElementById(id); if (!el) return;
+  const out = document.getElementById(id + '_v');
+  const sync = () => { if (out) out.textContent = fmt ? fmt(+el.value) : el.value; };
+  el.value = get();
+  sync();
+  el.addEventListener('input', () => { set(+el.value); sync(); });
+}
+function bindToggle(id, get, set) {
+  const el = document.getElementById(id); if (!el) return;
+  el.checked = get();
+  el.addEventListener('change', () => set(el.checked));
+}
+function syncUI() {
+  const el = document.getElementById('spin'); if (el) el.checked = ORB.spin;
+}
+function setupUI() {
+  bindSlider('sekki', () => CFG.sekkiTarget, v => setSekki(v, false), v => SEKKI[Math.round(v) % 24]);
+  bindSlider('hour', () => CFG.hourTarget, v => setHour(v, false), fmtHM);
+  bindSlider('expo', () => CFG.exposure, v => CFG.exposure = v,
+    v => (v >= 1 ? '+' : '') + ((v - 1) * 100).toFixed(0) + '%');
+  bindSlider('fovs', () => CAM.fovTarget * 57.3, v => CAM.fovTarget = v / 57.3, v => v.toFixed(0) + '°');
+  bindSlider('rscale', () => 1.0, v => { R.userScale = v; resize(); }, v => (v * 100).toFixed(0) + '%');
+  bindToggle('spin', () => ORB.spin, v => ORB.spin = v);
+  bindToggle('g_cloth', () => true, v => setGroup('clothes', v));
+  bindToggle('g_hair', () => true, v => setGroup('hair', v));
+  bindToggle('g_ears', () => true, v => setGroup('ears', v));
+  bindToggle('g_tail', () => true, v => setGroup('tail', v));
+  bindToggle('dof', () => CFG.dof, v => { CFG.dofUser = v; CFG.dof = v && QUALITY[R.quality].dof; });
+  const q = document.getElementById('qual');
+  if (q) { q.value = R.quality; q.addEventListener('change', () => applyQuality(+q.value, true)); }
+  for (const b of document.querySelectorAll('[data-shot]'))
+    b.addEventListener('click', () => shot(b.dataset.shot));
+  for (const b of document.querySelectorAll('[data-yaw]'))
+    b.addEventListener('click', () => { ORB.yaw = +b.dataset.yaw * PI / 180; R.histValid = false; });
+}
+
+/* ---------------- boot ---------------- */
 async function boot() {
   const canvas = document.getElementById('gl');
   R.canvas = canvas;
@@ -6821,29 +5092,35 @@ async function boot() {
   });
   if (!gl) { document.getElementById('err').style.display = 'block'; return; }
   if (!gl.getExtension('EXT_color_buffer_float')) {
-    document.getElementById('err').innerHTML = 'このデバイスは EXT_color_buffer_float に対応していません。';
+    document.getElementById('err').textContent = 'このデバイスは EXT_color_buffer_float に対応していません。';
     document.getElementById('err').style.display = 'block'; return;
   }
   gl.getExtension('OES_texture_float_linear');
   gl.getExtension('EXT_float_blend');
 
   const status = document.getElementById('status');
-  const step = async (msg, fn) => {
-    status.textContent = msg;
-    await new Promise(r => setTimeout(r, 12));
-    fn();
-  };
+  const step = async (msg, fn) => { status.textContent = msg; await new Promise(r => setTimeout(r, 12)); fn(); };
 
   const QS = new URLSearchParams(location.search);
   R.quality = QS.has('q') ? clamp(parseInt(QS.get('q')), 0, 2) : (isMobile() ? 1 : 2);
   const q = Object.assign({}, QUALITY[R.quality]);
   if (QS.has('mat')) q.mat = parseInt(QS.get('mat'));
   if (QS.has('shadow')) q.shadow = parseInt(QS.get('shadow'));
-  R.sceneDetail = QS.has('sd') ? parseInt(QS.get('sd')) : (isMobile() ? 1 : 2);
+  R.sceneDetail = QS.has('sd') ? parseInt(QS.get('sd')) : 2;
 
   fullscreenInit();
   await step('シェーダをコンパイル中…', () => initPrograms());
-  await step('質感をベイク中…', () => { bakeMaterials(q.mat); makeInscriptionAtlas(); });
+  await step('質感をベイク中…', () => {
+    bakeMaterials(q.mat);
+    // no decals in the studio, but the g-buffer pass still binds the slot
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 0, 0]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    R.decalTex = t;
+  });
   await step('空と環境光を計算中…', () => {
     R.skyCube = makeCube(256, 7);
     R.irrCube = makeCube(32, 1);
@@ -6854,55 +5131,56 @@ async function boot() {
     R.expoTex = R.meter[1].tex;
     updateSun(0);
   });
-  await step('千本鳥居を建立中…', () => {
-    R.scene = buildScene(R.sceneDetail);
-  });
-  await step('境内を建立中…', () => {
-    registerAreas();
-    R.keidai = buildKeidai(R.sceneDetail);
-    for (const d of R.keidai.draws) { d.zMax = 62; R.scene.draws.push(d); }
-    for (const d of R.keidai.shadowDraws) { d.zMax = 62; R.scene.shadowDraws.push(d); }
-    for (const l of R.keidai.lights) R.scene.lights.push(l);
-  });
-  await step('屍を起こしています…', () => initKyonshi(R.sceneDetail >= 1));
+  await step('床を敷いています…', () => { R.scene = buildScene(R.sceneDetail); });
   await step('狐人を彫っています…', () => {
     initKitsune(R.sceneDetail >= 1);
-    placeKitsune(3.02, keidaiGroundY(3.02, -34.0), -34.0, PI);
+    placeKitsune(0, 0.075, 0, 0);
+    R.kitDraws = R.scene.draws.filter(d => d.name && d.name.startsWith('kit_'));
+    R.baseDraws = R.scene.draws.filter(d => !(d.name && d.name.startsWith('kit_')));
+    const kitMesh = new Set(R.kitDraws.map(d => d.mesh));
+    R.shadowBase = R.scene.shadowDraws.filter(d => !kitMesh.has(d.mesh));
+    let t = 0;
+    for (const k in KIT.mesh) t += KIT.mesh[k].count / 3;
+    R.triCount = Math.round(t);
   });
   await step('準備完了', () => {
     applyQuality(R.quality, false);
     resize();
     bakeSky();
+    setSekki(15, true); CFG.sekki = 15;
+    setHour(11.0, true); CFG.hour = 11.0;
+    updateSun(0);
+    R.expoSnap = true;
   });
 
   document.getElementById('loading').style.opacity = '0';
   setTimeout(() => document.getElementById('loading').style.display = 'none', 700);
 
-  window.addEventListener('resize', resize);
+  addEventListener('resize', resize);
   setupInput();
   setupUI();
   if (QS.get('ui') === '0') { document.getElementById('ui').style.display = 'none'; CFG.showUI = false; }
-  else if (isMobile() || window.innerWidth < 560) document.getElementById('panel').classList.add('collapsed');
-  if (QS.has('walk')) CFG.autoWalk = QS.get('walk') !== '0';
 
-  let last = performance.now();
-  let acc = 0, frames = 0;
+  let last = performance.now(), acc = 0, frames = 0;
   function loop(now) {
     const dt = Math.min((now - last) / 1000, 0.06);
     last = now;
     R.time += dt;
     acc += dt; frames++;
-    if (acc > 0.5) { document.getElementById('fps').textContent = Math.round(frames / acc) + ' fps'; acc = 0; frames = 0; }
+    if (acc > 0.5) {
+      const el = document.getElementById('fps');
+      if (el) el.textContent = Math.round(frames / acc) + ' fps';
+      acc = 0; frames = 0;
+    }
     updateSun(dt);
     updateCamera(dt);
-    updateKyonshi(dt);
     if (R.frame % 6 === 0) refreshHUD();
     renderFrame(dt);
     R.frame++;
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  /* 1x1 readback, for tests and diagnostics only. never on the hot path. */
+
   window.__exposure = function () {
     if (!R.expoTex || !R.meter) return null;
     gl.bindFramebuffer(gl.FRAMEBUFFER, R.meter[R.meterIdx ^ 1].fb);
@@ -6913,261 +5191,11 @@ async function boot() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return { e: b[0], L: b[1] };
   };
-  window.__DBG = { CFG, R, CAM, QUALITY, updateSun, sunENU, dayLength, pathPos, resize,
-    KY, sunExposure, kyonshiReset, ringBell, WORLD, keidaiGroundY,
-    KIT, JOINTS, poseKitsune, placeKitsune };
-  window.__probe = function (rtName, px, py, n) {
-    const rt = R.rt[rtName]; if (!rt) return null;
-    n = n || 1;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fb);
-    gl.readBuffer(gl.COLOR_ATTACHMENT0);
-    const buf = new Float32Array(4 * n * n);
-    const x = Math.round(px * rt.w), y = Math.round(py * rt.h);
-    try { gl.readPixels(x, y, n, n, gl.RGBA, gl.FLOAT, buf); }
-    catch (e) { gl.bindFramebuffer(gl.FRAMEBUFFER, null); return 'ERR ' + e; }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    let r = 0, g = 0, b = 0;
-    for (let i = 0; i < n * n; i++) { r += buf[i * 4]; g += buf[i * 4 + 1]; b += buf[i * 4 + 2]; }
-    const k = n * n;
-    return [+(r / k).toFixed(4), +(g / k).toFixed(4), +(b / k).toFixed(4)];
-  };
+  window.__DBG = { CFG, R, CAM, ORB, QUALITY, updateSun, sunENU, shot, setGroup,
+                   KIT, JOINTS, poseKitsune, placeKitsune, resize };
   window.__ready = true;
 }
-
-/* ---------------- input ---------------- */
-function setupInput() {
-  const c = R.canvas;
-  addEventListener('keydown', e => {
-    KEYS[e.key.toLowerCase()] = true;
-    if (e.key === 'Shift') KEYS['shift'] = true;
-    if (e.key.toLowerCase() === 'c') { CFG.autoWalk = !CFG.autoWalk; syncUI(); }
-    if (e.key.toLowerCase() === 'h') { CFG.showUI = !CFG.showUI; document.getElementById('ui').style.display = CFG.showUI ? '' : 'none'; }
-    if (e.key.toLowerCase() === 't') { CFG.timelapse = !CFG.timelapse; syncUI(); }
-    if (e.key === ' ') { e.preventDefault(); if (!CFG.fly) ringBell(); }
-    if (e.key === '-' || e.key === '_') R.zoom(0.14);
-    if (e.key === '=' || e.key === '+') R.zoom(-0.14);
-    if (e.key.toLowerCase() === 'f') {
-      CFG.fly = !CFG.fly;
-      if (CFG.fly) { CFG.autoWalk = false; CAM.pos[1] += 0.4; }
-      syncUI();
-    }
-    if (e.key.toLowerCase() === 'r') kyonshiReset();
-    if (e.key.toLowerCase() === 'k') {          // stand in front of the model
-      CAM.pos[0] = 3.02; CAM.pos[2] = -31.2;
-      CAM.pos[1] = keidaiGroundY(3.02, -31.2) + 1.30;
-      CAM.yaw = PI; CAM.pitch = 0.02; CAM.vel[0] = CAM.vel[2] = 0;
-      CAM.fovTarget = 34 * PI / 180; R.expoSnap = true;
-    }
-    if (e.key.toLowerCase() === 'g') {          // jump between the two areas
-      const toCorridor = CAM.pos[2] < 1;
-      const p = toCorridor ? pathPos(6) : [3.02, 0, -74];
-      CAM.pos[0] = p[0]; CAM.pos[2] = p[2];
-      CAM.pos[1] = WORLD.groundAt(p[0], p[2]).y + CFG.eyeHeight;
-      CAM.vel[0] = CAM.vel[2] = 0; CAM.yaw = PI; R.expoSnap = true;
-    }
-    if (e.key.toLowerCase() === 'z') setSekki(Math.round(CFG.sekkiTarget) - 1, true);
-    if (e.key.toLowerCase() === 'x') setSekki(Math.round(CFG.sekkiTarget) + 1, true);
-    if (['w', 'a', 's', 'd'].includes(e.key.toLowerCase())) CFG.autoWalk = false;
-  });
-  addEventListener('keyup', e => { KEYS[e.key.toLowerCase()] = false; if (e.key === 'Shift') KEYS['shift'] = false; });
-  const zoom = d => {
-    CAM.fovTarget = clamp(CAM.fovTarget * Math.exp(d), 14 * PI / 180, 88 * PI / 180);
-    const el = document.getElementById('fovs');
-    if (el) { el.value = CAM.fovTarget * 57.3; const o = document.getElementById('fovsv'); if (o) o.textContent = (CAM.fovTarget * 57.3).toFixed(0) + '\u00b0'; }
-  };
-  addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY * 0.0011); }, { passive: false });
-  R.zoom = zoom;
-
-  let dragging = false, lx = 0, ly = 0;
-  c.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'touch' && e.clientX < window.innerWidth * 0.4 && e.clientY > window.innerHeight * 0.55) {
-      joy.active = true; joy.id = e.pointerId; joy.ox = e.clientX; joy.oy = e.clientY; joy.x = 0; joy.y = 0;
-      CFG.autoWalk = false; syncUI();
-      const jd = document.getElementById('joy');
-      jd.style.display = 'block'; jd.style.left = (e.clientX - 55) + 'px'; jd.style.top = (e.clientY - 55) + 'px';
-      return;
-    }
-    dragging = true; lx = e.clientX; ly = e.clientY; c.setPointerCapture(e.pointerId);
-    CFG.autoWalk = false; syncUI();
-  });
-  c.addEventListener('pointermove', e => {
-    if (joy.active && e.pointerId === joy.id) {
-      const dx = clamp((e.clientX - joy.ox) / 48, -1, 1), dy = clamp((e.clientY - joy.oy) / 48, -1, 1);
-      joy.x = dx; joy.y = dy;
-      document.getElementById('joyknob').style.transform = `translate(${dx * 34}px,${dy * 34}px)`;
-      return;
-    }
-    if (!dragging) return;
-    const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
-    CAM.yaw += dx * 0.0032;
-    CAM.pitch -= dy * 0.0032;
-  });
-  const end = e => {
-    if (joy.active && e.pointerId === joy.id) {
-      joy.active = false; joy.x = 0; joy.y = 0;
-      document.getElementById('joy').style.display = 'none';
-      document.getElementById('joyknob').style.transform = '';
-    }
-    dragging = false;
-  };
-  c.addEventListener('pointerup', end);
-  c.addEventListener('pointercancel', end);
-  c.addEventListener('wheel', e => {
-    CAM.fov = clamp(CAM.fov + e.deltaY * 0.0006, 18 * PI / 180, 78 * PI / 180);
-    e.preventDefault();
-  }, { passive: false });
-}
-
-/* ---------------- UI ---------------- */
-function bindSlider(id, get, set, fmt) {
-  const el = document.getElementById(id);
-  const out = document.getElementById(id + 'v');
-  el.value = get();
-  if (out) out.textContent = fmt ? fmt(get()) : get();
-  el.addEventListener('input', () => {
-    set(parseFloat(el.value));
-    if (out) out.textContent = fmt ? fmt(parseFloat(el.value)) : el.value;
-  });
-}
-
-function refreshHUD() {
-  const bar = document.getElementById('curseBar');
-  if (bar) bar.style.width = (CFG.curse * 100).toFixed(1) + '%';
-  const c = document.getElementById('hudCount');
-  if (c) c.textContent = R.kyonshiAlive > 0 ? ('屍 ' + R.kyonshiAlive) : '祓い終えた';
-  const b = document.getElementById('hudBell');
-  if (b) { b.textContent = R.bellCd > 0 ? ('鈴 ' + R.bellCd.toFixed(1)) : '鈴'; b.className = R.bellCd > 0 ? 'cool' : ''; }
-}
-
-function syncUI() {
-  const b = document.getElementById('btnwalk');
-  if (b) b.textContent = CFG.autoWalk ? '自動歩行 ON' : '自動歩行 OFF';
-  const f = document.getElementById('btnfly');
-  if (f) { f.textContent = CFG.fly ? '着地' : '俯瞰'; f.classList.toggle('on', CFG.fly); }
-  const l = document.getElementById('btnlapse');
-  if (l) { l.textContent = CFG.timelapse ? '停止' : '早送り'; l.classList.toggle('on', CFG.timelapse); }
-}
-
-function sekkiName(v) {
-  const i = ((Math.round(v) % 24) + 24) % 24;
-  return SEKKI[i][0] + '\u2009' + SEKKI[i][1];
-}
-function setSekki(v, snap) {
-  CFG.sekkiTarget = ((v % 24) + 24) % 24;
-  const el = document.getElementById('sekki');
-  if (el && snap) { el.value = Math.round(CFG.sekkiTarget); }
-  refreshDials();
-}
-function setHour(v, snap) {
-  CFG.hourTarget = ((v % 24) + 24) % 24;
-  const el = document.getElementById('hour');
-  if (el && snap) el.value = CFG.hourTarget;
-  refreshDials();
-}
-
-/* the arc of the day, drawn against the two solstices for scale */
-const SP = { x: h => 3 + (h / 24) * 206, y: d => 64 - (Math.max(d, -9) / 82) * 56 };
-
-function sunCurve(sekki) {
-  const lam = sekkiToLambda(sekki), pts = [];
-  for (let i = 0; i <= 96; i++) {
-    const h = i * 24 / 96;
-    const el = Math.asin(clamp(sunENU(lam, h)[2], -1, 1)) * 180 / PI;
-    pts.push(SP.x(h).toFixed(1) + ',' + SP.y(el).toFixed(1));
-  }
-  return pts.join(' ');
-}
-
-function refreshDials() {
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  const attr = (id, k, v) => { const el = document.getElementById(id); if (el) el.setAttribute(k, v); };
-  const dl = dayLength(sekkiToLambda(CFG.sekkiTarget));
-  set('sekkiv', sekkiName(CFG.sekkiTarget));
-  set('hourv', fmtHM(CFG.hourTarget));
-  set('a_rise', fmtHM(dl.rise));
-  set('a_noon', fmtHM(dl.noon));
-  set('a_set', fmtHM(dl.set));
-  attr('sp_s', 'points', sunCurve(9));    // 夏至
-  attr('sp_w', 'points', sunCurve(21));   // 冬至
-  attr('sp_c', 'points', sunCurve(CFG.sekkiTarget));
-}
-
-/* follows the smoothed sun, not the dial, so it glides with the shadows */
-function refreshLiveReadout() {
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  const attr = (id, o) => {
-    const el = document.getElementById(id); if (!el) return;
-    for (const k in o) el.setAttribute(k, o[k]);
-  };
-  const elDeg = CFG.sunElev * 180 / PI;
-  set('a_el', elDeg.toFixed(1) + '\u00b0');
-  set('a_az', worldToBearing(R.sunDir).toFixed(0) + '\u00b0');
-  // the shadow of a 1m gnomon: the whole point of a sundial
-  set('a_sh', elDeg > 0.35 ? ('\u00d7' + (1 / Math.tan(CFG.sunElev)).toFixed(2)) : '\u2014');
-  const x = SP.x(CFG.hour);
-  attr('sp_t', { x1: x.toFixed(1), y1: 5, x2: x.toFixed(1), y2: 72 });
-  attr('sp_d', { cx: x.toFixed(1), cy: SP.y(elDeg).toFixed(1),
-    opacity: elDeg > -9 ? 1 : 0 });
-}
-
-function setupUI() {
-  bindSlider('sekki', () => Math.round(CFG.sekkiTarget), v => setSekki(v, false), sekkiName);
-  bindSlider('hour', () => CFG.hourTarget, v => setHour(v, false), fmtHM);
-  bindSlider('expo', () => CFG.exposure, v => CFG.exposure = v, v => (v >= 1 ? '+' : '') + ((v - 1) * 100).toFixed(0) + '%');
-  bindSlider('wet', () => CFG.wetness, v => CFG.wetness = v, v => v.toFixed(2));
-  bindSlider('fog', () => CFG.volDensity, v => { CFG.volDensity = v; CFG.fogDensity = 0.006 + v * 0.46; }, v => v.toFixed(3));
-  bindSlider('fovs', () => CAM.fovTarget * 57.3, v => CAM.fovTarget = v / 57.3, v => v.toFixed(0) + '\u00b0');
-  bindSlider('rscale', () => 1.0, v => { R.userScale = v; resize(); }, v => (v * 100).toFixed(0) + '%');
-
-  document.getElementById('qual').addEventListener('change', e => {
-    applyQuality(parseInt(e.target.value), true);
-  });
-  document.getElementById('qual').value = R.quality;
-
-  for (const b of document.querySelectorAll('[data-sekki]'))
-    b.addEventListener('click', () => setSekki(parseInt(b.dataset.sekki), true));
-  for (const b of document.querySelectorAll('[data-when]'))
-    b.addEventListener('click', () => {
-      const dl = dayLength(sekkiToLambda(CFG.sekkiTarget));
-      // nudge off the horizon itself so sunrise and sunset still light the scene
-      const h = b.dataset.when === 'rise' ? dl.rise + 0.12
-        : b.dataset.when === 'set' ? dl.set - 0.12 : dl.noon;
-      CFG.timelapse = false;
-      setHour(h, true); syncUI();
-    });
-  document.getElementById('btnlapse').addEventListener('click', () => { CFG.timelapse = !CFG.timelapse; syncUI(); });
-  document.getElementById('btnfly').addEventListener('click', () => {
-    CFG.fly = !CFG.fly; if (CFG.fly) CFG.autoWalk = false; syncUI();
-  });
-  document.getElementById('btnzin').addEventListener('click', () => R.zoom(-0.30));
-  document.getElementById('btnzout').addEventListener('click', () => R.zoom(0.30));
-  refreshDials();
-
-  document.getElementById('btnwalk').addEventListener('click', () => { CFG.autoWalk = !CFG.autoWalk; syncUI(); });
-  document.getElementById('btndof').addEventListener('click', e => {
-    CFG.dofUser = !CFG.dofUser; CFG.dof = CFG.dofUser && QUALITY[R.quality].dof;
-    e.target.textContent = '被写界深度 ' + (CFG.dof ? 'ON' : 'OFF');
-  });
-  document.getElementById('btnhide').addEventListener('click', () => {
-    document.getElementById('panel').classList.toggle('collapsed');
-  });
-  document.getElementById('btnshot').addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.download = 'hiyorimi-' + sekkiName(CFG.sekkiTarget).split('\u2009')[0] + '-' + fmtHM(CFG.hour).replace(':', '') + '.png';
-    a.href = R.canvas.toDataURL('image/png');
-    a.click();
-  });
-  syncUI();
-}
-
-if (document.readyState === 'loading') addEventListener('DOMContentLoaded', boot); else boot();
-
-})();
-</script>
-<script>
-document.getElementById('tab').addEventListener('click',()=>{
-  document.getElementById('panel').classList.remove('collapsed');
-});
+addEventListener('load', boot);
 </script>
 </body>
 </html>
