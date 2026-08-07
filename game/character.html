@@ -4597,13 +4597,41 @@ function wrinkleGeo(g, amp, fy, fa, seed) {
     let w = Math.sin(y * fy + a * fa * 0.6 + seed) * 0.60
           + Math.sin(y * fy * 1.87 - a * fa * 1.31 + seed * 2.3) * 0.28
           + Math.sin(y * fy * 3.71 + a * fa * 2.57 + seed * 4.1) * 0.12;
-    w = (w < 0 ? -1 : 1) * Math.pow(Math.abs(w), 1.55);
+    /* Exponent 4, not 1.55. On the reference garment the median vertex
+       sits 1.3mm off the local average and the 99th percentile sits
+       8.8mm off — most of the cloth is flat and a few creases are deep.
+       A gentle power gives every vertex the same middling displacement,
+       which is quilting. This gives the same heavy tail: median ~0.3mm,
+       p90 ~4.9mm, p99 ~9.7mm at amp = 12mm. */
+    w = (w < 0 ? -1 : 1) * Math.pow(Math.abs(w), 4.0);
     const d = amp * w;
     g.p[i * 3] += g.n[i * 3] * d;
     g.p[i * 3 + 1] += g.n[i * 3 + 1] * d;
     g.p[i * 3 + 2] += g.n[i * 3 + 2] * d;
   }
   return recalcNormals(g);
+}
+
+/* Catmull-Rom resample of a loft profile. The authored rings stay exactly
+   where they were put; this only fills in between them, so raising the
+   density of a garment does not change its shape. */
+function densifyRings(rings, mult) {
+  const N = rings.length, total = (N - 1) * mult, out = [];
+  const at = (arr, k) => arr[Math.max(0, Math.min(N - 1, k))];
+  for (let i = 0; i <= total; i++) {
+    const t = (i / total) * (N - 1);
+    const k = Math.min(N - 2, Math.floor(t)), f = t - k, f2 = f * f, f3 = f2 * f;
+    const cr = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * f +
+      (2 * a - 5 * b + 4 * c - d) * f2 + (-a + 3 * b - 3 * c + d) * f3);
+    const g = pick => cr(pick(at(rings, k - 1)), pick(at(rings, k)),
+                         pick(at(rings, k + 1)), pick(at(rings, k + 2)));
+    out.push({
+      p: [g(r => r.p[0]), g(r => r.p[1]), g(r => r.p[2])],
+      rx: g(r => r.rx),
+      ry: g(r => (r.ry === undefined ? r.rx : r.ry))
+    });
+  }
+  return out;
 }
 
 function scaleGeo(g, sx, sy, sz) {
@@ -4673,9 +4701,9 @@ function mikoShin(detail) {
 
 function mikoTop(detail) {
   const g = new Geo(), m = M4.create();
-  const S = detail ? 34 : 12;
+  const S = detail ? 64 : 14;
   // the body of the 白衣, with a little slack rather than shrink-wrapped
-  g.merge(loft([
+  g.merge(loft(densifyRings([
     { p: [0, -0.256, -0.004], rx: 0.114, ry: 0.086 },
     { p: [0, -0.150, -0.002], rx: 0.120, ry: 0.090 },
     { p: [0, -0.030, 0.004], rx: 0.128, ry: 0.094 },
@@ -4684,7 +4712,7 @@ function mikoTop(detail) {
     { p: [0, 0.156, 0.006], rx: 0.141, ry: 0.095 },
     { p: [0, 0.182, 0.002], rx: 0.109, ry: 0.077 },
     { p: [0, 0.200, 0.000], rx: 0.068, ry: 0.055 }
-  ], S, { mat: CLOTH, uScale: 1.2, vScale: 1.6, up: [0, 0, 1] }));
+  ], detail ? 4 : 1), S, { mat: CLOTH, uScale: 1.2, vScale: 1.6, up: [0, 0, 1] }));
   /* 衿 in two layers: the white 半衿 showing under the outer collar, right
      lapped over left. That overlap is what says "kimono" and not "robe". */
   for (const [dz, w, th, mat] of [[0.000, 0.021, 0.010, CLOTH], [0.013, 0.014, 0.007, CLOTH]])
@@ -4695,14 +4723,14 @@ function mikoTop(detail) {
         { p: [sx * 0.036, 0.086, 0.086 + dz], rx: w * 0.92, ry: th },
         { p: [sx * 0.004, 0.030, 0.082 + dz], rx: w * 0.80, ry: th * 0.9 }
       ], 12, { mat, uScale: 0.4, vScale: 2.0 }));
-  return wrinkleGeo(g, 0.0062, 28.0, 3.2, 0.7);
+  return wrinkleGeo(g, 0.0125, 60.0, 8.5, 0.7);
 }
 
 /* 袖 : a wide rectangular sleeve with a cuff opening, not a cone. The
    opening is what the arm comes out of and it has to read as a hole. */
 function mikoSleeve(detail) {
   const g = new Geo();
-  const S = detail ? 30 : 11;
+  const S = detail ? 52 : 12;
   /* A 袖 is not a vertical tube. It leaves the shoulder narrow, swings out
      and forward under its own weight, and reaches its full width only at
      the hem — which is why a real one reads as cloth and a tube reads as a
@@ -4716,7 +4744,8 @@ function mikoSleeve(detail) {
     { p: [0, -0.330,  0.018], rx: 0.0755, ry: 0.104 },
     { p: [0, -0.352,  0.018], rx: 0.0760, ry: 0.105 }
   ];
-  const g1 = loft(rings, S, { mat: CLOTH, uScale: 1.0, vScale: 1.4, up: [0, 0, 1], capEnd: false });
+  const g1 = loft(densifyRings(rings, detail ? 3 : 1), S,
+    { mat: CLOTH, uScale: 1.0, vScale: 1.4, up: [0, 0, 1], capEnd: false });
   g.merge(g1);
   // roll the hem back on itself so the opening has thickness
   g.merge(loft([
@@ -4725,7 +4754,7 @@ function mikoSleeve(detail) {
     { p: [0, -0.340, 0.016], rx: 0.0575, ry: 0.082 },
     { p: [0, -0.286, 0.014], rx: 0.0548, ry: 0.078 }
   ], S, { mat: CLOTH, uScale: 1.0, vScale: 1.4, up: [0, 0, 1], capStart: false }));
-  return wrinkleGeo(g, 0.0072, 22.0, 4.2, 2.9);
+  return wrinkleGeo(g, 0.0140, 52.0, 7.0, 2.9);
 }
 
 /* 緋袴 : pleated. A 袴 is a stack of flat panels folded at hard lines, and
@@ -4734,7 +4763,8 @@ function mikoSleeve(detail) {
    gives exactly that fluting. */
 function mikoHakama(detail) {
   const g = new Geo();
-  const SEG = detail ? 132 : 44, NP = 11;      // 11 pleats
+  const SEG = detail ? 180 : 44, NP = 11;      // 11 pleats
+  const SUB = detail ? 5 : 1;                  // rows between authored rings
   /* Widened at the hip: the thighs are human width now and were coming
      through the crease of every pleat, where the radius is at its minimum.
      Lengthened too — the legs are shorter, and a 袴 hem sits about 10cm
@@ -4750,8 +4780,19 @@ function mikoHakama(detail) {
     [-0.710, 0.294, 0.221, 0.31],
     [-0.745, 0.296, 0.222, 0.31]
   ];
+  /* the authored profile, resampled — a pleat crease can only be as sharp
+     as the rows it is sampled on, and eight rows over 900mm is 112mm
+     between them */
+  const rows = [];
+  for (let i = 0; i < prof.length - 1; i++)
+    for (let k = 0; k < SUB; k++) {
+      const t = k / SUB, a = prof[i], b = prof[i + 1];
+      rows.push([lerp(a[0], b[0], t), lerp(a[1], b[1], t),
+                 lerp(a[2], b[2], t), lerp(a[3], b[3], t)]);
+    }
+  rows.push(prof[prof.length - 1]);
   const P = [];
-  for (const [y, rx, rz, depth] of prof) {
+  for (const [y, rx, rz, depth] of rows) {
     const row = [];
     for (let j = 0; j <= SEG; j++) {
       const a = (j / SEG) * TAU;
@@ -4784,7 +4825,7 @@ function mikoHakama(detail) {
   for (let i = 0; i < P.length - 1; i++) for (let j = 0; j < SEG; j++)
     g.quad(idx[i][j], idx[i + 1][j], idx[i + 1][j + 1], idx[i][j + 1]);
   // finer creases riding on top of the pleats
-  return wrinkleGeo(g, 0.0046, 14.0, 12.0, 5.3);
+  return wrinkleGeo(g, 0.0105, 44.0, 23.0, 5.3);
 
 }
 
