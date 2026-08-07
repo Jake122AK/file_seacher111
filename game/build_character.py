@@ -298,8 +298,19 @@ function setupInput() {
   let drag = null;
   const pos = e => ({ x: e.touches ? e.touches[0].clientX : e.clientX,
                       y: e.touches ? e.touches[0].clientY : e.clientY });
-  const down = e => { drag = pos(e); };
+  let pinch = 0;
+  const dist2 = e => Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                                e.touches[0].clientY - e.touches[1].clientY);
+  const down = e => {
+    if (e.touches && e.touches.length > 1) { pinch = dist2(e); drag = null; return; }
+    drag = pos(e);
+  };
   const move = e => {
+    if (e.touches && e.touches.length > 1) {
+      const d = dist2(e);
+      if (pinch) ORB.distT = clamp(ORB.distT * (pinch / d), 0.28, 14);
+      pinch = d; e.preventDefault(); return;
+    }
     if (!drag) return;
     const p = pos(e);
     ORB.yaw -= (p.x - drag.x) * 0.006;
@@ -307,7 +318,7 @@ function setupInput() {
     drag = p;
     if (e.touches) e.preventDefault();
   };
-  const up = () => { drag = null; };
+  const up = () => { drag = null; pinch = 0; };
   c.addEventListener('mousedown', down);
   addEventListener('mousemove', move);
   addEventListener('mouseup', up);
@@ -331,7 +342,8 @@ function setupInput() {
     if (k === 'f') shot(null, ORB.yaw = 0);
     if (k === 'g') ORB.yaw = PI;
     if (k === 'r') { ORB.spin = !ORB.spin; syncUI(); }
-    if (k === 'h') { CFG.showUI = !CFG.showUI; document.getElementById('ui').style.display = CFG.showUI ? '' : 'none'; }
+    if (k === 'h') foldPanel(!document.getElementById('panel').classList.contains('collapsed'));
+    if (k === 'u') { CFG.showUI = !CFG.showUI; document.getElementById('ui').style.display = CFG.showUI ? '' : 'none'; }
     if (k === ' ') e.preventDefault();
   });
   addEventListener('keyup', e => { KEYS[e.key.toLowerCase()] = false; });
@@ -354,6 +366,13 @@ function bindToggle(id, get, set) {
 function syncUI() {
   const el = document.getElementById('spin'); if (el) el.checked = ORB.spin;
 }
+/* The panel must always be closeable. It filled a phone screen with no way
+   out, which is worse than shipping no panel at all. */
+function foldPanel(on) {
+  const p = document.getElementById('panel');
+  p.classList.toggle('collapsed', on);
+  document.getElementById('fold').textContent = on ? '▸' : '▾';
+}
 function setupUI() {
   bindSlider('sekki', () => CFG.sekkiTarget, v => setSekki(v, false), v => SEKKI[Math.round(v) % 24]);
   bindSlider('hour', () => CFG.hourTarget, v => setHour(v, false), fmtHM);
@@ -373,6 +392,10 @@ function setupUI() {
     b.addEventListener('click', () => shot(b.dataset.shot));
   for (const b of document.querySelectorAll('[data-yaw]'))
     b.addEventListener('click', () => { ORB.yaw = +b.dataset.yaw * PI / 180; R.histValid = false; });
+  const head = document.getElementById('phead');
+  head.addEventListener('click', () =>
+    foldPanel(!document.getElementById('panel').classList.contains('collapsed')));
+  foldPanel(window.innerWidth < 760 || window.innerHeight < 520);
 }
 
 /* ---------------- boot ---------------- */
@@ -508,12 +531,21 @@ SHELL_HEAD = '''<!doctype html>
   #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
   #gl:active{cursor:grabbing}
   #ui{position:fixed;inset:0;pointer-events:none}
-  #panel{position:absolute;top:12px;left:12px;width:264px;max-height:calc(100% - 24px);
-    overflow-y:auto;pointer-events:auto;background:rgba(12,15,21,.82);
+  #panel{position:absolute;top:10px;left:10px;width:250px;max-width:calc(100% - 20px);
+    pointer-events:auto;background:rgba(12,15,21,.86);
     -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
-    border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:12px 13px 14px}
-  h1{font-size:13px;margin:0 0 2px;letter-spacing:.10em;font-weight:600}
-  .sub{font-size:10.5px;color:#8b95a6;margin:0 0 11px;letter-spacing:.04em}
+    border:1px solid rgba(255,255,255,.09);border-radius:12px;
+    display:flex;flex-direction:column;max-height:calc(100% - 20px)}
+  #phead{display:flex;align-items:center;gap:8px;padding:9px 10px 9px 12px;cursor:pointer;
+    flex:0 0 auto;user-select:none;-webkit-user-select:none}
+  #phead h1{flex:1;font-size:12px;margin:0;letter-spacing:.09em;font-weight:600}
+  #fold{flex:0 0 auto;width:26px;height:26px;padding:0;line-height:1;font-size:13px;
+    display:flex;align-items:center;justify-content:center}
+  #pbody{overflow-y:auto;padding:0 12px 13px;-webkit-overflow-scrolling:touch}
+  #panel.collapsed{width:auto}
+  #panel.collapsed #pbody{display:none}
+  #panel.collapsed #phead{padding:8px 10px}
+  .sub{font-size:10.5px;color:#8b95a6;margin:0 0 10px;letter-spacing:.04em}
   fieldset{border:0;border-top:1px solid rgba(255,255,255,.08);margin:11px 0 0;padding:9px 0 0}
   legend{font-size:10px;color:#7f8a9c;letter-spacing:.14em;padding:0 5px 0 0}
   .row{display:flex;align-items:center;gap:8px;margin:6px 0}
@@ -545,14 +577,15 @@ SHELL_HEAD = '''<!doctype html>
   #status{font-size:11px;color:#79839a;letter-spacing:.06em}
   #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
     background:#0a0c10;color:#e6e9ef;padding:24px;text-align:center;z-index:10}
-  @media(max-width:560px){#panel{width:calc(100% - 24px)}}
+  @media(max-width:560px){#panel{width:calc(100% - 20px)}#panel.collapsed{width:auto}}
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
 <div id="ui">
   <div id="panel">
-    <h1>狐人 — キャラクタービューア</h1>
+    <div id="phead"><h1>狐人 — ビューア</h1><button id="fold" aria-label="開閉">▾</button></div>
+    <div id="pbody">
     <p class="sub">神社は組み込まず、造形だけを見るための版</p>
 
     <fieldset><legend>ショット</legend>
@@ -594,6 +627,7 @@ SHELL_HEAD = '''<!doctype html>
       <div class="chk"><input type="checkbox" id="dof" checked><label for="dof">被写界深度</label></div>
       <div class="btns"><select id="qual"><option value="0">低</option><option value="1">中</option><option value="2">高</option></select></div>
     </fieldset>
+    </div>
   </div>
 
   <div id="stat">
@@ -603,7 +637,7 @@ SHELL_HEAD = '''<!doctype html>
     <div><b id="a_hm">—</b> / <b id="a_sk">—</b></div>
     <div>高度 <b id="a_el">—</b> 方位 <b id="a_az">—</b></div>
   </div>
-  <div id="hint">ドラッグで回転 / ホイールで寄り引き / 1–6 ショット / R ターンテーブル / H パネル</div>
+  <div id="hint">ドラッグで回転 / ホイール・ピンチで寄り引き / タイトルをタップでパネル開閉</div>
 </div>
 <div id="loading"><div class="k">狐人</div><div id="status">初期化中…</div></div>
 <div id="err">お使いのブラウザは WebGL2 に対応していません。</div>
