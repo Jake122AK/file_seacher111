@@ -47,6 +47,19 @@ const KY = { lights: [], list: [] };
 const WORLD = { areas: [], boxes: [], groundAt() { return { y: 0, solid: true }; }, resolve() {} };
 function keidaiGroundY() { return 0; }
 function groundHeightAt() { return { y: 0, s: 0, t: 0 }; }
+/* bakeMaterials paints the character's face into its own layer; there is no
+   character here, so the slot just gets plain skin */
+function bakeFaceLayer(arrA, arrB, res, layer) {
+  const a = new Uint8Array(res * res * 4), b = new Uint8Array(res * res * 4);
+  for (let i = 0; i < res * res; i++) {
+    a[i * 4] = 232; a[i * 4 + 1] = 198; a[i * 4 + 2] = 182; a[i * 4 + 3] = 255;
+    b[i * 4] = 128; b[i * 4 + 1] = 128; b[i * 4 + 2] = 126; b[i * 4 + 3] = 128;
+  }
+  for (const [tex, buf] of [[arrA, a], [arrB, b]]) {
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, res, res, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  }
+}
 
 function buildPlane(size, n, mat, uv) {
   const g = new Geo(), idx = [];
@@ -117,143 +130,156 @@ function parseOBJ(text) {
    symmetric about x = 0, and standing with the arms out or down. */
 function findLandmarks(P) {
   const NV = P.length / 3;
-  let ylo = 1e9, yhi = -1e9, xmax = 0, zlo = 1e9, zhi = -1e9;
+  let ylo = 1e9, yhi = -1e9, xmax = 0;
   for (let i = 0; i < NV; i++) {
     const y = P[i * 3 + 1];
     if (y < ylo) ylo = y; if (y > yhi) yhi = y;
     const ax = Math.abs(P[i * 3]); if (ax > xmax) xmax = ax;
-    const z = P[i * 3 + 2]; if (z < zlo) zlo = z; if (z > zhi) zhi = z;
   }
   const H = yhi - ylo;
-  const NB = 220;                                   // height bins
-  const bin = y => clamp(Math.floor((y - ylo) / H * NB), 0, NB - 1);
 
-  // per-band: the |x| histogram, so a band can be tested for a gap at the
-  // midline (two legs) and for how far out it reaches (arms)
-  const bandX = [], bandInner = [], bandZ = [];
-  for (let b = 0; b < NB; b++) { bandX.push([]); bandZ.push([1e9, -1e9]); }
+  /* ---- the arms, sliced along |x| ----
+     The first attempt assumed the arms were horizontal at one height and
+     read the shoulder 30cm too low. Real "T-poses" are usually an A: this
+     model's fingertips are at 60% of its height, not 84%. Slicing by |x|
+     and watching each slice's VERTICAL EXTENT collapse finds the shoulder
+     whatever angle the arm is at — a slice through the torso is as tall as
+     a torso, a slice through an arm is as tall as an arm. */
+  const AS = 90, sl = [];
+  for (let k = 0; k < AS; k++) sl.push({ n: 0, ylo: 1e9, yhi: -1e9, ys: 0, zs: 0 });
+  const kOf = x => clamp(Math.floor(Math.abs(x) / xmax * AS), 0, AS - 1);
   for (let i = 0; i < NV; i++) {
-    const b = bin(P[i * 3 + 1]);
-    bandX[b].push(P[i * 3]);
-    const z = P[i * 3 + 2];
-    if (z < bandZ[b][0]) bandZ[b][0] = z;
-    if (z > bandZ[b][1]) bandZ[b][1] = z;
+    const s = sl[kOf(P[i * 3])];
+    s.n++; s.ys += P[i * 3 + 1]; s.zs += P[i * 3 + 2];
+    if (P[i * 3 + 1] < s.ylo) s.ylo = P[i * 3 + 1];
+    if (P[i * 3 + 1] > s.yhi) s.yhi = P[i * 3 + 1];
   }
-  const maxAbs = b => { let m = 0; for (const x of bandX[b]) { const a = Math.abs(x); if (a > m) m = a; } return m; };
-  // width of the part of the band that is continuous with the midline —
-  // this is the torso even when the arms are stretched out beside it
-  const trunkHalf = b => {
-    const a = bandX[b].map(Math.abs).sort((p, q) => p - q);
-    if (!a.length) return 0;
-    let w = a[0];
-    for (let i = 1; i < a.length; i++) { if (a[i] - a[i - 1] > H * 0.035) break; w = a[i]; }
-    return w;
+  let kSh = AS - 1;
+  for (let k = 2; k < AS; k++)
+    if (sl[k].n > 6 && sl[k].yhi - sl[k].ylo < H * 0.15) { kSh = k; break; }
+  /* the CENTROID of that slice sits at the middle of the deltoid, which is
+     a hand's breadth below the joint; the top of the slice is the acromion */
+  const shTop = sl[kSh].yhi;
+  const armsOut = kSh < AS * 0.8 && xmax > H * 0.20;
+  const rad = new Float64Array(AS);
+  for (let i = 0; i < NV; i++) {
+    const k = kOf(P[i * 3]);
+    if (k < kSh || !sl[k].n) continue;
+    const d = Math.hypot(P[i * 3 + 1] - sl[k].ys / sl[k].n, P[i * 3 + 2] - sl[k].zs / sl[k].n);
+    if (d > rad[k]) rad[k] = d;
+  }
+  const minRad = (a, b) => {
+    let bi = clamp(a, kSh, AS - 1), bv = 1e9;
+    for (let k = clamp(a, 0, AS - 1); k <= clamp(b, 0, AS - 1); k++)
+      if (sl[k].n > 6 && rad[k] > 0 && rad[k] < bv) { bv = rad[k]; bi = k; }
+    return bi;
   };
-  // does the band split into two clusters either side of the midline?
-  const split = b => {
-    const a = bandX[b].map(Math.abs).sort((p, q) => p - q);
-    if (a.length < 8) return false;
-    return a[Math.floor(a.length * 0.02)] > H * 0.012;
+  /* Anatomical fractions first, a local radius minimum only as a
+     refinement. Taking the minimum outright put the elbow and the wrist
+     4cm apart on this model, because the arm's radius profile is
+     monotonic and both searches just returned their own boundary. */
+  const span = AS - kSh;
+  const near = (want, w) => {
+    const a = clamp(want - w, kSh, AS - 2), b = clamp(want + w, kSh, AS - 2);
+    const m = minRad(a, b);
+    return (m > a && m < b) ? m : want;                 // interior minimum only
   };
+  const kEl = near(kSh + Math.round(span * 0.42), Math.round(span * 0.09));
+  const kWr = near(kSh + Math.round(span * 0.76), Math.round(span * 0.08));
+  const xOf = k => (k + 0.5) / AS * xmax;
+  const axY = k => (sl[k].n ? sl[k].ys / sl[k].n : ylo + H * 0.8);
+  const axZ = k => (sl[k].n ? sl[k].zs / sl[k].n : 0);
 
-  const yOf = b => ylo + (b + 0.5) / NB * H;
-
-  // ---- crotch : the highest band that still has two legs in it ----
-  let bCrotch = 0;
-  for (let b = 1; b < NB * 0.62; b++) if (split(b)) bCrotch = b;
-  const yCrotch = yOf(bCrotch);
-
-  // ---- leg centre ----
-  let legX = 0, ln = 0;
-  {
-    const b = Math.floor(bCrotch * 0.45);
-    for (const x of bandX[b]) { legX += Math.abs(x); ln++; }
-    legX = ln ? legX / ln : H * 0.05;
-  }
-
-  // ---- ankle : narrowest leg band in the bottom eighth ----
-  let bAnkle = 2, best = 1e9;
-  for (let b = 2; b < NB * 0.13; b++) {
-    const w = maxAbs(b) - 0; const d = bandZ[b][1] - bandZ[b][0];
-    const a = w * d;
-    if (a > 0 && a < best) { best = a; bAnkle = b; }
-  }
-  // ---- knee : narrowest band between ankle and crotch, biased to the middle
-  let bKnee = Math.floor((bAnkle + bCrotch) / 2); best = 1e9;
-  for (let b = bAnkle + 6; b < bCrotch - 4; b++) {
-    const d = bandZ[b][1] - bandZ[b][0];
-    const t = Math.abs((b - bAnkle) / Math.max(1, bCrotch - bAnkle) - 0.52);
-    const s = d * (1 + t * 2.4);
-    if (s < best) { best = s; bKnee = b; }
-  }
-
-  // ---- shoulder line : the band where the reach in x jumps ----
-  let bSh = Math.floor(NB * 0.82);
-  {
-    let bestJump = 0;
-    for (let b = Math.floor(NB * 0.66); b < NB * 0.94; b++) {
-      const j = maxAbs(b) - trunkHalf(b);
-      if (j > bestJump) { bestJump = j; bSh = b; }
+  /* ---- legs and torso, in height bands ----
+     64 bands, not 220: a surface mesh's rings are sparse and at 0.8cm a
+     band can be empty, which made every statistic below noise. */
+  const NB = 64;
+  const bn = new Int32Array(NB), cen = new Int32Array(NB);
+  /* the same census restricted to the trunk column. An A-pose puts the
+     hands beside the hips, and a hand is a thousand vertices none of which
+     are anywhere near the midline — counted with the trunk it drags the
+     midline RATIO under any threshold and the crotch lands in the belly. */
+  const tn = new Int32Array(NB), tc = new Int32Array(NB);
+  const rx0 = new Float64Array(NB).fill(1e9), rx1 = new Float64Array(NB).fill(-1e9);
+  const rz0 = new Float64Array(NB).fill(1e9), rz1 = new Float64Array(NB).fill(-1e9);
+  const tw = new Float64Array(NB);
+  const bOf = y => clamp(Math.floor((y - ylo) / H * NB), 0, NB - 1);
+  for (let i = 0; i < NV; i++) {
+    const x = P[i * 3], z = P[i * 3 + 2], b = bOf(P[i * 3 + 1]);
+    bn[b]++;
+    if (Math.abs(x) < H * 0.006) cen[b]++;             // is the midline solid?
+    if (Math.abs(x) < H * 0.09) { tn[b]++; if (Math.abs(x) < H * 0.006) tc[b]++; }
+    if (Math.abs(x) < H * 0.20 && Math.abs(x) > tw[b]) tw[b] = Math.abs(x);
+    if (x > 0) {                                       // the right leg only
+      if (x < rx0[b]) rx0[b] = x; if (x > rx1[b]) rx1[b] = x;
+      if (z < rz0[b]) rz0[b] = z; if (z > rz1[b]) rz1[b] = z;
     }
   }
-  // ---- neck : narrowest trunk band above the shoulder ----
-  let bNeck = bSh + 2; best = 1e9;
-  for (let b = bSh + 1; b < NB * 0.95; b++) {
-    const w = trunkHalf(b);
-    if (w > 0 && w < best) { best = w; bNeck = b; }
-  }
-  // ---- waist : narrowest trunk band between crotch and shoulder ----
-  let bWaist = Math.floor((bCrotch + bSh) / 2); best = 1e9;
-  for (let b = bCrotch + 4; b < bSh - 6; b++) {
-    const w = trunkHalf(b);
-    if (w > 0 && w < best) { best = w; bWaist = b; }
-  }
+  const yOf = b => ylo + (b + 0.5) / NB * H;
 
-  // ---- the arm, profiled along x ----
-  const armY = yOf(bSh), armBandH = H * 0.10;
-  const AN = 90;
-  const armR = new Float64Array(AN), armC = new Float64Array(AN * 2), armN = new Float64Array(AN);
-  const x0 = trunkHalf(bSh) * 0.95, x1 = xmax;
-  for (let i = 0; i < NV; i++) {
-    const y = P[i * 3 + 1];
-    if (Math.abs(y - armY) > armBandH) continue;
-    const ax = Math.abs(P[i * 3]);
-    if (ax < x0) continue;
-    const k = clamp(Math.floor((ax - x0) / (x1 - x0) * AN), 0, AN - 1);
-    armC[k * 2] += y; armC[k * 2 + 1] += P[i * 3 + 2]; armN[k]++;
+  /* 股下 : the highest band whose midline is empty, counted in the trunk
+     column only. Between the legs there is nothing at x = 0; above the
+     crotch there always is, whether that is skin or a pair of shorts. */
+  let bCrotch = Math.round(NB * 0.46);
+  for (let b = 1; b < NB * 0.60; b++)
+    if (tn[b] > 16 && tc[b] < tn[b] * 0.02) bCrotch = b;
+  bCrotch = clamp(bCrotch, Math.round(NB * 0.34), Math.round(NB * 0.56));
+  /* 足首 : where the FOOT stops. A foot is long in z and narrow in x; a leg
+     is round. Scanning up, the ankle is the first band whose section stops
+     being long. Taking the smallest cross-section instead found the calf,
+     because a foot's area beats an ankle's. */
+  let bAnkle = 1;
+  for (let b = 1; b < NB * 0.22; b++) {
+    if (bn[b] < 10 || rx1[b] <= rx0[b]) continue;
+    const w = rx1[b] - rx0[b], d = rz1[b] - rz0[b];
+    if (d < w * 1.5) { bAnkle = b; break; }
   }
-  for (let k = 0; k < AN; k++) if (armN[k]) { armC[k * 2] /= armN[k]; armC[k * 2 + 1] /= armN[k]; }
-  for (let i = 0; i < NV; i++) {
-    const y = P[i * 3 + 1];
-    if (Math.abs(y - armY) > armBandH) continue;
-    const ax = Math.abs(P[i * 3]);
-    if (ax < x0) continue;
-    const k = clamp(Math.floor((ax - x0) / (x1 - x0) * AN), 0, AN - 1);
-    if (!armN[k]) continue;
-    const d = Math.hypot(y - armC[k * 2], P[i * 3 + 2] - armC[k * 2 + 1]);
-    if (d > armR[k]) armR[k] = d;
+  let best = 1e9;
+  // 膝 : narrowest leg between them, pulled toward the middle
+  let bKnee = Math.round((bAnkle + bCrotch) / 2); best = 1e9;
+  for (let b = bAnkle + 2; b < bCrotch - 1; b++) {
+    /* a band that caught only a fragment of a ring reads as a very narrow
+       leg — 12 vertices where its neighbours have 50. Those are noise, not
+       the knee, and they were winning the search. */
+    if (bn[b] < 18 || rx1[b] < rx0[b]) continue;
+    /* the knee joint sits almost exactly halfway from ankle to crotch; the
+       narrowest band on its own lands just under it, on the tendon above
+       the calf, so the search is anchored and the width only refines it */
+    const t = Math.abs((b - bAnkle) / Math.max(1, bCrotch - bAnkle) - 0.52);
+    const sc = (rx1[b] - rx0[b]) * (1 + t * 4.5);
+    if (sc < best) { best = sc; bKnee = b; }
   }
-  const armAt = t => x0 + (x1 - x0) * t;
-  const minR = (a, b) => { let bi = a, bv = 1e9; for (let k = a; k <= b; k++) { if (armN[k] && armR[k] < bv) { bv = armR[k]; bi = k; } } return bi / AN; };
-  const armsOut = xmax > H * 0.26;
+  const bLeg = Math.round(bAnkle + (bCrotch - bAnkle) * 0.55);
+  const legX = (rx0[bLeg] < rx1[bLeg]) ? (rx0[bLeg] + rx1[bLeg]) / 2 : H * 0.05;
 
-  const L = {
+  const yShoulder = clamp(shTop - H * 0.018, ylo + H * 0.70, ylo + H * 0.86);
+  const bSh = bOf(yShoulder);
+  // 腰 : narrowest trunk between the crotch and the shoulder
+  let bWaist = Math.round((bCrotch + bSh) / 2); best = 1e9;
+  for (let b = bCrotch + 1; b < bSh - 1; b++)
+    if (bn[b] > 20 && tw[b] > 0 && tw[b] < best) { best = tw[b]; bWaist = b; }
+  /* 首 : NOT by width. Hair occupies exactly this band and is narrower
+     than the shoulders under it, so the narrowest-band test lands on the
+     trapezius every time. A neck is a fixed fraction of stature above the
+     shoulder and that is far more reliable. */
+  const yNeck = yShoulder + H * 0.060;
+
+  let toeZ = -1e9;
+  for (let i = 0; i < NV; i++)
+    if (P[i * 3 + 1] < ylo + H * 0.05 && P[i * 3 + 2] > toeZ) toeZ = P[i * 3 + 2];
+
+  return {
     H, ylo, yhi, xmax, armsOut,
-    ankle: yOf(bAnkle), knee: yOf(bKnee), crotch: yCrotch,
-    hip: yCrotch + H * 0.045, waist: yOf(bWaist), shoulder: armY,
-    neck: yOf(bNeck), legX,
-    shoulderX: trunkHalf(bSh) * 0.86,
-    elbowX: armAt(minR(Math.floor(AN * 0.34), Math.floor(AN * 0.62))),
-    wristX: armAt(minR(Math.floor(AN * 0.70), Math.floor(AN * 0.92))),
-    armZ: armC[Math.floor(AN * 0.5) * 2 + 1] || 0,
-    armYc: armC[Math.floor(AN * 0.5) * 2] || armY,
-    footZ: 0
+    ankle: yOf(bAnkle), knee: yOf(bKnee), crotch: yOf(bCrotch),
+    hip: yOf(bCrotch) + H * 0.045, waist: yOf(bWaist), neck: yNeck,
+    shoulder: yShoulder, legX,
+    shoulderX: xOf(kSh), elbowX: xOf(kEl), wristX: xOf(kWr),
+    armYc: yShoulder, armZ: axZ(kSh),
+    elbowY: axY(kEl), elbowZ: axZ(kEl),
+    wristY: axY(kWr), wristZ: axZ(kWr),
+    tipY: axY(AS - 2), tipZ: axZ(AS - 2),
+    toeZ
   };
-  // toe: the furthest +z in the bottom bands
-  let tz = -1e9;
-  for (let i = 0; i < NV; i++) if (P[i * 3 + 1] < ylo + H * 0.045 && P[i * 3 + 2] > tz) tz = P[i * 3 + 2];
-  L.toeZ = tz;
-  return L;
 }
 
 /* ---------------- the skeleton ----------------
@@ -276,11 +302,11 @@ function buildSkeleton(L) {
   bone('headTip', 'head', [0, L.yhi, 0]);
   for (const s of [-1, 1]) {
     const k = s < 0 ? 'L' : 'R';
-    bone('clav' + k, 'chest', [s * L.shoulderX * 0.35, L.shoulder + H * 0.012, 0]);
+    bone('clav' + k, 'chest', [s * L.shoulderX * 0.35, L.shoulder + H * 0.012, L.armZ * 0.5]);
     bone('upArm' + k, 'clav' + k, [s * L.shoulderX, L.armYc, L.armZ]);
-    bone('loArm' + k, 'upArm' + k, [s * L.elbowX, L.armYc, L.armZ]);
-    bone('hand' + k, 'loArm' + k, [s * L.wristX, L.armYc, L.armZ]);
-    bone('handTip' + k, 'hand' + k, [s * L.xmax, L.armYc, L.armZ]);
+    bone('loArm' + k, 'upArm' + k, [s * L.elbowX, L.elbowY, L.elbowZ]);
+    bone('hand' + k, 'loArm' + k, [s * L.wristX, L.wristY, L.wristZ]);
+    bone('handTip' + k, 'hand' + k, [s * L.xmax, L.tipY, L.tipZ]);
     bone('thigh' + k, 'hips', [s * L.legX, L.hip - H * 0.01, 0]);
     bone('shin' + k, 'thigh' + k, [s * L.legX, L.knee, 0]);
     bone('foot' + k, 'shin' + k, [s * L.legX, L.ankle, 0]);
@@ -393,11 +419,13 @@ function loadModel(text, status) {
   for (let i = 0; i < P.length; i += 3) {
     P[i] *= s; P[i + 1] = (P[i + 1] - L.ylo) * s; P[i + 2] *= s;
   }
-  for (const k of ['H', 'ankle', 'knee', 'crotch', 'hip', 'waist', 'shoulder', 'neck',
-                   'legX', 'shoulderX', 'elbowX', 'wristX', 'armZ', 'armYc', 'yhi', 'xmax', 'toeZ'])
-    L[k] = (k === 'ankle' || k === 'knee' || k === 'crotch' || k === 'hip' || k === 'waist' ||
-            k === 'shoulder' || k === 'neck' || k === 'armYc' || k === 'yhi')
-      ? (L[k] - L.ylo) * s : L[k] * s;
+  /* heights shift with the feet to the floor; lengths only scale */
+  const HEIGHTS = ['ankle', 'knee', 'crotch', 'hip', 'waist', 'shoulder', 'neck',
+                   'armYc', 'elbowY', 'wristY', 'tipY', 'yhi'];
+  const LENGTHS = ['H', 'legX', 'shoulderX', 'elbowX', 'wristX', 'xmax',
+                   'armZ', 'elbowZ', 'wristZ', 'tipZ', 'toeZ'];
+  for (const k of HEIGHTS) L[k] = (L[k] - L.ylo) * s;
+  for (const k of LENGTHS) L[k] = L[k] * s;
   L.ylo = 0;
 
   status('骨を当てています…');
@@ -459,7 +487,11 @@ function poseRig(t) {
   /* From a T-pose the arms have to come down before anything else reads as
      a person. If the model arrived with its arms already down this is
      nearly zero. */
-  const drop = RIG.L.armsOut ? 72 * D : 6 * D;
+  /* how far the arm already hangs: from the shoulder to the wrist in the
+     rest pose. A T-pose needs the full 72 degrees, an A-pose much less. */
+  const Lm = RIG.L;
+  const already = Math.atan2(Math.max(0, Lm.armYc - Lm.wristY), Math.max(1e-4, Lm.wristX - Lm.shoulderX));
+  const drop = Math.max(0, (Lm.armsOut ? 1.26 : 0.10) - already);
 
   const A = RIG.clip;
   if (A === 'idle') {
@@ -467,10 +499,10 @@ function poseRig(t) {
     set('chest', br * 1.2 * D);
     set('spine', br * 0.8 * D);
     set('head', -br * 0.8 * D, Math.sin(t * 0.42) * 5 * D);
-    set('upArmL', 4 * D, 0, -drop - 4 * D + br * 1.2 * D);
-    set('upArmR', 4 * D, 0, drop + 4 * D - br * 1.2 * D);
-    set('loArmL', 12 * D, 0, -8 * D);
-    set('loArmR', 12 * D, 0, 8 * D);
+    set('upArmL', 4 * D, 0, drop + 4 * D - br * 1.2 * D);
+    set('upArmR', 4 * D, 0, -drop - 4 * D + br * 1.2 * D);
+    set('loArmL', 12 * D, 0, 8 * D);
+    set('loArmR', 12 * D, 0, -8 * D);
     rootY = br * 0.006;
   } else if (A === 'walk' || A === 'run') {
     const run = A === 'run';
@@ -484,7 +516,7 @@ function poseRig(t) {
       const bend = Math.max(0, Math.sin(p - 0.9)) ;
       set('shin' + k, -(bend * kn + (run ? 12 : 6)) * D);
       set('foot' + k, (Math.sin(p + 1.6) * (run ? 22 : 14) + (run ? 6 : 2)) * D);
-      const s = k === 'L' ? -1 : 1;
+      const s = k === 'L' ? 1 : -1;
       set('upArm' + k, -sp * arm * D, 0, s * (drop + (run ? 14 : 6) * D));
       set('loArm' + k, ((run ? 48 : 20) + Math.max(0, -sp) * (run ? 34 : 14)) * D, 0, s * 6 * D);
     }
@@ -504,7 +536,7 @@ function poseRig(t) {
       set('thigh' + k, (c * 52 - fly * 26) * D);
       set('shin' + k, (-c * 86 - fly * 52) * D);
       set('foot' + k, (c * 32 + fly * 26) * D);
-      const s = k === 'L' ? -1 : 1;
+      const s = k === 'L' ? 1 : -1;
       set('upArm' + k, (c * 40 - fly * 120) * D, 0, s * (drop - fly * 40 * D));
       set('loArm' + k, (18 + c * 30) * D, 0, s * 6 * D);
     }
@@ -579,6 +611,11 @@ function applyQuality(qi, rebuild) {
   }
   resize();
 }
+
+/* d_render calls these from updateSun; without them boot throws on the
+   very first frame and never sets __ready. */
+function setHour(v) { CFG.hourTarget = ((v % 24) + 24) % 24; }
+function refreshLiveReadout() {}
 
 const ORB = { yaw: 0.30, pitch: -0.02, dist: 3.4, distT: 3.4, ty: 0.90, tyT: 0.90, spin: false };
 function updateCamera(dt) {
