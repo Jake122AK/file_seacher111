@@ -3951,7 +3951,7 @@ function drawAnimeFace(c, S) {
   for (const sx of [-1, 1]) {
     const nx = PX(sx * 0.0044), ny = PY(0.0118);
     const ng = c.createRadialGradient(nx, ny, 0, nx, ny, PW(0.0046));
-    ng.addColorStop(0, 'rgba(196,132,116,0.46)');
+    ng.addColorStop(0, 'rgba(184,120,106,0.28)');
     ng.addColorStop(1, 'rgba(196,132,116,0)');
     c.fillStyle = ng;
     c.beginPath(); c.ellipse(nx, ny, PW(0.0046), PH(0.0031), 0, 0, TAU); c.fill();
@@ -4025,11 +4025,11 @@ const HEAD_RINGS = [
   [-0.0080, 0.0662, 0.0692,  0.0074],
   [ 0.0120, 0.0748, 0.0762,  0.0052],
   [ 0.0360, 0.0800, 0.0818,  0.0030],
-  [ 0.0610, 0.0828, 0.0862,  0.0006],
-  [ 0.0870, 0.0834, 0.0892, -0.0020],
-  [ 0.1115, 0.0808, 0.0882, -0.0044],
-  [ 0.1340, 0.0730, 0.0806, -0.0064],
-  [ 0.1512, 0.0578, 0.0652, -0.0078],
+  [ 0.0610, 0.0753, 0.0906,  0.0006],
+  [ 0.0870, 0.0744, 0.0940, -0.0020],
+  [ 0.1115, 0.0714, 0.0928, -0.0044],
+  [ 0.1340, 0.0652, 0.0846, -0.0064],
+  [ 0.1512, 0.0552, 0.0672, -0.0078],
   [ 0.1616, 0.0336, 0.0386, -0.0086],
   [ 0.1660, 0.0000, 0.0000, -0.0090]
 ];
@@ -4071,18 +4071,20 @@ function headRingAt(y) {
 }
 function headRelief(x, y) {
   const ax = Math.abs(x);
-  /* Anime relief is far shallower than human relief, and the cheekbone and
-     the temple are the two that have to nearly vanish. The moment a face
-     has visible bone in it, it stops reading as drawn — however large the
-     eyes on the front of it are. */
+  /* The skull's own planes, at the depth the reference actually carries.
+     The previous pass cut these to a third on the theory that an anime
+     face is flat; put side by side with a real stylised model that theory
+     is simply wrong. */
   const ox = (ax - 0.0347) / 0.0310, oy = (y - 0.0600) / 0.0240;
-  let d = -0.0026 * Math.exp(-ox * ox - oy * oy);                  // 眼窩
-  const kx = (ax - 0.0430) / 0.0250, ky = (y - 0.0150) / 0.0260;
-  d += 0.0013 * Math.exp(-kx * kx - ky * ky);                      // 頬骨
+  let d = -0.0022 * Math.exp(-ox * ox - oy * oy);                  // 眼窩上縁
+  const kx = (ax - 0.0432) / 0.0182, ky = (y - 0.0232) / 0.0158;
+  d += 0.0032 * Math.exp(-kx * kx - ky * ky);                      // 頬骨
+  const gx = (ax - 0.0398) / 0.0138, gy = (y + 0.0252) / 0.0150;
+  d += 0.0024 * Math.exp(-gx * gx - gy * gy);                      // 下顎角
   const mx = x / 0.0300, my = (y + 0.0210) / 0.0300;
-  d += 0.0020 * Math.exp(-mx * mx - my * my);                      // 上顎
-  const tx = (ax - 0.0640) / 0.0240, ty = (y - 0.0900) / 0.0300;
-  d -= 0.0011 * Math.exp(-tx * tx - ty * ty);                      // 側頭
+  d += 0.0026 * Math.exp(-mx * mx - my * my);                      // 上顎
+  const tx = (ax - 0.0648) / 0.0230, ty = (y - 0.0900) / 0.0290;
+  d -= 0.0026 * Math.exp(-tx * tx - ty * ty);                      // 側頭
   return d;
 }
 /* z of the shell at a given (x,y). The eyelids and the face patch need it
@@ -4122,19 +4124,30 @@ function faceRelief(x, y) {
      nose tip 0.343, mouth 0.155, brow 0.61. Ours had the nose at 0.265 and
      the eyes at 0.410 — the entire face was sitting a fifth of a head too
      low, which no amount of work on the individual features can fix. */
+  /* 鼻. 0.0763 of head height = 17.0mm here, against the 6.0mm it had.
+     Widened with it — a 17mm ridge 8mm across is a blade, not a nose. */
   const dy = y - 0.0195;
-  const nz = 0.0060 * G(dy, dy > 0 ? 0.0300 : 0.0105);
-  const nw = 0.0050 + 0.0028 * clamp((0.0560 - y) / 0.0460, 0, 1);
+  const nz = 0.0148 * G(dy, dy > 0 ? 0.0310 : 0.0108);
+  const nw = 0.0062 + 0.0056 * clamp((0.0560 - y) / 0.0460, 0, 1);
   d += nz * G(x, nw);                                             // 鼻背
-  d += 0.0013 * G(ax - 0.0074, 0.0040) * G(y - 0.0130, 0.0036);   // 小鼻
-  d -= 0.0006 * G(x, 0.0026) * G(y + 0.0022, 0.0050);             // 人中
+  d += 0.0034 * G(ax - 0.0106, 0.0052) * G(y - 0.0116, 0.0044);   // 小鼻
+  d -= 0.0016 * G(ax - 0.0092, 0.0028) * G(y - 0.0016, 0.0062);   // 鼻翼溝
+  d -= 0.0032 * G(ax - 0.0062, 0.0032) * G(y - 0.0022, 0.0030);   // 鼻孔
+  /* the column between the nose and the lip: without it the underside
+     of the nose runs straight into a trough and reads as a blob */
+  d += 0.0017 * G(x, 0.0092) * G(y + 0.0058, 0.0072);             // 人中稜
+  d -= 0.0013 * G(x, 0.0026) * G(y + 0.0026, 0.0054);             // 人中溝
   const LX = w => Math.exp(-Math.pow(ax / w, 3.0));
-  d += 0.0022 * G(y + 0.0192, 0.0046) * LX(0.0142);               // 上唇
-  d += 0.0027 * G(y + 0.0270, 0.0052) * LX(0.0130);               // 下唇
-  d -= 0.0010 * G(y + 0.0230, 0.0019) * LX(0.0148);               // 口裂
-  d -= 0.0011 * G(y + 0.0356, 0.0070) * LX(0.0152);               // 頤唇溝
-  d += 0.0017 * G(y + 0.0452, 0.0112) * G(x, 0.0172);             // 頤
-  d += 0.0013 * G(ax - 0.0330, 0.0215) * G(y - 0.0742, 0.0072);   // 眉弓
+  d += 0.0042 * G(y + 0.0192, 0.0050) * LX(0.0150);               // 上唇
+  d += 0.0048 * G(y + 0.0272, 0.0056) * LX(0.0138);               // 下唇
+  d -= 0.0020 * G(y + 0.0230, 0.0020) * LX(0.0156);               // 口裂
+  d -= 0.0022 * G(y + 0.0362, 0.0072) * LX(0.0158);               // 頤唇溝
+  d += 0.0036 * G(y + 0.0452, 0.0114) * G(x, 0.0168);             // 頤
+  d += 0.0014 * G(ax - 0.0082, 0.0044) * G(y + 0.0470, 0.0090);   // 頤結節
+  // 鼻唇溝 : from the ala down and out to the corner of the mouth
+  const fu = clamp((0.0140 - y) / 0.0340, 0, 1);
+  d -= 0.0018 * G(ax - (0.0132 + 0.0086 * fu), 0.0044) * G(y - 0.0140 + 0.0170, 0.0150);
+  d += 0.0028 * G(ax - 0.0330, 0.0215) * G(y - 0.0742, 0.0072);   // 眉弓
   d -= eyeSink(x, y);                                             // 眼窩
   return d;
 }
@@ -4175,7 +4188,7 @@ function faceZ(x, y) {
 const EYE_HW = 0.0182, EYE_HU = 0.0114, EYE_HD = 0.0098;  // 瞼裂 half-extents
 const IRIS_R = 0.0112;
 const EYE_P = [0.0347, 0.0545, 0];
-const EYE_SINK = 0.0034;                                  // 眼窩の彫り込み
+const EYE_SINK = 0.0074;                                  // 眼窩の彫り込み
 const BROW_X = 0.0347, BROW_Y = 0.0730;
 
 /* the aperture radius, in metres, in a given direction round it */
@@ -4294,7 +4307,7 @@ function mikoLash(detail) {
       const bx = sx * EYE_P[0] + r0 * ct, by = EYE_P[1] + r0 * st;
       const bz = faceZ(bx, by) + 0.0009;
       const u = 1 - th / PI;                  // 1 at the outer corner
-      const L = (0.0020 + 0.0082 * Math.pow(u, 1.20)) * (0.40 + 0.60 * Math.pow(st, 0.45));
+      const L = (0.0024 + 0.0098 * Math.pow(u, 1.18)) * (0.40 + 0.60 * Math.pow(st, 0.45));
       const d = norm([sx * (0.40 + 0.34 * u), 0.74, 0.30]);
       const row = [];
       for (let k = 0; k <= KN; k++) {
@@ -4457,7 +4470,7 @@ function mikoHead(detail) {
 /* a lock with a real sweep: cubic through the control points, so the
    silhouette curves instead of hanging */
 function sweptLock(pts, w0, w1, thick, mat, n) {
-  n = n || 9;
+  n = n || 11;
   const out = [];
   for (let i = 0; i <= n; i++) {
     const t = i / n, seg = t * (pts.length - 1);
@@ -4472,7 +4485,7 @@ function sweptLock(pts, w0, w1, thick, mat, n) {
     const taper = Math.pow(1 - t, 0.55);
     out.push({ p, rx: lerp(w0, w1, t) * (0.30 + 0.70 * taper), ry: thick * (0.35 + 0.65 * taper) });
   }
-  return loft(out, 12, { mat: mat === undefined ? MAT.HAIR : mat, uScale: 0.6, vScale: 1.0, up: [0, 0, 1] });
+  return loft(out, 14, { mat: mat === undefined ? MAT.HAIR : mat, uScale: 0.6, vScale: 1.0, up: [0, 0, 1] });
 }
 
 function mikoHair(detail) {
@@ -4497,7 +4510,7 @@ function mikoHair(detail) {
      fringe turned into string; this goes the other way — eleven wide, flat
      locks that overlap into one mass, each tapering to an actual point
      (w1 is 4% of w0, so the tip is a spike rather than a stub). */
-  const NB = detail ? 17 : 9;
+  const NB = detail ? 24 : 9;
   const RX = 0.0700, RZ = 0.0740, RC = -0.019;      // the cap, at the hairline
   for (let i = 0; i < NB; i++) {
     const u = ((i + 0.5) / NB) * 2 - 1, sg = u < 0 ? -1 : 1, a = Math.abs(u);
@@ -4510,14 +4523,14 @@ function mikoHair(detail) {
     const L = 0.034 + 0.98 * Math.abs(x1) + ((i % 3) - 1) * 0.013;
     // 0.185 of head height proud of the face, per the reference
     const fz = 0.1190 - 0.088 * Math.pow(Math.min(1, Math.abs(x1) / 0.128), 2);
-    const w = 0.026 + 0.012 * (1 - a);
+    const w = 0.0205 + 0.0100 * (1 - a);
     g.merge(sweptLock([
       [xr, 0.156, zr],
       [lerp(xr, x1, 0.30), 0.136, fz * 0.94],
       [lerp(xr, x1, 0.68), 0.156 - L * 0.56, fz],
       [x1, 0.156 - L, fz * 0.86],
       [x1 + sg * 0.013, 0.156 - L * 1.08, fz * 0.58]
-    ], w, w * 0.04, 0.0090, HAIR));
+    ], w, w * 0.04, 0.0068, HAIR));
   }
   // short strands over the parting, so it is not a bald gap
   for (const [x0, x1, L] of [[PART + 0.006, 0.030, 0.062], [PART - 0.006, -0.024, 0.058],
@@ -4544,8 +4557,16 @@ function mikoHair(detail) {
      [0.062, -0.050, 0.056]]
   ];
   const SW = [0.048, 0.037, 0.044, 0.033, 0.031, 0.025];
-  for (const sx of [-1, 1]) SIDE.forEach((pts, i) =>
-    g.merge(sweptLock(pts.map(p => [sx * p[0], p[1], p[2]]), SW[i], SW[i] * 0.05, 0.0105, HAIR)));
+  /* interleaved half-width copies, offset along the path, so the mass is
+     built from overlapping cards instead of from six tubes */
+  const SIDE2 = SIDE.map((pts, i) => pts.map((p, k) =>
+    [p[0] * (0.94 - 0.02 * (i % 2)), p[1] - 0.014 - 0.006 * (i % 3), p[2] + 0.012 * ((i % 2) ? 1 : -1)]));
+  for (const sx of [-1, 1]) {
+    SIDE.forEach((pts, i) =>
+      g.merge(sweptLock(pts.map(p => [sx * p[0], p[1], p[2]]), SW[i], SW[i] * 0.05, 0.0080, HAIR)));
+    if (detail) SIDE2.forEach((pts, i) =>
+      g.merge(sweptLock(pts.map(p => [sx * p[0], p[1], p[2]]), SW[i] * 0.62, SW[i] * 0.03, 0.0062, HAIR)));
+  }
 
   // 後ろ髪 : the mass, then locks of differing length and sweep
   g.merge(loft([
@@ -4555,16 +4576,18 @@ function mikoHair(detail) {
     { p: [0, -0.200, -0.082], rx: 0.100, ry: 0.054 },
     { p: [0, -0.330, -0.070], rx: 0.084, ry: 0.043 }
   ], S, { mat: HAIR, uScale: 1.2, vScale: 1.2, up: [0, 0, 1] }));
-  for (const [bx, L, sw] of [[-0.082, 0.28, -0.026], [-0.058, 0.44, -0.018],
-                             [-0.034, 0.34, -0.010], [-0.010, 0.56, -0.002],
-                             [ 0.014, 0.40, 0.006], [0.038, 0.50, 0.012],
-                             [ 0.062, 0.32, 0.020], [0.084, 0.24, 0.026]])
+  for (const [bx, L, sw] of [[-0.086, 0.26, -0.028], [-0.070, 0.40, -0.022],
+                             [-0.054, 0.32, -0.016], [-0.038, 0.50, -0.010],
+                             [-0.022, 0.36, -0.006], [-0.006, 0.58, -0.001],
+                             [ 0.010, 0.42, 0.004], [0.026, 0.34, 0.008],
+                             [ 0.042, 0.54, 0.013], [0.058, 0.38, 0.018],
+                             [ 0.074, 0.28, 0.023], [0.088, 0.22, 0.027]])
     g.merge(sweptLock([
       [bx, -0.250, -0.072],
       [bx + sw * 0.5, -0.250 - L * 0.34, -0.062],
       [bx + sw, -0.250 - L * 0.72, -0.044],
       [bx + sw * 1.6, -0.250 - L, -0.020]
-    ], 0.046, 0.003, 0.014, HAIR));
+    ], 0.034, 0.002, 0.0105, HAIR));
 
   // アホ毛
   g.merge(sweptLock([
