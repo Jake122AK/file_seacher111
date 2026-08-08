@@ -41,6 +41,63 @@ cut0 = render.index('/* ---------------- camera update ---------------- */')
 head, tail = render[:cut0], render[cut0:]
 render = head + tail[:tail.index('function groundHeightAt')]
 
+
+def rep(text, a, b, n=1):
+    assert text.count(a) == n, (text.count(a), a[:90])
+    return text.replace(a, b)
+
+
+# ---------------------------------------------------------------------------
+# GPU skinning.
+#
+# The CPU path transformed 44,000 vertices in JavaScript and re-uploaded the
+# whole vertex buffer every frame — twice the work of drawing them. The bone
+# matrices go into a 1-row RGBA32F texture instead and the vertex shader does
+# the blend, so a pose costs one texSubImage2D of a few hundred floats.
+#
+# The change is confined to this build: hiyorimi.html's own character is a
+# different problem (it is BUILT per pose, not just transformed) and there is
+# no reason to disturb it.
+# ---------------------------------------------------------------------------
+SKIN_DECL = '''layout(location=9) in vec4 aBI;
+layout(location=10) in vec4 aBW;
+uniform int uSkin;
+uniform sampler2D uBones;
+/* four consecutive texels are the four columns of one bone matrix */
+mat4 boneAt(float f){
+  int k = int(f)*4;
+  return mat4(texelFetch(uBones, ivec2(k,   0), 0), texelFetch(uBones, ivec2(k+1, 0), 0),
+              texelFetch(uBones, ivec2(k+2, 0), 0), texelFetch(uBones, ivec2(k+3, 0), 0));
+}
+'''
+SKIN_BODY = '''  vec3 sPos = aPos; vec3 sNrm = aNrm;
+  if(uSkin==1){
+    mat4 S = boneAt(aBI.x)*aBW.x + boneAt(aBI.y)*aBW.y
+           + boneAt(aBI.z)*aBW.z + boneAt(aBI.w)*aBW.w;
+    sPos = (S*vec4(aPos,1.0)).xyz;
+    sNrm = mat3(S)*aNrm;
+  }
+'''
+
+for _vs in ('VS_GBUF', 'VS_SHADOW'):
+    i0 = shA.index('const %s = `' % _vs)
+    i1 = shA.index('`;', i0)
+    blk = shA[i0:i1]
+    # rename the reads FIRST — SKIN_BODY itself reads aPos and aNrm, and
+    # substituting into it would define sPos in terms of itself
+    blk = blk.replace('aPos', 'sPos').replace('aNrm', 'sNrm')
+    blk = rep(blk, 'in vec3 sPos;', 'in vec3 aPos;')
+    blk = rep(blk, 'in vec3 sNrm;', 'in vec3 aNrm;')
+    blk = rep(blk, 'void main(){', SKIN_DECL + 'void main(){')
+    blk = rep(blk, '  mat4 M = uInstanced==1 ? aInst : uModel;',
+              SKIN_BODY + '  mat4 M = uInstanced==1 ? aInst : uModel;')
+    shA = shA[:i0] + blk + shA[i1:]
+
+render = rep(render, "    u1f(prog, 'uWind', d.wind || 0);",
+             "    u1f(prog, 'uWind', d.wind || 0);\n"
+             "    u1i(prog, 'uSkin', d.skin ? 1 : 0);\n"
+             "    if (d.skin) tex(prog, 'uBones', 6, d.skin, gl.TEXTURE_2D);")
+
 STUDIO = '''/* ==== c_studio.js ==== */
 ''' + mat_table + '''
 const KY = { lights: [], list: [] };
@@ -282,11 +339,234 @@ function findLandmarks(P) {
   };
 }
 
+/* ---------------- fingers, jaw, eyes ----------------
+   The seven landmarks above give a body. What they do not give is anything
+   that reads as ALIVE up close: a hand that never closes, a face that never
+   moves. These three are found by different means each, because they leave
+   different traces in a mesh. */
+function findExtras(P, IDX, L) {
+  const NV = P.length / 3, H = L.H;
+  const out = { fingers: [], jaw: null, eyes: [] };
+
+  /* ---- 顎 ----
+     Nothing in the mesh marks a jaw hinge — it is inside the head. It is,
+     however, in a very predictable place relative to the head's own box,
+     so the box is what gets measured. */
+  let hz0 = 1e9, hz1 = -1e9, hn = 0;
+  for (let i = 0; i < NV; i++) if (P[i * 3 + 1] > L.neck) {
+    hn++; const z = P[i * 3 + 2]; if (z < hz0) hz0 = z; if (z > hz1) hz1 = z;
+  }
+  if (hn > 200 && hz1 > hz0) {
+    const hh = L.yhi - L.neck, dz = hz1 - hz0;
+    out.jaw = { pivot: [0, L.neck + hh * 0.29, hz0 + dz * 0.30],
+                chin: [0, L.neck + hh * 0.05, hz0 + dz * 0.84],
+                lim: L.neck + hh * 0.50 };
+  }
+
+  /* ---- 指 ----
+     The obvious method — histogram the hand across its own axis and look
+     for gaps — does not work, and measuring said so plainly: a relaxed
+     hand has its fingers TOUCHING, and the palm fills whatever gap is
+     left, so the histogram is one solid lobe from index to little.
+
+     What does separate them is topology. Cut the hand at some distance
+     along its axis and take the connected components of what is left: past
+     the knuckles the only thing joining two fingers is the palm, and the
+     palm has just been cut away. One cut is not enough either, because the
+     four long fingers only part at 56% of the hand while the thumb has
+     already ended by then — so the cut is SWEPT from the fingertips down,
+     and each digit is recorded at its greatest extent before it merges
+     into anything else. */
+  for (const s of [-1, 1]) {
+    const w = [s * L.wristX, L.wristY, L.wristZ];
+    const tp = [s * L.xmax, L.tipY, L.tipZ];
+    const d = [tp[0] - w[0], tp[1] - w[1], tp[2] - w[2]];
+    const len = Math.hypot(d[0], d[1], d[2]);
+    if (len < H * 0.04) continue;
+    for (let k = 0; k < 3; k++) d[k] /= len;
+    let up = [0, 1, 0];
+    if (Math.abs(d[1]) > 0.9) up = [0, 0, 1];
+    const dt = up[0] * d[0] + up[1] * d[1] + up[2] * d[2];
+    const e1 = [up[0] - d[0] * dt, up[1] - d[1] * dt, up[2] - d[2] * dt];
+    const l1 = Math.hypot(e1[0], e1[1], e1[2]) || 1;
+    for (let k = 0; k < 3; k++) e1[k] /= l1;
+    const e2 = [d[1] * e1[2] - d[2] * e1[1], d[2] * e1[0] - d[0] * e1[2], d[0] * e1[1] - d[1] * e1[0]];
+
+    // every vertex of the hand, with its distance along the hand axis
+    const hand = [], tAt = new Float64Array(NV);
+    for (let i = 0; i < NV; i++) {
+      if (s * P[i * 3] <= 0) continue;
+      const vx = P[i * 3] - w[0], vy = P[i * 3 + 1] - w[1], vz = P[i * 3 + 2] - w[2];
+      const t = (vx * d[0] + vy * d[1] + vz * d[2]) / len;
+      if (t < 0.20 || t > 1.6) continue;
+      const px = vx - d[0] * t * len, py = vy - d[1] * t * len, pz = vz - d[2] * t * len;
+      if (Math.hypot(px, py, pz) > H * 0.055) continue;
+      tAt[i] = t; hand.push(i);
+    }
+    if (hand.length < 120) continue;
+    const inHand = new Uint8Array(NV);
+    for (const i of hand) inHand[i] = 1;
+    const faces = [];
+    for (let t = 0; t < IDX.length; t += 3)
+      if (inHand[IDX[t]] && inHand[IDX[t + 1]] && inHand[IDX[t + 2]]) faces.push(t);
+
+    const par = new Int32Array(NV);
+    const find = a => { while (par[a] !== a) { par[a] = par[par[a]]; a = par[a]; } return a; };
+    const digits = [];
+    for (let cut = 0.88; cut > 0.24; cut -= 0.04) {
+      for (const i of hand) par[i] = i;
+      for (const f of faces) {
+        if (tAt[IDX[f]] < cut || tAt[IDX[f + 1]] < cut || tAt[IDX[f + 2]] < cut) continue;
+        for (let k = 1; k < 3; k++) {
+          const a = find(IDX[f]), b = find(IDX[f + k]);
+          if (a !== b) par[b] = a;
+        }
+      }
+      const comp = new Map();
+      for (const i of hand) {
+        if (tAt[i] < cut) continue;
+        const r = find(i);
+        let e = comp.get(r); if (!e) { e = []; comp.set(r, e); }
+        e.push(i);
+      }
+      for (const list of comp.values()) {
+        if (list.length < 24) continue;
+        const has = new Set(list);
+        /* frozen digits still count as owners. Without that, the palm — by
+           then made of nothing but digits that have already met — looks
+           like a brand new component and gets recorded as a sixth finger. */
+        const own = digits.filter(g => has.has(g.seed));
+        const live = own.filter(g => !g.frozen);
+        if (own.length === 0) {
+          if (cut < 0.30 || digits.length >= 5) continue;
+          let seed = list[0];
+          for (const i of list) if (tAt[i] > tAt[seed]) seed = i;
+          digits.push({ seed, verts: list.slice(), frozen: false });
+        } else if (live.length === 1 && own.length === 1) {
+          live[0].verts = list.slice();
+        } else {
+          for (const g of live) g.frozen = true;    // they have met in the palm
+        }
+      }
+    }
+    const good = digits.filter(g => g.verts.length >= 24).slice(0, 6);
+    if (good.length < 3) continue;                  // not a hand we can read
+
+    const spread = [e1[0], e1[1], e1[2]];
+    {   // the direction the digits fan out in, for ordering and for the curl axis
+      let ma = 0, mb = 0, n = 0;
+      for (const g of good) for (const i of g.verts) {
+        const vx = P[i * 3] - w[0], vy = P[i * 3 + 1] - w[1], vz = P[i * 3 + 2] - w[2];
+        ma += vx * e1[0] + vy * e1[1] + vz * e1[2];
+        mb += vx * e2[0] + vy * e2[1] + vz * e2[2]; n++;
+      }
+      ma /= n; mb /= n;
+      let caa = 0, cbb = 0, cab = 0;
+      for (const g of good) for (const i of g.verts) {
+        const vx = P[i * 3] - w[0], vy = P[i * 3 + 1] - w[1], vz = P[i * 3 + 2] - w[2];
+        const a = vx * e1[0] + vy * e1[1] + vz * e1[2] - ma;
+        const b = vx * e2[0] + vy * e2[1] + vz * e2[2] - mb;
+        caa += a * a; cbb += b * b; cab += a * b;
+      }
+      const ph = 0.5 * Math.atan2(2 * cab, caa - cbb), cp = Math.cos(ph), sp2 = Math.sin(ph);
+      for (let k = 0; k < 3; k++) spread[k] = e1[k] * cp + e2[k] * sp2;
+    }
+
+    const made = [];
+    for (const g of good) {
+      // fit a line through the digit: centroid, then a few power iterations
+      const c = [0, 0, 0];
+      for (const i of g.verts) for (let k = 0; k < 3; k++) c[k] += P[i * 3 + k];
+      for (let k = 0; k < 3; k++) c[k] /= g.verts.length;
+      let u = d.slice();
+      for (let it = 0; it < 12; it++) {
+        const o = [0, 0, 0];
+        for (const i of g.verts) {
+          const vx = P[i * 3] - c[0], vy = P[i * 3 + 1] - c[1], vz = P[i * 3 + 2] - c[2];
+          const pr = vx * u[0] + vy * u[1] + vz * u[2];
+          o[0] += vx * pr; o[1] += vy * pr; o[2] += vz * pr;
+        }
+        const l = Math.hypot(o[0], o[1], o[2]); if (l < 1e-12) break;
+        u = [o[0] / l, o[1] / l, o[2] / l];
+      }
+      if (u[0] * d[0] + u[1] * d[1] + u[2] * d[2] < 0) u = [-u[0], -u[1], -u[2]];
+      let r0 = 1e9, r1 = -1e9;
+      for (const i of g.verts) {
+        const r = (P[i * 3] - c[0]) * u[0] + (P[i * 3 + 1] - c[1]) * u[1] + (P[i * 3 + 2] - c[2]) * u[2];
+        if (r < r0) r0 = r; if (r > r1) r1 = r;
+      }
+      if (r1 - r0 < H * 0.012) continue;
+      /* the component starts where the cut was, not at the knuckle, so the
+         root is extrapolated back down the digit's own axis */
+      const rb = r0 - (r1 - r0) * 0.32;
+      const at = r => [c[0] + u[0] * r, c[1] + u[1] * r, c[2] + u[2] * r];
+      const base = at(rb), tip = at(r1);
+      const bt = ((base[0] - w[0]) * d[0] + (base[1] - w[1]) * d[1] + (base[2] - w[2]) * d[2]) / len;
+      const sq = (base[0] - w[0]) * spread[0] + (base[1] - w[1]) * spread[1] + (base[2] - w[2]) * spread[2];
+      made.push({ side: s, base, mid: at(rb + (r1 - rb) * 0.46), tip, spread, baseT: bt, q: sq,
+                  knuckle: [w[0] + d[0] * len * 0.42, w[1] + d[1] * len * 0.42, w[2] + d[2] * len * 0.42] });
+    }
+    if (made.length < 3) continue;
+    made.sort((a, b) => a.q - b.q);
+    /* the thumb is the digit that starts nearest the wrist — not simply the
+       outermost one, because a hand with no thumb found would otherwise
+       have an index finger animated as one */
+    const med = made.map(f => f.baseT).sort((a, b) => a - b)[made.length >> 1];
+    let th = made[0];
+    for (const f of made) if (f.baseT < th.baseT) th = f;
+    if (th.baseT < med - 0.08) th.thumb = true;
+    for (const f of made) out.fingers.push(f);
+  }
+
+  /* ---- 目 ----
+     Eyeballs are usually their own closed shells floating inside the head.
+     A union-find over the index buffer finds every shell in the model; the
+     ones that are small, high, forward and mirrored are the eyes. Models
+     that sculpt the eyes into the face give nothing here, and get nothing. */
+  const par = new Int32Array(NV);
+  for (let i = 0; i < NV; i++) par[i] = i;
+  const find = a => { while (par[a] !== a) { par[a] = par[par[a]]; a = par[a]; } return a; };
+  for (let t = 0; t < IDX.length; t += 3) {
+    const a = find(IDX[t]), b = find(IDX[t + 1]), c = find(IDX[t + 2]);
+    if (a !== b) par[b] = a;
+    const c2 = find(c), a2 = find(a);
+    if (a2 !== c2) par[c2] = a2;
+  }
+  const comp = new Map();
+  for (let i = 0; i < NV; i++) {
+    const r = find(i);
+    let e = comp.get(r);
+    if (!e) { e = { n: 0, lo: [1e9, 1e9, 1e9], hi: [-1e9, -1e9, -1e9], c: [0, 0, 0], v: [] }; comp.set(r, e); }
+    e.n++; e.v.push(i);
+    for (let k = 0; k < 3; k++) {
+      const x = P[i * 3 + k];
+      e.c[k] += x; if (x < e.lo[k]) e.lo[k] = x; if (x > e.hi[k]) e.hi[k] = x;
+    }
+  }
+  const cand = [];
+  for (const e of comp.values()) {
+    if (e.n < 24 || e.n > NV * 0.12) continue;
+    for (let k = 0; k < 3; k++) e.c[k] /= e.n;
+    const dmax = Math.max(e.hi[0] - e.lo[0], e.hi[1] - e.lo[1], e.hi[2] - e.lo[2]);
+    if (dmax > H * 0.075 || dmax < H * 0.008) continue;
+    if (e.c[1] < L.neck) continue;                             // must be in the head
+    if (Math.abs(e.c[0]) < H * 0.008 || Math.abs(e.c[0]) > H * 0.055) continue;
+    cand.push(e);
+  }
+  for (const a of cand) for (const b of cand) {
+    if (a.c[0] >= 0 || b.c[0] <= 0) continue;
+    if (Math.abs(Math.abs(a.c[0]) - b.c[0]) > H * 0.006) continue;
+    if (Math.abs(a.c[1] - b.c[1]) > H * 0.006) continue;
+    if (!out.eyes.length) out.eyes = [a, b];
+  }
+  return out;
+}
+
 /* ---------------- the skeleton ----------------
    Translation-only rest transforms: every bone's rest matrix is a pure
    offset from its parent, so an animation is a plain rotation about the
    bone's own head and nothing has to be un-twisted first. */
-function buildSkeleton(L) {
+function buildSkeleton(L, X) {
   const B = [], byName = {};
   const bone = (name, parent, head) => {
     const b = { name, parent: parent === null ? -1 : byName[parent], head, idx: B.length };
@@ -306,12 +586,30 @@ function buildSkeleton(L) {
     bone('upArm' + k, 'clav' + k, [s * L.shoulderX, L.armYc, L.armZ]);
     bone('loArm' + k, 'upArm' + k, [s * L.elbowX, L.elbowY, L.elbowZ]);
     bone('hand' + k, 'loArm' + k, [s * L.wristX, L.wristY, L.wristZ]);
-    bone('handTip' + k, 'hand' + k, [s * L.xmax, L.tipY, L.tipZ]);
+    /* with fingers of its own the hand bone must stop at the knuckles, or
+       its segment runs straight down the middle of them and wins every
+       weight it should have lost */
+    const fg = X.fingers.filter(f => f.side === s);
+    bone('handTip' + k, 'hand' + k, fg.length ? fg[0].knuckle : [s * L.xmax, L.tipY, L.tipZ]);
+    fg.forEach((f, n) => {
+      const ax = fingerAxis(f);
+      bone('fg' + n + 'a' + k, 'hand' + k, f.base).axis = ax;
+      bone('fg' + n + 'b' + k, 'fg' + n + 'a' + k, f.mid).axis = ax;
+      bone('fg' + n + 't' + k, 'fg' + n + 'b' + k, f.tip);
+    });
     bone('thigh' + k, 'hips', [s * L.legX, L.hip - H * 0.01, 0]);
     bone('shin' + k, 'thigh' + k, [s * L.legX, L.knee, 0]);
     bone('foot' + k, 'shin' + k, [s * L.legX, L.ankle, 0]);
     bone('toe' + k, 'foot' + k, [s * L.legX, L.ylo + H * 0.012, L.toeZ * 0.7]);
   }
+  if (X.jaw) {
+    bone('jaw', 'head', X.jaw.pivot).axis = [1, 0, 0];
+    bone('jawTip', 'jaw', X.jaw.chin);
+  }
+  X.eyes.forEach((e, n) => {
+    bone('eye' + n, 'head', [e.c[0], e.c[1], e.c[2]]).verts = e.v;
+    bone('eye' + n + 'Tip', 'eye' + n, [e.c[0], e.c[1], e.c[2] + H * 0.02]);
+  });
   // rest world = head position, rest local = offset from the parent's head
   for (const b of B) {
     const p = b.parent >= 0 ? B[b.parent].head : [0, 0, 0];
@@ -320,25 +618,62 @@ function buildSkeleton(L) {
     M4.compose(b.restW, b.head, 0, [1, 1, 1], 0, 0);
     b.invRest = M4.create(); M4.invert(b.invRest, b.restW);
     b.rot = [0, 0, 0];
+    b.ang = 0;
     b.world = M4.create();
   }
   return { B, byName };
+}
+
+/* A finger curls about one axis and it is not a world axis: it is the
+   normal of the plane the finger swings in, which is across the hand.
+   Euler angles cannot express that without unwinding the whole arm first,
+   so bones that need it carry an explicit axis instead. */
+function fingerAxis(f) {
+  const v = [f.tip[0] - f.base[0], f.tip[1] - f.base[1], f.tip[2] - f.base[2]];
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  for (let k = 0; k < 3; k++) v[k] /= l;
+  // the axis is the fan direction, squared up against this finger's own
+  const dp = f.spread[0] * v[0] + f.spread[1] * v[1] + f.spread[2] * v[2];
+  const a = [f.spread[0] - v[0] * dp, f.spread[1] - v[1] * dp, f.spread[2] - v[2] * dp];
+  const la = Math.hypot(a[0], a[1], a[2]) || 1;
+  for (let k = 0; k < 3; k++) a[k] /= la;
+  /* which way is closed? A hand at the side has its palm against the thigh,
+     so a curling fingertip travels toward the midline. Pick the sign that
+     does that rather than trusting the principal axis to come out one way. */
+  const cx = a[1] * v[2] - a[2] * v[1];
+  return (cx * -f.side > 0) ? a : [-a[0], -a[1], -a[2]];
+}
+
+/* offset + a rotation of `ang` about `ax`, as a column-major mat4 */
+function axisLocal(out, off, ax, ang) {
+  const c = Math.cos(ang), s = Math.sin(ang), t = 1 - c;
+  const [x, y, z] = ax;
+  out[0] = t * x * x + c;     out[1] = t * x * y + s * z; out[2] = t * x * z - s * y; out[3] = 0;
+  out[4] = t * x * y - s * z; out[5] = t * y * y + c;     out[6] = t * y * z + s * x; out[7] = 0;
+  out[8] = t * x * z + s * y; out[9] = t * y * z - s * x; out[10] = t * z * z + c;    out[11] = 0;
+  out[12] = off[0]; out[13] = off[1]; out[14] = off[2]; out[15] = 1;
+  return out;
 }
 
 /* ---------------- binding ----------------
    Weight by distance to the bone SEGMENT, not to the joint: a point on the
    forearm is near the elbow and near the wrist and must belong to the bone
    between them, not to whichever joint happens to be closer. */
-function bindSkin(P, SK, L) {
+function bindSkin(P, SK, L, X) {
   const NV = P.length / 3, B = SK.B;
   // only bones with a real length take weight; the tips are there to give
   // their parents a direction
   const use = [];
   for (const b of B) {
-    if (b.name === 'root' || b.name.endsWith('Tip')) continue;
+    if (b.name === 'root' || b.name.endsWith('Tip') || b.verts) continue;
     const kid = B.find(c => c.parent === b.idx);
     if (!kid) continue;
-    use.push({ i: b.idx, a: b.head, b: kid.head, name: b.name });
+    const g = { i: b.idx, a: b.head, b: kid.head, name: b.name };
+    if (b.name === 'jaw') g.jawLim = X.jaw.lim;
+    // a finger is 15mm across and its neighbour is 20mm away; the general
+    // falloff is far too soft to keep them apart
+    if (b.name.startsWith('fg')) g.tight = 9.0;
+    use.push(g);
   }
   const BI = new Uint8Array(NV * 4), BW = new Float32Array(NV * 4);
   const sc = [];
@@ -354,7 +689,11 @@ function bindSkin(P, SK, L) {
       // a left bone must not claim a right vertex
       if (g.name.endsWith('L') && px > L.H * 0.01) d += L.H;
       if (g.name.endsWith('R') && px < -L.H * 0.01) d += L.H;
-      sc.push([g.i, 1 / Math.pow(d + L.H * 0.006, 4.5)]);
+      /* The jaw's segment is INSIDE the head, so the back of the skull is
+         as close to it as the chin is. Nothing in the geometry distinguishes
+         them — the constraint is anatomical and has to be stated. */
+      if (g.jawLim && (py > g.jawLim || pz < g.a[2])) d += L.H;
+      sc.push([g.i, 1 / Math.pow(d + L.H * 0.006, g.tight || 4.5)]);
     }
     sc.sort((a, b) => b[1] - a[1]);
     let tot = 0;
@@ -362,6 +701,21 @@ function bindSkin(P, SK, L) {
     for (let k = 0; k < 4; k++) { BI[v * 4 + k] = sc[k][0]; BW[v * 4 + k] = sc[k][1] / tot; }
   }
   return { BI, BW };
+}
+
+/* An eyeball is its own shell, so it does not need weighting at all — every
+   vertex of it belongs to that eye and to nothing else. Doing this AFTER
+   the smoothing pass matters: smoothing runs over the mesh graph and the
+   eye shares no edge with the face, so a blurred eye would be pulled by
+   whatever the face is doing and drift out of its socket. */
+function bindRigid(SK, BI, BW) {
+  for (const b of SK.B) {
+    if (!b.verts) continue;
+    for (const v of b.verts) {
+      BI[v * 4] = b.idx; BW[v * 4] = 1;
+      for (let k = 1; k < 4; k++) { BI[v * 4 + k] = 0; BW[v * 4 + k] = 0; }
+    }
+  }
 }
 
 /* Smooth the weights over the mesh graph. Distance binding alone leaves a
@@ -400,9 +754,8 @@ function smoothWeights(IDX, NV, NB, BI, BW, passes) {
 
 /* ---------------- the model ---------------- */
 const RIG = {
-  ready: false, mesh: null, SK: null, L: null,
-  P0: null, N0: null, BI: null, BW: null, NV: 0,
-  scale: 1, lift: 0, mats: null, pos: null, nrm: null,
+  ready: false, mesh: null, SK: null, L: null, X: null,
+  BI: null, BW: null, NV: 0, boneTex: null, boneData: null,
   clip: 'walk', time: 0, speed: 1, playing: true, tris: 0
 };
 
@@ -428,12 +781,16 @@ function loadModel(text, status) {
   for (const k of LENGTHS) L[k] = L[k] * s;
   L.ylo = 0;
 
+  status('手と顔を探しています…');
+  const X = findExtras(P, IDX, L);
+
   status('骨を当てています…');
-  const SK = buildSkeleton(L);
+  const SK = buildSkeleton(L, X);
 
   status('スキンウェイトを計算中…');
-  const { BI, BW } = bindSkin(P, SK, L);
+  const { BI, BW } = bindSkin(P, SK, L, X);
   smoothWeights(IDX, NV, SK.B.length, BI, BW, 2);
+  bindRigid(SK, BI, BW);
 
   status('メッシュを構築中…');
   const g = new Geo();
@@ -459,16 +816,40 @@ function loadModel(text, status) {
     R.scene.draws = R.scene.draws.filter(cut);
     R.scene.shadowDraws = R.scene.shadowDraws.filter(cut);
   }
-  const mesh = new Mesh(g, { dynamic: true });
+  const mesh = new Mesh(g);
   mesh.setInstances([{ m: M4.create(), tint: [0.90, 0.86, 0.83, 0.3] }]);
-  R.scene.draws.push({ mesh, name: 'model' });
-  R.scene.shadowDraws.push({ mesh });
+
+  /* ---- the skin goes on the GPU ----
+     Two extra vertex attributes (bone index, bone weight) and a one-row
+     RGBA32F texture holding every bone matrix. A pose is then a 4KB upload
+     instead of 44,000 matrix blends in JavaScript. */
+  const NBn = SK.B.length;
+  const bi = new Float32Array(NV * 4), bw = new Float32Array(NV * 4);
+  for (let i = 0; i < NV * 4; i++) { bi[i] = BI[i]; bw[i] = BW[i]; }
+  gl.bindVertexArray(mesh.vao);
+  for (const [loc, data] of [[9, bi], [10, bw]]) {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 16, 0);
+  }
+  gl.bindVertexArray(null);
+  if (RIG.boneTex) gl.deleteTexture(RIG.boneTex);
+  const boneTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, boneTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, NBn * 4, 1, 0, gl.RGBA, gl.FLOAT, null);
+  for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER])
+    gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
+  for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T])
+    gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE);
+
+  R.scene.draws.push({ mesh, name: 'model', skin: boneTex });
+  R.scene.shadowDraws.push({ mesh, skin: boneTex });
 
   Object.assign(RIG, {
-    ready: true, mesh, SK, L, NV, BI, BW,
-    P0: new Float32Array(P), N0,
-    pos: new Float32Array(NV * 3), nrm: new Float32Array(NV * 3),
-    mats: SK.B.map(() => new Float32Array(16)),
+    ready: true, mesh, SK, L, X, NV, BI, BW, boneTex,
+    boneData: new Float32Array(NBn * 16),
     tris: IDX.length / 3
   });
   R.histValid = false;
@@ -479,8 +860,9 @@ function loadModel(text, status) {
 /* ---------------- pose & animation ---------------- */
 function poseRig(t) {
   const B = RIG.SK.B, N = RIG.SK.byName, L = RIG.L;
-  for (const b of B) { b.rot[0] = b.rot[1] = b.rot[2] = 0; }
+  for (const b of B) { b.rot[0] = b.rot[1] = b.rot[2] = 0; b.ang = 0; }
   const set = (n, x, y, z) => { const b = B[N[n]]; if (b) { b.rot[0] = x || 0; b.rot[1] = y || 0; b.rot[2] = z || 0; } };
+  const ang = (n, a) => { const b = B[N[n]]; if (b) b.ang = a; };
   const D = Math.PI / 180;
   let rootY = 0, rootZ = 0;
 
@@ -545,41 +927,69 @@ function poseRig(t) {
     rootY = fly * 0.42 - c * 0.16;
   }
 
+  /* ---- 指・顎・目 ----
+     Everything above moves the figure. These three are what make it look
+     inhabited, and none of them belongs in the leg cycle above: a hand
+     closes and opens on its own clock, and eyes never sit still. */
+  const nf = RIG.X ? RIG.X.fingers.length : 0;
+  if (nf) {
+    /* how closed the hand is, 0 = flat, 1 = fist */
+    const grip = A === 'run' ? 0.86
+      : A === 'jump' ? 0.20 + 0.55 * Math.max(0, Math.sin(t * 2.4))
+      : A === 'walk' ? 0.34 + 0.10 * Math.sin(t * 2.6)
+      : 0.30 + 0.07 * Math.sin(t * 0.9);
+    for (const s of [-1, 1]) {
+      const k = s < 0 ? 'L' : 'R';
+      const row = RIG.X.fingers.filter(q => q.side === s);
+      row.forEach((f, n) => {
+        /* a thumb does not close nearly as far as the rest, and a hand with
+           every digit at the same angle reads as a claw */
+        const g = grip * (f.thumb ? 0.40 : 0.86 + 0.16 * (n / Math.max(1, row.length - 1)));
+        ang('fg' + n + 'a' + k, g * 62 * D);
+        ang('fg' + n + 'b' + k, g * 74 * D);
+      });
+    }
+  }
+  if (N.jaw !== undefined) {
+    const open = A === 'run' ? 0.55 + 0.30 * Math.sin(t * 9.2)
+      : A === 'jump' ? 0.35 + 0.30 * Math.sin(t * 3.0)
+      : 0.06 + 0.05 * Math.sin(t * 1.3);
+    ang('jaw', open * 13 * D);
+  }
+  if (N.eye0 !== undefined) {
+    /* saccades, not a sweep. Eyes hold still and then jump; a smoothly
+       panning eye is the single most unsettling thing a face can do. */
+    const step = Math.floor(t * 0.7);
+    const rnd = s => { const v = Math.sin(s * 12.9898) * 43758.5453; return v - Math.floor(v); };
+    const hold = clamp((t * 0.7 - step) * 9, 0, 1);
+    const yaw = (rnd(step) - 0.5) * 0.30, pit = (rnd(step + 91) - 0.5) * 0.16;
+    const yaw0 = (rnd(step - 1) - 0.5) * 0.30, pit0 = (rnd(step + 90) - 0.5) * 0.16;
+    for (const e of ['eye0', 'eye1']) if (N[e] !== undefined)
+      set(e, lerp(pit0, pit, hold), lerp(yaw0, yaw, hold), 0);
+  }
+
   // solve
   const tmp = M4.create();
   for (const b of B) {
     const off = b.name === 'root' ? [b.off[0], b.off[1] + rootY, b.off[2] + rootZ] : b.off;
-    M4.compose(tmp, off, b.rot[1], [1, 1, 1], b.rot[0], b.rot[2]);
+    if (b.axis) axisLocal(tmp, off, b.axis, b.ang);
+    else M4.compose(tmp, off, b.rot[1], [1, 1, 1], b.rot[0], b.rot[2]);
     if (b.parent >= 0) M4.mul(b.world, B[b.parent].world, tmp); else M4.copy(b.world, tmp);
   }
   skinModel();
 }
 
 function skinModel() {
-  const { SK, P0, N0, BI, BW, NV, pos, nrm, mats, mesh } = RIG;
+  const { SK, boneData, boneTex } = RIG;
   const B = SK.B, tmp = M4.create();
-  for (let i = 0; i < B.length; i++) { M4.mul(tmp, B[i].world, B[i].invRest); mats[i].set(tmp); }
-  for (let i = 0; i < NV; i++) {
-    const x = P0[i * 3], y = P0[i * 3 + 1], z = P0[i * 3 + 2];
-    const nx = N0[i * 3], ny = N0[i * 3 + 1], nz = N0[i * 3 + 2];
-    let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
-    for (let k = 0; k < 4; k++) {
-      const w = BW[i * 4 + k];
-      if (w < 1e-4) continue;
-      const m = mats[BI[i * 4 + k]];
-      px += w * (m[0] * x + m[4] * y + m[8] * z + m[12]);
-      py += w * (m[1] * x + m[5] * y + m[9] * z + m[13]);
-      pz += w * (m[2] * x + m[6] * y + m[10] * z + m[14]);
-      qx += w * (m[0] * nx + m[4] * ny + m[8] * nz);
-      qy += w * (m[1] * nx + m[5] * ny + m[9] * nz);
-      qz += w * (m[2] * nx + m[6] * ny + m[10] * nz);
-    }
-    const l = Math.hypot(qx, qy, qz) || 1;
-    pos[i * 3] = px; pos[i * 3 + 1] = py; pos[i * 3 + 2] = pz;
-    nrm[i * 3] = qx / l; nrm[i * 3 + 1] = qy / l; nrm[i * 3 + 2] = qz / l;
+  for (let i = 0; i < B.length; i++) {
+    M4.mul(tmp, B[i].world, B[i].invRest);
+    boneData.set(tmp, i * 16);
   }
-  mesh.updateVerts(pos, nrm);
+  gl.bindTexture(gl.TEXTURE_2D, boneTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, B.length * 4, 1, gl.RGBA, gl.FLOAT, boneData);
 }
+
 '''
 
 VIEWER = r'''/* ==== e_rig.js ==== */
@@ -617,17 +1027,21 @@ function applyQuality(qi, rebuild) {
 function setHour(v) { CFG.hourTarget = ((v % 24) + 24) % 24; }
 function refreshLiveReadout() {}
 
-const ORB = { yaw: 0.30, pitch: -0.02, dist: 3.4, distT: 3.4, ty: 0.90, tyT: 0.90, spin: false };
+const ORB = { yaw: 0.30, pitch: -0.02, dist: 3.4, distT: 3.4, ty: 0.90, tyT: 0.90,
+              tx: 0, txT: 0, spin: false };
 function updateCamera(dt) {
   CAM.fov += (CAM.fovTarget - CAM.fov) * Math.min(1, dt * 11);
   if (ORB.spin) ORB.yaw += dt * 0.35;
   ORB.dist += (ORB.distT - ORB.dist) * Math.min(1, dt * 8);
   ORB.ty += (ORB.tyT - ORB.ty) * Math.min(1, dt * 8);
+  ORB.tx += (ORB.txT - ORB.tx) * Math.min(1, dt * 8);
   ORB.pitch = clamp(ORB.pitch, -1.15, 1.15);
   const cp = Math.cos(ORB.pitch);
-  CAM.pos = [Math.sin(ORB.yaw) * cp * ORB.dist, ORB.ty + Math.sin(ORB.pitch) * ORB.dist,
+  /* the pivot pans sideways too — a hand is 60cm off the axis and there is
+     no way to look at one closely without it */
+  CAM.pos = [ORB.tx + Math.sin(ORB.yaw) * cp * ORB.dist, ORB.ty + Math.sin(ORB.pitch) * ORB.dist,
              Math.cos(ORB.yaw) * cp * ORB.dist];
-  const dir = norm(sub([0, ORB.ty, 0], CAM.pos));
+  const dir = norm(sub([ORB.tx, ORB.ty, 0], CAM.pos));
   CAM.yaw = Math.atan2(dir[0], -dir[2]);
   CAM.pitch = Math.asin(clamp(dir[1], -1, 1));
   M4.copy(CAM.prevViewProj, CAM.viewProj);
@@ -660,14 +1074,19 @@ function setupInput() {
   let drag = null, pinch = 0;
   const pos = e => ({ x: e.touches ? e.touches[0].clientX : e.clientX, y: e.touches ? e.touches[0].clientY : e.clientY });
   const d2 = e => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-  c.addEventListener('mousedown', e => drag = pos(e));
+  c.addEventListener('mousedown', e => { drag = pos(e); drag.pan = e.shiftKey || e.button === 2; });
+  c.addEventListener('contextmenu', e => e.preventDefault());
   c.addEventListener('touchstart', e => { if (e.touches.length > 1) { pinch = d2(e); drag = null; } else drag = pos(e); }, { passive: true });
   const move = e => {
     if (e.touches && e.touches.length > 1) { const d = d2(e); if (pinch) ORB.distT = clamp(ORB.distT * (pinch / d), 0.3, 14); pinch = d; e.preventDefault(); return; }
     if (!drag) return;
     const p = pos(e);
-    ORB.yaw -= (p.x - drag.x) * 0.006; ORB.pitch += (p.y - drag.y) * 0.005;
-    drag = p; if (e.touches) e.preventDefault();
+    const pan = drag.pan;
+    if (drag.pan) {
+      ORB.txT = clamp(ORB.txT - (p.x - drag.x) * ORB.dist * 0.0016, -2, 2);
+      ORB.tyT = clamp(ORB.tyT + (p.y - drag.y) * ORB.dist * 0.0016, -0.5, 2.4);
+    } else { ORB.yaw -= (p.x - drag.x) * 0.006; ORB.pitch += (p.y - drag.y) * 0.005; }
+    drag = p; drag.pan = pan; if (e.touches) e.preventDefault();
   };
   addEventListener('mousemove', move);
   c.addEventListener('touchmove', move, { passive: false });
