@@ -596,7 +596,8 @@ class Mesh {
     gl.bindVertexArray(this.vao);
     const vb = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vb);
-    gl.bufferData(gl.ARRAY_BUFFER, inter, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, inter, opts.dynamic ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW);
+    if (opts.dynamic) { this.vb = vb; this.inter = inter; }
     const stride = 36;
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, stride, 12);
@@ -612,6 +613,18 @@ class Mesh {
     this.bounds = boundsOf(geo);
     gl.bindVertexArray(null);
   }
+  /* rewrite positions and normals in place — the skinned body is deformed
+     on the CPU and re-uploaded whenever the pose changes */
+  updateVerts(pos, nrm) {
+    const it = this.inter, n = it.length / 9;
+    for (let i = 0; i < n; i++) {
+      it[i * 9] = pos[i * 3]; it[i * 9 + 1] = pos[i * 3 + 1]; it[i * 9 + 2] = pos[i * 3 + 2];
+      it[i * 9 + 3] = nrm[i * 3]; it[i * 9 + 4] = nrm[i * 3 + 1]; it[i * 9 + 5] = nrm[i * 3 + 2];
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vb);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, it);
+  }
+
   setInstances(list) {
     // list: array of {m: mat4(16), tint:[r,g,b,extra], t: pathParam}
     if (list.length && list[0].t !== undefined) { list = list.slice().sort((a, b) => a.t - b.t); }
@@ -5601,6 +5614,7 @@ const LIN = MAT.LINEN, FUR = MAT.FUR, CRM = MAT.FURC;
    per-mesh tint, so the face costs three texture layers, not eleven. */
 const TINT = {
   head: [1, 1, 1, 0.3], hair: [1, 1, 1, 0.3], neck: [1, 1, 1, 0.3],
+  body: [1, 1, 1, 0.3],
   chest: [1, 1, 1, 0.3], hips: [1, 1, 1, 0.3],
   upArm: [1, 1, 1, 0.3], loArm: [1, 1, 1, 0.3], handL: [1, 1, 1, 0.3], handR: [1, 1, 1, 0.3],
   thigh: [1, 1, 1, 0.3], shin: [1, 1, 1, 0.3],
@@ -6912,6 +6926,361 @@ function mikoTail(i, detail) {
   return g;
 }
 
+
+/* ==================================================================
+   一枚の体 — SDF, surface nets, skinning
+
+   Put beside the reference in the same light and the same clay, the
+   clearest difference was not the face. Our body was a stack of tapered
+   cylinders with a visible step at every joint; the reference is one
+   continuous surface. That gap cannot be tuned away — rigid parts are
+   never continuous, by construction.
+
+   So the body is a signed distance field: a smooth union of
+   ellipsoid-swept segments hung on the same skeleton the rig uses, so
+   the two can never disagree. Surface nets polygonise it into one quad
+   mesh, two Newton steps push every vertex onto the exact isosurface,
+   Taubin smoothing takes the staircase off, and each vertex is bound to
+   the four nearest bones by distance. One mesh. No seams. And it moves.
+   ================================================================== */
+
+const BODY_CELL = 0.0100;
+
+/* the rest pose, in the character's own space (no KIT.world), from the
+   same solver poseKitsune uses */
+function restRig() {
+  const W = {}, pos = {};
+  const solve = name => {
+    if (W[name]) return W[name];
+    const J = JOINTS[name], rs = J.rest;
+    const local = M4.create();
+    M4.compose(local, J.p, rs ? rs[1] : 0, J.s || ONE3, rs ? rs[0] : 0, rs ? rs[2] : 0);
+    const m = M4.create();
+    if (J.parent) M4.mul(m, solve(J.parent), local); else M4.copy(m, local);
+    W[name] = m;
+    return m;
+  };
+  for (const k in JOINTS) { const m = solve(k); pos[k] = [m[12], m[13], m[14]]; }
+  return { W, pos };
+}
+
+/* the field. Every primitive is a segment swept by an ellipsoid: a
+   capsule evaluated in a scaled space, which is what lets a torso be
+   deeper than it is wide without a second primitive type. */
+function bodySegments(J) {
+  const seg = [];
+  const S = (a, b, ra, rb, sc, k) =>
+    seg.push({ a, b, ra, rb, s: sc || [1, 1, 1], k: k === undefined ? 0.038 : k });
+  const at = (p, d) => [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+  const mid = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+
+  const hips = J.hips, spine = J.spine, chest = J.chest, neck = J.neck, head = J.head;
+
+  /* Radii are the MEASURED silhouette minus what the smooth union adds
+     back at each junction — a blend of radius k inflates the join by up to
+     k/4, and the first pass had not accounted for it anywhere. */
+  // ---- 体幹 ----
+  S(at(hips, [0, -0.062, -0.004]), at(hips, [0, 0.052, 0]), 0.086, 0.080, [1, 1, 0.76], 0.050);
+  S(at(hips, [0, 0.052, 0]), spine, 0.080, 0.073, [1, 1, 0.74], 0.048);          // 腰
+  S(spine, mid(spine, chest, 0.55), 0.073, 0.087, [1, 1, 0.72], 0.045);
+  S(mid(spine, chest, 0.55), chest, 0.087, 0.098, [1, 1, 0.70], 0.045);          // 胸郭
+  S(chest, at(chest, [0, 0.118, 0]), 0.098, 0.074, [1, 1, 0.68], 0.042);
+  /* the neck ends INSIDE the head — 28mm below the joint the skull is 64mm
+     wide, so a 34mm neck disappears under the jaw instead of leaving a
+     ledge where the two meshes meet */
+  S(at(neck, [0, -0.055, -0.006]), at(head, [0, -0.026, 0.004]), 0.043, 0.032, [1, 1, 0.94], 0.036);
+  // 胸 / 臀部 / 鎖骨
+  for (const sx of [-1, 1]) {
+    S(at(chest, [sx * 0.048, 0.022, 0.048]), at(chest, [sx * 0.048, 0.022, 0.048]),
+      0.047, 0.047, [1, 0.86, 0.70], 0.038);
+    S(at(hips, [sx * 0.047, -0.050, -0.044]), at(hips, [sx * 0.047, -0.050, -0.044]),
+      0.057, 0.057, [1, 0.94, 0.78], 0.046);
+    S(at(chest, [sx * 0.010, 0.112, 0.046]), at(chest, [sx * 0.092, 0.100, 0.014]),
+      0.016, 0.014, [1, 1, 1], 0.028);                                            // 鎖骨
+  }
+
+  // ---- 腕 ----
+  for (const k of ['L', 'R']) {
+    const sx = k === 'L' ? -1 : 1;
+    const ua = J['upArm' + k], la = J['loArm' + k], ha = J['hand' + k];
+    S(at(chest, [sx * 0.062, 0.098, 0]), ua, 0.064, 0.042, [1, 1, 0.82], 0.054);  // 肩
+    S(at(ua, [0, 0.008, 0]), at(ua, [0, 0.008, 0]), 0.043, 0.043, [1, 1, 0.92], 0.042); // 三角筋
+    S(ua, mid(ua, la, 0.5), 0.039, 0.032, [1, 1, 1], 0.032);
+    S(mid(ua, la, 0.5), la, 0.032, 0.027, [1, 1, 1], 0.026);
+    S(la, mid(la, ha, 0.42), 0.028, 0.024, [1, 1, 1], 0.024);
+    S(mid(la, ha, 0.42), at(ha, [0, 0.004, 0]), 0.024, 0.0195, [1, 1, 1], 0.020);
+  }
+
+  // ---- 脚 ----
+  for (const k of ['L', 'R']) {
+    const sx = k === 'L' ? -1 : 1;
+    const th = J['thigh' + k], sh = J['shin' + k], ft = J['foot' + k];
+    S(at(hips, [sx * 0.042, -0.014, 0]), th, 0.078, 0.070, [1, 1, 0.88], 0.052);  // 股関節
+    S(th, mid(th, sh, 0.5), 0.067, 0.053, [1, 1, 0.94], 0.038);
+    S(mid(th, sh, 0.5), sh, 0.053, 0.043, [1, 1, 0.94], 0.032);
+    S(at(sh, [0, -0.058, -0.013]), at(sh, [0, -0.058, -0.013]), 0.040, 0.040, [1, 1.32, 0.84], 0.034); // 腓腹
+    S(sh, mid(sh, ft, 0.5), 0.043, 0.031, [1, 1, 0.92], 0.028);
+    S(mid(sh, ft, 0.5), at(ft, [0, 0.012, 0]), 0.031, 0.0235, [1, 1, 0.92], 0.022);
+  }
+  return seg;
+}
+
+function bodySDF(seg) {
+  return (x, y, z) => {
+    let d = 1e9;
+    for (let i = 0; i < seg.length; i++) {
+      const g = seg[i], sc = g.s;
+      const ms = Math.min(sc[0], Math.min(sc[1], sc[2]));
+      const qx = (x - g.a[0]) / sc[0], qy = (y - g.a[1]) / sc[1], qz = (z - g.a[2]) / sc[2];
+      const bx = (g.b[0] - g.a[0]) / sc[0], by = (g.b[1] - g.a[1]) / sc[1], bz = (g.b[2] - g.a[2]) / sc[2];
+      const bb = bx * bx + by * by + bz * bz;
+      const h = bb > 1e-12 ? clamp((qx * bx + qy * by + qz * bz) / bb, 0, 1) : 0;
+      const ex = qx - bx * h, ey = qy - by * h, ez = qz - bz * h;
+      const dd = (Math.sqrt(ex * ex + ey * ey + ez * ez) - lerp(g.ra, g.rb, h)) * ms;
+      const kk = g.k;
+      const t = clamp(0.5 + 0.5 * (d - dd) / kk, 0, 1);
+      d = lerp(d, dd, t) - kk * t * (1 - t);
+    }
+    return d;
+  };
+}
+
+/* Naive surface nets. One vertex per cell that straddles the surface,
+   one quad per grid edge that crosses it. No 256-entry table, and it
+   comes out as quads rather than as a triangle soup. */
+function surfaceNets(F, lo, hi, cell) {
+  const nx = Math.ceil((hi[0] - lo[0]) / cell) + 1;
+  const ny = Math.ceil((hi[1] - lo[1]) / cell) + 1;
+  const nz = Math.ceil((hi[2] - lo[2]) / cell) + 1;
+  const val = new Float32Array(nx * ny * nz);
+  const at = (i, j, k) => i + nx * (j + ny * k);
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++)
+    val[at(i, j, k)] = F(lo[0] + i * cell, lo[1] + j * cell, lo[2] + k * cell);
+
+  const cid = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1);
+  const cat = (i, j, k) => i + (nx - 1) * (j + (ny - 1) * k);
+  const VP = [];
+  const EDG = [[0,0,0, 1,0,0],[0,1,0, 1,1,0],[0,0,1, 1,0,1],[0,1,1, 1,1,1],
+               [0,0,0, 0,1,0],[1,0,0, 1,1,0],[0,0,1, 0,1,1],[1,0,1, 1,1,1],
+               [0,0,0, 0,0,1],[1,0,0, 1,0,1],[0,1,0, 0,1,1],[1,1,0, 1,1,1]];
+  for (let k = 0; k < nz - 1; k++) for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    let neg = 0, pos = 0;
+    for (let c = 0; c < 8; c++) {
+      const v = val[at(i + (c & 1), j + ((c >> 1) & 1), k + ((c >> 2) & 1))];
+      if (v < 0) neg++; else pos++;
+    }
+    if (!neg || !pos) continue;
+    let sx = 0, sy = 0, sz = 0, n = 0;
+    for (const e of EDG) {
+      const va = val[at(i + e[0], j + e[1], k + e[2])];
+      const vb = val[at(i + e[3], j + e[4], k + e[5])];
+      if ((va < 0) === (vb < 0)) continue;
+      const t = va / (va - vb);
+      sx += e[0] + (e[3] - e[0]) * t;
+      sy += e[1] + (e[4] - e[1]) * t;
+      sz += e[2] + (e[5] - e[2]) * t;
+      n++;
+    }
+    cid[cat(i, j, k)] = VP.length / 3;
+    VP.push(lo[0] + (i + sx / n) * cell, lo[1] + (j + sy / n) * cell, lo[2] + (k + sz / n) * cell);
+  }
+
+  const QD = [];
+  const quad = (a, b, c, d, flip) => {
+    if (a < 0 || b < 0 || c < 0 || d < 0) return;
+    if (flip) QD.push(d, c, b, a); else QD.push(a, b, c, d);
+  };
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const v0 = val[at(i, j, k)];
+    if (i + 1 < nx && j > 0 && k > 0) {
+      const v1 = val[at(i + 1, j, k)];
+      if ((v0 < 0) !== (v1 < 0))
+        quad(cid[cat(i, j - 1, k - 1)], cid[cat(i, j, k - 1)], cid[cat(i, j, k)], cid[cat(i, j - 1, k)], v0 < 0);
+    }
+    if (j + 1 < ny && i > 0 && k > 0) {
+      const v1 = val[at(i, j + 1, k)];
+      if ((v0 < 0) !== (v1 < 0))
+        quad(cid[cat(i - 1, j, k - 1)], cid[cat(i, j, k - 1)], cid[cat(i, j, k)], cid[cat(i - 1, j, k)], v0 >= 0);
+    }
+    if (k + 1 < nz && i > 0 && j > 0) {
+      const v1 = val[at(i, j, k + 1)];
+      if ((v0 < 0) !== (v1 < 0))
+        quad(cid[cat(i - 1, j - 1, k)], cid[cat(i, j - 1, k)], cid[cat(i, j, k)], cid[cat(i - 1, j, k)], v0 < 0);
+    }
+  }
+  return { P: VP, Q: QD };
+}
+
+function mikoBody(detail) {
+  const rig = restRig();
+  const seg = bodySegments(rig.pos);
+  const F = bodySDF(seg);
+  const cell = detail ? BODY_CELL : BODY_CELL * 2.2;
+
+  // bounds from the primitives themselves, so nothing is ever clipped
+  let lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+  for (const g of seg) for (const p of [g.a, g.b]) for (let c = 0; c < 3; c++) {
+    const r = Math.max(g.ra, g.rb) * g.s[c] + g.k + cell * 2;
+    lo[c] = Math.min(lo[c], p[c] - r); hi[c] = Math.max(hi[c], p[c] + r);
+  }
+  const { P, Q } = surfaceNets(F, lo, hi, cell);
+  const NV = P.length / 3;
+
+  const grad = (x, y, z, o) => {
+    const e = cell * 0.30;
+    o[0] = F(x + e, y, z) - F(x - e, y, z);
+    o[1] = F(x, y + e, z) - F(x, y - e, z);
+    o[2] = F(x, y, z + e) - F(x, y, z - e);
+    const l = Math.hypot(o[0], o[1], o[2]) || 1;
+    o[0] /= l; o[1] /= l; o[2] /= l;
+    return l / (2 * e);
+  };
+
+  // two Newton steps onto the exact isosurface: surface nets alone is
+  // blocky at this cell size, and this costs almost nothing
+  const gv = [0, 0, 0];
+  const project = () => {
+    for (let i = 0; i < NV; i++) {
+      const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
+      const g = grad(x, y, z, gv), f = F(x, y, z);
+      const st = f / Math.max(1e-4, g);
+      P[i * 3] = x - gv[0] * st; P[i * 3 + 1] = y - gv[1] * st; P[i * 3 + 2] = z - gv[2] * st;
+    }
+  };
+  project();
+
+  // Taubin: smooth without shrinking, then put it back on the surface
+  const nb = [];
+  for (let i = 0; i < NV; i++) nb.push([]);
+  for (let q = 0; q < Q.length; q += 4) for (let e = 0; e < 4; e++) {
+    const a = Q[q + e], b = Q[q + (e + 1) % 4];
+    nb[a].push(b); nb[b].push(a);
+  }
+  const tmp = new Float64Array(P.length);
+  const relax = w => {
+    for (let i = 0; i < NV; i++) {
+      const L = nb[i];
+      if (!L.length) { for (let c = 0; c < 3; c++) tmp[i * 3 + c] = P[i * 3 + c]; continue; }
+      let ax = 0, ay = 0, az = 0;
+      for (const j of L) { ax += P[j * 3]; ay += P[j * 3 + 1]; az += P[j * 3 + 2]; }
+      ax /= L.length; ay /= L.length; az /= L.length;
+      tmp[i * 3] = P[i * 3] + w * (ax - P[i * 3]);
+      tmp[i * 3 + 1] = P[i * 3 + 1] + w * (ay - P[i * 3 + 1]);
+      tmp[i * 3 + 2] = P[i * 3 + 2] + w * (az - P[i * 3 + 2]);
+    }
+    for (let i = 0; i < P.length; i++) P[i] = tmp[i];
+  };
+  for (let p = 0; p < 2; p++) { relax(0.55); relax(-0.52); }
+  project();
+
+  // ---- skin weights: the four nearest bones, by distance ----
+  const BONES = ['hips', 'spine', 'chest', 'neck', 'head'];
+  for (const k of ['L', 'R'])
+    BONES.push('upArm' + k, 'loArm' + k, 'hand' + k, 'thigh' + k, 'shin' + k, 'foot' + k);
+  const child = {
+    hips: 'spine', spine: 'chest', chest: 'neck', neck: 'head', head: null,
+    upArmL: 'loArmL', loArmL: 'handL', handL: null, thighL: 'shinL', shinL: 'footL', footL: null,
+    upArmR: 'loArmR', loArmR: 'handR', handR: null, thighR: 'shinR', shinR: 'footR', footR: null
+  };
+  const BA = [], BB = [];
+  for (const n of BONES) {
+    const a = rig.pos[n];
+    const c = child[n] ? rig.pos[child[n]] : null;
+    BA.push(a);
+    BB.push(c ? c : [a[0], a[1] - 0.06, a[2] + (n.startsWith('foot') ? 0.10 : 0)]);
+  }
+  const segDist = (p, a, b) => {
+    const bx = b[0] - a[0], by = b[1] - a[1], bz = b[2] - a[2];
+    const bb = bx * bx + by * by + bz * bz;
+    const t = bb > 1e-12 ? clamp(((p[0] - a[0]) * bx + (p[1] - a[1]) * by + (p[2] - a[2]) * bz) / bb, 0, 1) : 0;
+    return Math.hypot(p[0] - a[0] - bx * t, p[1] - a[1] - by * t, p[2] - a[2] - bz * t);
+  };
+  const BI = new Float32Array(NV * 4), BW = new Float32Array(NV * 4);
+  const pt = [0, 0, 0], sc = [];
+  for (let i = 0; i < NV; i++) {
+    pt[0] = P[i * 3]; pt[1] = P[i * 3 + 1]; pt[2] = P[i * 3 + 2];
+    sc.length = 0;
+    for (let b = 0; b < BONES.length; b++) {
+      const d = segDist(pt, BA[b], BB[b]);
+      sc.push([b, 1 / (Math.pow(d + 0.012, 5))]);
+    }
+    sc.sort((a, b) => b[1] - a[1]);
+    let tot = 0;
+    for (let k = 0; k < 4; k++) tot += sc[k][1];
+    for (let k = 0; k < 4; k++) { BI[i * 4 + k] = sc[k][0]; BW[i * 4 + k] = sc[k][1] / tot; }
+  }
+
+  // ---- emit ----
+  const g = new Geo();
+  const N = new Float32Array(NV * 3);
+  for (let i = 0; i < NV; i++) {
+    grad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], gv);
+    N[i * 3] = gv[0]; N[i * 3 + 1] = gv[1]; N[i * 3 + 2] = gv[2];
+    // cylindrical uv; the skin material has no directional detail so this
+    // only has to be continuous
+    g.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], gv[0], gv[1], gv[2],
+      (Math.atan2(P[i * 3], P[i * 3 + 2]) / TAU + 0.5) * 2.0, P[i * 3 + 1] * 2.4, MAT.SKIN);
+  }
+  // one triangle decides the winding for all of them
+  let flip = false;
+  if (Q.length >= 4) {
+    const a = Q[0] * 3, b = Q[1] * 3, c = Q[2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    flip = (uy * vz - uz * vy) * N[a] + (uz * vx - ux * vz) * N[a + 1] + (ux * vy - uy * vx) * N[a + 2] < 0;
+  }
+  for (let q = 0; q < Q.length; q += 4) {
+    if (flip) g.quad(Q[q + 3], Q[q + 2], Q[q + 1], Q[q]);
+    else g.quad(Q[q], Q[q + 1], Q[q + 2], Q[q + 3]);
+  }
+  g.skin = { BI, BW, BONES, rest: rig.W, P0: new Float32Array(P), N0: N };
+  return g;
+}
+
+/* CPU skinning. The body is a few tens of thousands of vertices and the
+   pose changes only when something moves it, so this runs on demand
+   rather than every frame. */
+const _skinTmp = { pos: null, nrm: null, mats: null };
+function skinBody() {
+  const M = KIT.mesh.body, SK = KIT.skin;
+  if (!M || !SK || !KIT.joints) return;
+  const NV = SK.P0.length / 3;
+  if (!_skinTmp.pos) {
+    _skinTmp.pos = new Float32Array(NV * 3);
+    _skinTmp.nrm = new Float32Array(NV * 3);
+    _skinTmp.mats = SK.BONES.map(() => new Float32Array(16));
+  }
+  const inv = M4.create(), tmp = M4.create();
+  for (let b = 0; b < SK.BONES.length; b++) {
+    const n = SK.BONES[b];
+    M4.invert(inv, SK.rest[n]);
+    M4.mul(tmp, KIT.joints[n], inv);
+    _skinTmp.mats[b].set(tmp);
+  }
+  const P = SK.P0, N = SK.N0, BI = SK.BI, BW = SK.BW;
+  const op = _skinTmp.pos, on = _skinTmp.nrm, MS = _skinTmp.mats;
+  for (let i = 0; i < NV; i++) {
+    const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
+    const nx = N[i * 3], ny = N[i * 3 + 1], nz = N[i * 3 + 2];
+    let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = BW[i * 4 + k];
+      if (w < 1e-5) continue;
+      const m = MS[BI[i * 4 + k]];
+      px += w * (m[0] * x + m[4] * y + m[8] * z + m[12]);
+      py += w * (m[1] * x + m[5] * y + m[9] * z + m[13]);
+      pz += w * (m[2] * x + m[6] * y + m[10] * z + m[14]);
+      qx += w * (m[0] * nx + m[4] * ny + m[8] * nz);
+      qy += w * (m[1] * nx + m[5] * ny + m[9] * nz);
+      qz += w * (m[2] * nx + m[6] * ny + m[10] * nz);
+    }
+    const l = Math.hypot(qx, qy, qz) || 1;
+    op[i * 3] = px; op[i * 3 + 1] = py; op[i * 3 + 2] = pz;
+    on[i * 3] = qx / l; on[i * 3 + 1] = qy / l; on[i * 3 + 2] = qz / l;
+  }
+  M.updateVerts(op, on);
+}
+
 /* ---------------- assembly ---------------- */
 const KIT = { mesh: {}, parts: [], world: M4.create() };
 
@@ -6934,12 +7303,15 @@ const KIT_WIND = {
 
 function initKitsune(detail) {
   const M = KIT.mesh;
+  /* chest / hips / neck / upArm / loArm / thigh / shin are gone: they are
+     the one continuous skinned body now. Hands and feet stay rigid — at a
+     9mm cell a finger is one voxel across, and a 草履 is not skin. */
+  const bodyGeo = mikoBody(detail);
   const G = {
     head: mikoHead(detail), hair: mikoHair(detail), ear: mikoEar(detail),
-    neck: mikoNeck(detail), chest: mikoChest(detail), hips: mikoHips(detail),
-    upArm: mikoUpArm(detail), loArm: mikoLoArm(detail),
+    body: bodyGeo,
     handL: mikoHand(detail, -1), handR: mikoHand(detail, 1),
-    thigh: mikoThigh(detail), shin: mikoShin(detail), foot: mikoFoot(detail),
+    foot: mikoFoot(detail),
     top: mikoTop(detail), sleeve: mikoSleeve(detail), hakama: mikoHakama(detail),
     obi: mikoObi(detail),
     earIn: mikoEarIn(detail),
@@ -6947,7 +7319,9 @@ function initKitsune(detail) {
     lash: mikoLash(detail), tear: mikoTearLine(detail)
   };
   for (let i = 0; i < 4; i++) G['tail' + i] = mikoTail(i, detail);
-  for (const k in G) M[k] = new Mesh(G[k]);
+  for (const k in G) M[k] = new Mesh(G[k], { dynamic: k === 'body' });
+  KIT.skin = bodyGeo.skin;
+  M.body.setInstances([{ m: M4.create(), tint: TINT.body || [1, 1, 1, 0.3] }]);
   // no ink line: a realistic character is separated by light, not by a
   // drawn contour, and an inverted hull on flesh reads as a rubber seam
   if (CFG.inkLine) for (const k in OUTLINE_W) if (G[k]) M[k + '_o'] = new Mesh(shellOf(G[k], OUTLINE_W[k]));
@@ -6955,17 +7329,16 @@ function initKitsune(detail) {
   KIT.parts = [
     ['head', 'head'], ['head', 'eyeball'], ['head', 'iris'],
     ['head', 'lid'], ['head', 'lash'], ['head', 'tear'],
-    ['head', 'hair'], ['neck', 'neck'],
+    ['head', 'hair'],
     ['earL', 'earIn'], ['earR', 'earIn'],
-    ['chest', 'chest'], ['hips', 'hips'],
     ['earL', 'ear'], ['earR', 'ear'],
     ['chest', 'top'], ['hips', 'hakama'], ['hips', 'obi'],
     ['tail0', 'tail0'], ['tail1', 'tail1'], ['tail2', 'tail2'], ['tail3', 'tail3']
   ];
   for (const k of ['L', 'R']) {
-    KIT.parts.push(['upArm' + k, 'upArm'], ['loArm' + k, 'loArm'], ['hand' + k, 'hand' + k]);
+    KIT.parts.push(['hand' + k, 'hand' + k]);
     KIT.parts.push(['upArm' + k, 'sleeve']);
-    KIT.parts.push(['thigh' + k, 'thigh'], ['shin' + k, 'shin'], ['foot' + k, 'foot']);
+    KIT.parts.push(['foot' + k, 'foot']);
   }
   // every outlined part gets its shell on the same joint
   if (CFG.inkLine) {
@@ -6973,7 +7346,9 @@ function initKitsune(detail) {
     for (const [j, mk] of base) if (OUTLINE_W[mk]) KIT.parts.push([j, mk + '_o']);
   }
   for (const k in M) { M[k].setInstances([{ m: M4.create(), tint: TINT[k] || [1, 1, 1, 0.3] }]); M[k].instT = null; }
-  const seen = {};
+  const seen = { body: 1 };
+  R.scene.draws.push({ mesh: M.body, name: 'kit_body', zMax: 62 });
+  R.scene.shadowDraws.push({ mesh: M.body, zMax: 62 });
   for (const [j, mk] of KIT.parts) {
     if (seen[mk]) continue;
     seen[mk] = 1;
@@ -7005,6 +7380,7 @@ function poseKitsune() {
     (byMesh[mk] || (byMesh[mk] = [])).push({ m: solve(j), tint: TINT[mk] || [1, 1, 1, 0.3] });
   for (const mk in byMesh) KIT.mesh[mk].updateInstances(byMesh[mk]);
   KIT.joints = W;
+  skinBody();
   updateHairRing();
 }
 
