@@ -3535,7 +3535,7 @@ function parseOBJ(text) {
    Every measurement below is taken off the mesh, in the pose it arrived
    in. The assumptions are only that it is roughly upright, roughly
    symmetric about x = 0, and standing with the arms out or down. */
-function findLandmarks(P) {
+function findLandmarks(P, IDX) {
   const NV = P.length / 3;
   let ylo = 1e9, yhi = -1e9, xmax = 0;
   for (let i = 0; i < NV; i++) {
@@ -3610,27 +3610,97 @@ function findLandmarks(P) {
   const rx0 = new Float64Array(NB).fill(1e9), rx1 = new Float64Array(NB).fill(-1e9);
   const rz0 = new Float64Array(NB).fill(1e9), rz1 = new Float64Array(NB).fill(-1e9);
   const tw = new Float64Array(NB);
+  const bx = new Array(NB);
+  for (let b = 0; b < NB; b++) bx[b] = [];
   const bOf = y => clamp(Math.floor((y - ylo) / H * NB), 0, NB - 1);
   for (let i = 0; i < NV; i++) {
     const x = P[i * 3], z = P[i * 3 + 2], b = bOf(P[i * 3 + 1]);
     bn[b]++;
     if (Math.abs(x) < H * 0.006) cen[b]++;             // is the midline solid?
     if (Math.abs(x) < H * 0.09) { tn[b]++; if (Math.abs(x) < H * 0.006) tc[b]++; }
-    if (Math.abs(x) < H * 0.20 && Math.abs(x) > tw[b]) tw[b] = Math.abs(x);
+    bx[b].push(Math.abs(x));
     if (x > 0) {                                       // the right leg only
       if (x < rx0[b]) rx0[b] = x; if (x > rx1[b]) rx1[b] = x;
       if (z < rz0[b]) rz0[b] = z; if (z > rz1[b]) rz1[b] = z;
     }
   }
+  /* trunk width : NOT the widest thing in the band. Sort |x| and cut at
+     the first gap wider than 3.5% of stature — everything past that gap is
+     a separate limb. Taking the plain maximum inside a fixed window made
+     the WAIST come out below the CROTCH on an A-pose figure, because a
+     hand resting beside the hip is the widest thing at that height. */
+  for (let b = 0; b < NB; b++) {
+    const a = bx[b];
+    if (!a.length) continue;
+    a.sort((p, q) => p - q);
+    let w = a[0];
+    for (let i = 1; i < a.length; i++) {
+      if (a[i] - a[i - 1] > H * 0.035) break;
+      w = a[i];
+    }
+    tw[b] = w;
+  }
   const yOf = b => ylo + (b + 0.5) / NB * H;
 
-  /* 股下 : the highest band whose midline is empty, counted in the trunk
-     column only. Between the legs there is nothing at x = 0; above the
-     crotch there always is, whether that is skin or a pair of shorts. */
-  let bCrotch = Math.round(NB * 0.46);
-  for (let b = 1; b < NB * 0.60; b++)
-    if (tn[b] > 16 && tc[b] < tn[b] * 0.02) bCrotch = b;
-  bCrotch = clamp(bCrotch, Math.round(NB * 0.34), Math.round(NB * 0.56));
+  /* 股下 : the highest band that still contains TWO separate pieces of
+     surface.
+
+     Counting vertices near x = 0 does not survive a low-polygon model, and
+     that is not a rare case — it is most downloaded meshes. A tube of 18
+     segments has its nearest vertices 10 degrees off the midline plane, so
+     a perfectly solid torso can have nothing within a centimetre of x = 0
+     and read as "legs apart". Measured on a 6,500-vertex test figure, the
+     vertex test put the crotch 13cm above the waist.
+
+     Topology does not care about tessellation. Two legs are two rings; a
+     torso is one. Slice the mesh into bands and count the components of
+     each band, restricted to a column wide enough to exclude arms hanging
+     beside the hips but not so narrow it cuts a torso into front and back. */
+  const COL = H * 0.16;
+  const inCol = new Uint8Array(NV);
+  for (let i = 0; i < NV; i++) inCol[i] = Math.abs(P[i * 3]) < COL ? 1 : 0;
+  const fBand = new Array(NB);
+  for (let b = 0; b < NB; b++) fBand[b] = [];
+  for (let t = 0; t < IDX.length; t += 3) {
+    const a = IDX[t], b2 = IDX[t + 1], c = IDX[t + 2];
+    if (!inCol[a] || !inCol[b2] || !inCol[c]) continue;
+    const y = (P[a * 3 + 1] + P[b2 * 3 + 1] + P[c * 3 + 1]) / 3;
+    fBand[bOf(y)].push(t);
+  }
+  const par2 = new Int32Array(NV);
+  const find2 = a => { while (par2[a] !== a) { par2[a] = par2[par2[a]]; a = par2[a]; } return a; };
+  /* Two pieces is not enough on its own: a clothed model has a body shell
+     and a garment shell in the same band, and counting alone reads that as
+     a pair of legs — which put the reference figure's crotch 16cm above
+     its waist. Legs are two pieces SIDE BY SIDE, so the test is a gap in x
+     that straddles the midline. A garment overlaps the body in x and never
+     produces one. */
+  const legsApart = b => {
+    const F = fBand[b];
+    if (F.length < 6) return false;
+    for (const t of F) for (let k = 0; k < 3; k++) par2[IDX[t + k]] = IDX[t + k];
+    for (const t of F) for (let k = 1; k < 3; k++) {
+      const x = find2(IDX[t]), y = find2(IDX[t + k]);
+      if (x !== y) par2[y] = x;
+    }
+    const cm = new Map();
+    for (const t of F) for (let k = 0; k < 3; k++) {
+      const v = IDX[t + k], r = find2(v), x = P[v * 3];
+      let e = cm.get(r);
+      if (!e) { e = { n: 0, lo: 1e9, hi: -1e9 }; cm.set(r, e); }
+      e.n++; if (x < e.lo) e.lo = x; if (x > e.hi) e.hi = x;
+    }
+    const cs = [...cm.values()].filter(e => e.n >= 9).sort((a, b2) => a.lo - b2.lo);
+    for (let i = 0; i + 1 < cs.length; i++)
+      if (cs[i].hi < 0 && cs[i + 1].lo > 0) return true;
+    return false;
+  };
+  let bCrotch = -1;
+  for (let b = 1; b < NB * 0.60; b++) if (legsApart(b)) bCrotch = b;
+  /* a skirt, a mermaid tail, a single fused leg — nothing ever splits, so
+     there is no crotch to find and the anatomical fraction is the answer */
+  if (bCrotch < 0) bCrotch = Math.round(NB * 0.46);
+  bCrotch = clamp(bCrotch, Math.round(NB * 0.30), Math.round(NB * 0.56));
   /* 足首 : where the FOOT stops. A foot is long in z and narrow in x; a leg
      is round. Scanning up, the ankle is the first band whose section stops
      being long. Taking the smallest cross-section instead found the calf,
@@ -3858,13 +3928,16 @@ function findExtras(P, IDX, L) {
     }
     if (made.length < 3) continue;
     made.sort((a, b) => a.q - b.q);
-    /* the thumb is the digit that starts nearest the wrist — not simply the
-       outermost one, because a hand with no thumb found would otherwise
-       have an index finger animated as one */
-    const med = made.map(f => f.baseT).sort((a, b) => a - b)[made.length >> 1];
-    let th = made[0];
-    for (const f of made) if (f.baseT < th.baseT) th = f;
-    if (th.baseT < med - 0.08) th.thumb = true;
+    /* The thumb is at one END of the fan AND starts nearest the wrist.
+       Either test alone fails: "nearest the wrist" by a fixed margin missed
+       it on a figure whose whole hand starts early (every digit inside
+       0.22-0.32 along the hand), and "outermost" alone would promote a
+       little finger on a hand that has no thumb at all. */
+    const ends = [made[0], made[made.length - 1]];
+    const th = ends[0].baseT <= ends[1].baseT ? ends[0] : ends[1];
+    let lowest = true;
+    for (const f of made) if (f !== th && f.baseT < th.baseT) lowest = false;
+    if (made.length >= 4 && lowest) th.thumb = true;
     for (const f of made) out.fingers.push(f);
   }
 
@@ -4116,7 +4189,7 @@ function loadModel(text, status) {
   if (!NV || !IDX.length) { status('このファイルからは頂点と面が読めませんでした。Wavefront .obj を渡してください（.fbx や .glb、zip のままでは読めません）'); return false; }
 
   status('骨格を推定中…');
-  const L = findLandmarks(P);
+  const L = findLandmarks(P, IDX);
   // normalise: put the feet on the ground and scale to 1.65 m
   const s = 1.65 / L.H;
   for (let i = 0; i < P.length; i += 3) {
