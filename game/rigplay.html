@@ -4576,7 +4576,32 @@ async function boot() {
   window.__DBG = { CFG, R, CAM, ORB, RIG, loadModel, poseRig, setClip, resize, updateSun };
   window.__ready = true;
 }
-addEventListener('load', boot);
+/* Waiting for 'load' is only correct if this script is parsed BEFORE the
+   event fires. Embedded somewhere that injects the markup afterwards, the
+   listener is attached to an event that has already gone by and boot() is
+   never called — the page then sits on "初期化中…" forever, which looks
+   exactly like a hang and gives nobody anything to go on. */
+function bootOnce() {
+  if (window.__booted) return;
+  window.__booted = true;
+  boot().catch(e => fatal(e && e.message ? e.message : String(e)));
+}
+function fatal(msg) {
+  const st = document.getElementById('status');
+  if (st) st.innerHTML = '起動に失敗しました<br><span style="color:#c98">' +
+    String(msg).replace(/[<&]/g, c => c === '<' ? '&lt;' : '&amp;') + '</span>';
+}
+addEventListener('error', e => fatal(e.message || 'スクリプトエラー'));
+if (document.readyState === 'complete' || document.readyState === 'interactive') bootOnce();
+else addEventListener('load', bootOnce);
+/* and if neither path ever gets there, say so rather than spinning */
+setTimeout(() => {
+  if (!window.__ready) {
+    const st = document.getElementById('status');
+    if (st && /初期化中|準備/.test(st.textContent))
+      st.textContent = '初期化が終わりません。WebGL2 が使えないか、GPU が拒否している可能性があります。';
+  }
+}, 25000);
 </script>
 </body>
 </html>
