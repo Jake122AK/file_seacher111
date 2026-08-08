@@ -34,7 +34,10 @@
     justify-content:center;gap:14px;text-align:center;padding:24px;pointer-events:none}
   #drop .big{font-size:19px;letter-spacing:.06em}
   #drop .sm{font-size:12px;color:#8b95a6;max-width:30em;line-height:1.9}
-  #drop label.f{pointer-events:auto;font-size:13px;padding:8px 18px}
+  #drop label.f{pointer-events:auto;font-size:13px;padding:10px 22px}
+  /* the styled label IS the button; the input itself must not show, but
+     display:none makes it unfocusable on some browsers */
+  #file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
   body.drag #drop{background:rgba(80,120,180,.16);outline:2px dashed rgba(190,215,255,.5);outline-offset:-14px}
   #note{position:absolute;left:50%;top:22px;transform:translateX(-50%);font-size:12px;
     background:rgba(12,15,21,.86);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:7px 14px;display:none}
@@ -49,11 +52,11 @@
 <canvas id="gl"></canvas>
 <div id="ui">
   <div id="drop">
-    <div class="big">.obj を、ここに落としてください</div>
+    <div class="big" id="dropHead">.obj を、ここに落としてください</div>
     <div class="sm">骨格を自動で推定し、スキンウェイトを計算して、歩かせます。<br>
       モデルはこのファイルには含まれません。読み込みは全部ブラウザの中で完結し、どこにも送信されません。</div>
     <label class="f" for="file">ファイルを選ぶ</label>
-    <input id="file" type="file" accept=".obj">
+    <input id="file" type="file">
   </div>
   <div id="note"></div>
   <div id="stat"><div><b id="fps">—</b></div><div id="info">—</div></div>
@@ -4110,7 +4113,7 @@ function loadModel(text, status) {
   status('メッシュを読み込み中…');
   const { P, IDX } = parseOBJ(text);
   const NV = P.length / 3;
-  if (!NV || !IDX.length) { status('OBJ に頂点か面がありません'); return false; }
+  if (!NV || !IDX.length) { status('このファイルからは頂点と面が読めませんでした。Wavefront .obj を渡してください（.fbx や .glb、zip のままでは読めません）'); return false; }
 
   status('骨格を推定中…');
   const L = findLandmarks(P);
@@ -4419,11 +4422,27 @@ function setupInput() {
   let drag = null, pinch = 0;
   const pos = e => ({ x: e.touches ? e.touches[0].clientX : e.clientX, y: e.touches ? e.touches[0].clientY : e.clientY });
   const d2 = e => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  const mid = e => ({ x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                      y: (e.touches[0].clientY + e.touches[1].clientY) / 2 });
+  let two = null;
   c.addEventListener('mousedown', e => { drag = pos(e); drag.pan = e.shiftKey || e.button === 2; });
   c.addEventListener('contextmenu', e => e.preventDefault());
-  c.addEventListener('touchstart', e => { if (e.touches.length > 1) { pinch = d2(e); drag = null; } else drag = pos(e); }, { passive: true });
+  c.addEventListener('touchstart', e => {
+    if (e.touches.length > 1) { pinch = d2(e); two = mid(e); drag = null; }
+    else { drag = pos(e); drag.pan = false; }
+  }, { passive: true });
   const move = e => {
-    if (e.touches && e.touches.length > 1) { const d = d2(e); if (pinch) ORB.distT = clamp(ORB.distT * (pinch / d), 0.3, 14); pinch = d; e.preventDefault(); return; }
+    if (e.touches && e.touches.length > 1) {
+      /* pinch zooms, and the same two fingers moving together pan — there is
+         no shift key on a phone and the hands are 60cm off the axis */
+      const d = d2(e), m = mid(e);
+      if (pinch) ORB.distT = clamp(ORB.distT * (pinch / d), 0.3, 14);
+      if (two) {
+        ORB.txT = clamp(ORB.txT - (m.x - two.x) * ORB.dist * 0.0016, -2, 2);
+        ORB.tyT = clamp(ORB.tyT + (m.y - two.y) * ORB.dist * 0.0016, -0.5, 2.4);
+      }
+      pinch = d; two = m; e.preventDefault(); return;
+    }
     if (!drag) return;
     const p = pos(e);
     const pan = drag.pan;
@@ -4436,7 +4455,7 @@ function setupInput() {
   addEventListener('mousemove', move);
   c.addEventListener('touchmove', move, { passive: false });
   addEventListener('mouseup', () => drag = null);
-  addEventListener('touchend', () => { drag = null; pinch = 0; });
+  addEventListener('touchend', () => { drag = null; pinch = 0; two = null; });
   c.addEventListener('wheel', e => { e.preventDefault(); ORB.distT = clamp(ORB.distT * Math.exp(e.deltaY * 0.0012), 0.3, 14); }, { passive: false });
   addEventListener('keydown', e => {
     const k = e.key.toLowerCase();
@@ -4460,7 +4479,9 @@ function setupInput() {
   });
 }
 function readFile(f) {
-  if (!/\.obj$/i.test(f.name)) { status('.obj を渡してください'); return; }
+  /* no extension test. A phone hands over "model.obj.txt", a download comes
+     back as "scene (1).obj", and the only thing that actually settles it is
+     whether the text parses into vertices and faces. */
   status('読み込み中… ' + f.name);
   const r = new FileReader();
   r.onload = () => {
@@ -4468,8 +4489,16 @@ function readFile(f) {
       try {
         if (loadModel(r.result, status)) {
           document.getElementById('drop').style.display = 'none';
+          /* say what was FOUND, not just what was loaded — the whole rig is
+             guessed, so the guess is the interesting part */
+          const X = RIG.X, got = [];
+          const nf = X.fingers.length;
+          if (nf) got.push('指' + nf + '本'); else got.push('指なし');
+          if (X.jaw) got.push('顎');
+          if (X.eyes.length) got.push('目');
           document.getElementById('info').textContent =
-            f.name + ' — ' + RIG.tris.toLocaleString() + ' 三角形 / ' + RIG.SK.B.length + ' ボーン';
+            f.name + ' — ' + RIG.tris.toLocaleString() + ' 三角形 / '
+            + RIG.SK.B.length + ' ボーン（' + got.join('・') + '）';
           poseRig(0);
         }
       } catch (err) { status('読み込みに失敗: ' + err.message); }
@@ -4528,6 +4557,10 @@ async function boot() {
   qs.value = R.quality;
   qs.addEventListener('change', () => applyQuality(+qs.value, true));
   setClip('walk');
+  /* there is no drag and drop on a touch screen, and telling someone to drop
+     a file on a phone is just a dead end */
+  if (!matchMedia('(hover: hover)').matches)
+    document.getElementById('dropHead').textContent = '.obj ファイルを選んでください';
 
   let last = performance.now(), acc = 0, frames = 0;
   function loop(now) {
