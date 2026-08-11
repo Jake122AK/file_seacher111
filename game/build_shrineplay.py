@@ -14,11 +14,13 @@ hiyorimi.html には手を入れず、生成時に差し込む：
 
 モデルは同梱しない。開いた人が自分の .glb を落とす。
 """
-import io, os
+import base64, io, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, 'hiyorimi.html')
-DST = os.path.join(HERE, 'shrineplay.html')
+MODEL = sys.argv[1] if len(sys.argv) > 1 else None
+DST = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
+    HERE, 'shrine_game.html' if MODEL else 'shrineplay.html')
 
 src = io.open(SRC, encoding='utf-8').read()
 
@@ -232,6 +234,7 @@ function qslerp(o, a, b, t) {
 const PLAY = {
   ready: false, mesh: null, boneTex: null, boneData: null,
   nodes: null, roots: null, skin: null, clips: null, morph: null,
+  snap: null, fade: 0, fadeLen: 0.16, jumpY: 0,
   clip: 'idle', t: 0, yaw: 0, pos: [0, 0, 0], vy: 0, air: false,
   scale: 1, blink: 0, blinkNext: 2.0, m: M4.create(), tmp: M4.create()
 };
@@ -367,6 +370,7 @@ function loadGLB(buf, status) {
   for (let i = 0; i < NV; i++) { const y = pos[i * 3 + 1]; if (y < ylo) ylo = y; if (y > yhi) yhi = y; }
 
   Object.assign(PLAY, {
+    snap: nodes.map(n => ({ t: n.trs.t.slice(), r: n.trs.r.slice(), s: n.trs.s.slice() })),
     ready: true, mesh, boneTex, boneData: new Float32Array(NB * 16),
     nodes, roots, joints, ibm, clips, morph, NV, foot: ylo, top: yhi,
     scale: 1.0, names: Object.keys(clips)
@@ -381,7 +385,7 @@ function loadGLB(buf, status) {
   return true;
 }
 
-function sampleClip(name, t) {
+function sampleClip(name, t, into) {
   const cl = PLAY.clips[name];
   if (!cl) return;
   const tt = cl.dur > 0 ? (t % cl.dur) : 0;
@@ -401,6 +405,30 @@ function sampleClip(name, t) {
       const dst = c.path === 'translation' ? nd.trs.t : c.path === 'scale' ? nd.trs.s : null;
       if (dst) for (let k = 0; k < 3; k++) dst[k] = lerp(c.val[i * 3 + k], c.val[j * 3 + k], u);
     }
+  }
+  if (into) for (let n = 0; n < PLAY.nodes.length; n++) {
+    const s = PLAY.nodes[n].trs, d = into[n];
+    d.t = s.t.slice(); d.r = s.r.slice(); d.s = s.s.slice();
+  }
+}
+
+/* クリップの切り替えは瞬時だと足の入れ替わりが跳ねる。前のクリップを
+   止めた瞬間の姿勢を覚えておいて、0.16秒かけて混ぜる。 */
+function poseBlended(dt) {
+  if (PLAY.fade > 0) {
+    PLAY.fade -= dt;
+    const u = 1 - clamp(PLAY.fade / PLAY.fadeLen, 0, 1);
+    sampleClip(PLAY.clip, PLAY.t);
+    for (let n = 0; n < PLAY.nodes.length; n++) {
+      const cur = PLAY.nodes[n].trs, old = PLAY.snap[n];
+      qslerp(cur.r, old.r, cur.r, u);
+      for (let k = 0; k < 3; k++) {
+        cur.t[k] = lerp(old.t[k], cur.t[k], u);
+        cur.s[k] = lerp(old.s[k], cur.s[k], u);
+      }
+    }
+  } else {
+    sampleClip(PLAY.clip, PLAY.t);
   }
 }
 
@@ -463,13 +491,27 @@ function setMorph(name, v) {
 /* 速度からクリップを選ぶ。走りは歩きより速く回す。 */
 function updatePlayer(dt) {
   if (!PLAY.ready) return;
+  /* 上下方向は世界側に無いので、ここで持つ。地面の高さは世界に訊く。 */
+  if (PLAY.air) {
+    PLAY.vy -= 18.0 * dt;
+    PLAY.jumpY += PLAY.vy * dt;
+    if (PLAY.jumpY <= 0) { PLAY.jumpY = 0; PLAY.vy = 0; PLAY.air = false; }
+  } else if (KEYS[' ']) {
+    PLAY.air = true; PLAY.vy = 5.4; PLAY.jumpY = 0.001;
+  }
   const spd = Math.hypot(CAM.vel[0], CAM.vel[2]);
   let clip = 'idle', rate = 1;
   if (PLAY.air && PLAY.clips.jump) { clip = 'jump'; rate = 1; }
   else if (spd > CFG.walkSpeed * 1.15 && PLAY.clips.run) { clip = 'run'; rate = spd / CFG.runSpeed; }
+  // ジャンプ中はサイクルを回さず、滞空の姿勢のあたりで止める
+  if (PLAY.air) rate = 0.0;
   else if (spd > 0.25 && PLAY.clips.walk) { clip = 'walk'; rate = spd / CFG.walkSpeed; }
   if (!PLAY.clips[clip]) clip = PLAY.names[0];
-  if (clip !== PLAY.clip) { PLAY.clip = clip; PLAY.t = 0; }
+  if (clip !== PLAY.clip) {
+    sampleClip(PLAY.clip, PLAY.t, PLAY.snap);   // 今の姿勢を覚えてから切り替える
+    PLAY.clip = clip; PLAY.t = 0;
+    PLAY.fade = PLAY.fadeLen;
+  }
   PLAY.t += dt * clamp(rate, 0.35, 2.4);
 
   // 進行方向へ向き直る
@@ -490,12 +532,13 @@ function updatePlayer(dt) {
     } else PLAY.draw.blink = 0;
   }
 
-  sampleClip(PLAY.clip, PLAY.t);
+  poseBlended(dt);
   solveSkeleton();
   applyMorph();
 
   const g = WORLD.groundAt(PLAY.pos[0], PLAY.pos[2]);
-  M4.compose(PLAY.m, [PLAY.pos[0], PLAY.pos[1] - PLAY.foot, PLAY.pos[2]], PLAY.yaw, [1, 1, 1]);
+  M4.compose(PLAY.m, [PLAY.pos[0], PLAY.pos[1] - PLAY.foot + PLAY.jumpY, PLAY.pos[2]],
+             PLAY.yaw, [1, 1, 1]);
   PLAY.mesh.updateInstances([{ m: PLAY.m, tint: PLAY_TINT }]);
   void g;
 }
@@ -505,7 +548,7 @@ function thirdPerson(dt, dir) {
   PLAY.pos[0] = CAM.pos[0];
   PLAY.pos[2] = CAM.pos[2];
   PLAY.pos[1] = CAM.pos[1] - CFG.eyeHeight;
-  const h = (PLAY.top - PLAY.foot) * 0.82;
+  const h = (PLAY.top - PLAY.foot) * 0.82 + PLAY.jumpY;
   const pivot = [PLAY.pos[0], PLAY.pos[1] + h, PLAY.pos[2]];
   let d = CFG.camDist === undefined ? 3.1 : CFG.camDist;
   for (let k = 0.25; k <= 1.0; k += 0.25) {          // 地面に潜らせない
@@ -549,6 +592,16 @@ function setupPlayerUI() {
   if (inp) inp.addEventListener('change', e => { const f = e.target.files[0]; if (f) read(f); });
   addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
   window.__PLAY = { PLAY, loadGLB, setMorph };
+  /* モデルが埋め込まれていれば、ドロップ画面は出さずにそのまま始める。
+     ゲームとして開いたら即遊べる、という状態にしておきたい。 */
+  if (typeof MODEL_B64 === 'string' && MODEL_B64.length) {
+    const bin = atob(MODEL_B64), n = bin.length, u = new Uint8Array(n);
+    for (let i = 0; i < n; i++) u[i] = bin.charCodeAt(i);
+    try {
+      loadGLB(u.buffer, () => {});
+      CFG.fly = false; CFG.autoWalk = false;
+    } catch (e) { console.error('埋め込みモデルの読み込みに失敗:', e); }
+  }
 }
 
 '''
@@ -565,5 +618,19 @@ rep("""  if (QS.has('walk')) CFG.autoWalk = QS.get('walk') !== '0';""",
 
 rep('<title>', '<title>操作 — ', 1) if '<title>' in src else None
 
+if MODEL:
+    b64 = base64.b64encode(io.open(MODEL, 'rb').read()).decode()
+    # ドロップの案内は出さない。開いたら始まる。
+    i0 = src.index('<div id="pdrop">')
+    i1 = src.index('</div>', src.index('<input id="pfile"')) + len('</div>')
+    src = src[:i0] + src[i1:]
+    src = src.replace('/* ==== g_glb.js ==== */',
+                      'const MODEL_B64 = "' + b64 + '";\n/* ==== g_glb.js ==== */')
+    # 読み込みが終わるまでの案内
+    src = src.replace('<div id="loading">',
+                      '<div id="loading" data-model="1">')
+    print('埋め込み: %s (%.1f MB -> base64 %.1f MB)'
+          % (os.path.basename(MODEL), os.path.getsize(MODEL) / 1e6, len(b64) / 1e6))
+
 io.open(DST, 'w', encoding='utf-8').write(src)
-print('wrote %s (%.0f KB)' % (DST, len(src) / 1024))
+print('wrote %s (%.1f MB)' % (DST, len(src) / 1e6))
