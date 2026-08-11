@@ -100,6 +100,26 @@ rep("    updateKyonshi(dt);", "    updateKyonshi(dt);\n    updatePlayer(dt);")
 # PATH_LEN を見て並ぶので、ここ1行で全部が伸びる。描画は CAM.t±78 で間引かれる。
 rep('const PATH_LEN = 210;', 'const PATH_LEN = 520;')
 
+# 勾配を区間ごとに変える。ずっと一定の坂だと、山を登っている感じがしない。
+# 石段の区間は急に、池のほとりと四ツ辻は平らに。積分は起動時に一度だけ
+# 表にする（この関数は太陽の遮蔽計算から毎秒何万回も呼ばれるので、
+# 中で計算も確保もできない）。
+rep("const pathYAt = t => t * 0.055 + 0.5 * Math.sin(t * 0.035 + 0.4) + 0.20 * Math.sin(t * 0.09);",
+"""const _grade = t => (t < 95 ? 0.030 : t < 150 ? 0.048 : t < 215 ? 0.018 :
+                     t < 330 ? 0.225 : t < 385 ? 0.010 : 0.115);
+const _YTAB = (() => {
+  const N = 1300, dt = 0.5, a = new Float64Array(N + 1);
+  let y = 0;
+  for (let i = 1; i <= N; i++) { y += _grade((i - 0.5) * dt) * dt; a[i] = y; }
+  return { a, dt, N };
+})();
+const pathYAt = t => {
+  const u = t <= 0 ? 0 : (t / _YTAB.dt > _YTAB.N - 1 ? _YTAB.N - 1 : t / _YTAB.dt);
+  const i = u | 0;
+  return _YTAB.a[i] + (_YTAB.a[i + 1] - _YTAB.a[i]) * (u - i)
+       + 0.30 * Math.sin(t * 0.035 + 0.4) + 0.12 * Math.sin(t * 0.09);
+};""")
+
 # 鳥居を区間ごとに間引く。ずっと同じ密度だと、長いだけの一本道になる。
 rep('''    const P = pathPos(t), T = pathTan(t);
     const ry = Math.atan2(T[0], T[2]);''',

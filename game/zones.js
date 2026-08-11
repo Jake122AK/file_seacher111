@@ -97,8 +97,13 @@ function buildZones() {
       oi.push({ m, tint: [0.80 + rn() * 0.18, 0.82 + rn() * 0.16, 0.78 + rn() * 0.16, rn()], t });
     }
   };
-  for (let t = 392; t < 516; t += 5.5) cluster(t, rn() < 0.5 ? -1 : 1, 3 + Math.floor(rn() * 7), 4.5);
-  for (let t = 158; t < 208; t += 9) cluster(t, -1, 2 + Math.floor(rn() * 3), 3.2);
+  // お塚は稲荷山の顔。実物は一万基以上あるので、斜面を埋めるくらいでちょうどいい
+  for (let t = 388; t < 518; t += 2.3) {
+    cluster(t, rn() < 0.5 ? -1 : 1, 3 + Math.floor(rn() * 6), 4.2);
+    if (rn() < 0.45) cluster(t + 1.1, rn() < 0.5 ? -1 : 1, 2 + Math.floor(rn() * 5), 7.5);
+  }
+  for (let t = 152; t < 212; t += 4.0) cluster(t, -1, 2 + Math.floor(rn() * 4), 3.4);
+  for (let t = 100; t < 148; t += 6.5) cluster(t, rn() < 0.5 ? -1 : 1, 2 + Math.floor(rn() * 3), 3.0);
   cluster(120, 1, 9, 5.0);
   cluster(340, -1, 6, 6.0);
   ot.setInstances(oi);
