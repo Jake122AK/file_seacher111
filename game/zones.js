@@ -22,7 +22,131 @@ function toriiSkip(t) {
   return false;
 }
 
-const POND = { x: 0, z: 182, r: 13.5, y: 0 };
+/* ---------------------------------------------------------------------------
+   参道の分岐
+   実物の千本鳥居は途中で2本に分かれ、しばらく並んで走ってからまた合流する。
+   第2経路は「中心線から横に off(t) だけ寄った道」として持つ。地形のほうは
+   bankHeight() が2本のうち近いほうからの距離で土手を作るので、間に土手が
+   1本残り、それがそのまま2本を隔てる仕切りになる。
+   --------------------------------------------------------------------------- */
+const BRANCH = { t0: 30, t1: 75, off: 5.6, ramp: 0.30 };
+
+/* 分かれ目と合流点で 0、途中は平行。両端は smoothstep なので傾きも 0 になり、
+   地形にも道にも折れ目が出ない。 */
+function branchOffsetAt(t) {
+  if (t <= BRANCH.t0 || t >= BRANCH.t1) return 0;
+  const u = (t - BRANCH.t0) / (BRANCH.t1 - BRANCH.t0);
+  return BRANCH.off * smoothstep(0, BRANCH.ramp, u) * smoothstep(0, BRANCH.ramp, 1 - u);
+}
+function pathXAt2(t) { return pathXAt(t) + branchOffsetAt(t) * pathRight(t)[0]; }
+function branchPos(t) {
+  const P = pathPos(t), R = pathRight(t), o = branchOffsetAt(t);
+  return [P[0] + R[0] * o, P[1], P[2] + R[2] * o];
+}
+function branchTan(t) {
+  const a = branchPos(t - 0.3), b = branchPos(t + 0.3);
+  return norm(sub(b, a));
+}
+
+/* ---------------------------------------------------------------------------
+   水 — 新池と、そこへ落ちる沢
+   もとの POND は路面から 15m 横・1m 下に水面の円盤を置いていただけで、その
+   高さの地形は路面より 10.7m 高い。つまり池は山の中に完全に埋まっていて、
+   一度も見えていなかった。地形のほうに窪地を掘って、そこに水を張る。
+   --------------------------------------------------------------------------- */
+/* 窪地は「池の中心からの半径」で掘ってはいけない。参道は池から 16m 離れて
+   いるので、半径で掘ると路肩の手前で効果が消え、参道と水面のあいだに高さ 5m
+   の壁が残る。池は見えないままになる。
+   掘るのは断面で決める: 路肩から水際へ向かってなだらかに落ちる形を、t の窓
+   （新池の区間）で掛ける。参道そのものは、素の地面のほうが低いので掘れない。 */
+const POND = {
+  x: 0, z: 182, r: 8.6, y: 0, s: 16.0, bedRel: -1.35, waterRel: -0.75,
+  tflat: 11.0, trim: 26.0,      // 参道に沿った池の長さ
+  shoreY: 0.55, shore0: 1.6, shore1: 9.5,   // 路肩から水際までの落とし方
+  far0: 22.0, far1: 42.0,       // 対岸。ここから山へ戻す
+};
+/* 沢は t=242 で止める。そこから先（248〜）は見晴らしのために斜面を落として
+   あるので、溝を伸ばすと川床のほうが下流より低くなり、水が坂を登る。 */
+const STREAM = { t0: 193, t1: 242, half: 1.55, depth: 1.20, lip: 4.6 };
+
+/* 沢の中心線（参道からの横距離）。上流ほど参道から離れる。 */
+function streamSAt(t) {
+  const u = (t - STREAM.t0) / (STREAM.t1 - STREAM.t0);
+  return 14.5 + 7.0 * u + 1.5 * Math.sin(t * 0.115) + 0.7 * Math.sin(t * 0.31);
+}
+function nearStream(s, t) {
+  if (t < STREAM.t0 - 3 || t > STREAM.t1 + 3) return false;
+  return Math.abs(s - streamSAt(t)) < STREAM.half + 1.2;
+}
+
+/* 水の上。樹冠を抜く範囲はこれより広く取る（幹より梢のほうが張り出す）。 */
+function overWater(s, t) {
+  if (s < 3.0) return false;
+  if (t >= STREAM.t0 - 4 && t <= STREAM.t1 + 4 && Math.abs(s - streamSAt(t)) < 6.5) return true;
+  return Math.abs(t - POND.z) < POND.trim * 0.8 && s > 6.0 && s < POND.far1;
+}
+
+/* ---------------------------------------------------------------------------
+   四ツ辻の見晴らし
+   京都盆地は WNW。参道は ENE に登るので、世界座標では **+X・-Z**、つまり
+   登っていく自分から見て「右うしろ」にある（実行時の R.cityDir が
+   (+0.707, 0, -0.707) を返す）。その側の斜面を落としておかないと、目の前の
+   土手で視線が止まる。t の窓を広く取るのは、斜めに振り返る視線が隣の区間の
+   土手に当たるため。
+   --------------------------------------------------------------------------- */
+/* s0/s1 は効き始めと効き切りの横距離。ここを 3.0→8.0 にしていたときは、
+   路肩に高さ 2m の土手が残り、それが仰角 +5° を塞いでいた。街の帯は地平の
+   すぐ下（-0.3°〜-2.2°）なので、路肩が目の高さを越えた時点で何も見えない。 */
+const VIEW = { t0: 248, t1: 300, t2: 402, t3: 444, s0: 2.1, s1: 5.2, fall: 0.55 };
+function viewOpenAt(t) {
+  return smoothstep(VIEW.t0, VIEW.t1, t) * (1 - smoothstep(VIEW.t2, VIEW.t3, t));
+}
+
+/* 木を伐り開ける範囲。斜面を落としただけでは木立が視線を塞ぐし、かといって
+   区間まるごと坊主にすると伐採跡にしか見えない。四ツ辻から街の方角（斜め
+   うしろ・+X / -Z）へ開く扇形だけを抜く。扇は遠いほど広い。 */
+const LOOKOUT = { t: 352, half: 15.0, spread: 0.44 };
+function viewClearAt(s, t) {
+  if (s <= 1.5) return 0;
+  const half = LOOKOUT.half + s * LOOKOUT.spread;
+  const d = Math.abs(t - (LOOKOUT.t - s));      // 45度で下がっていく扇の中心
+  return (1 - smoothstep(half * 0.62, half, d)) * smoothstep(1.5, 5.0, s);
+}
+
+/* 地形に掘るもの一式。bankHeight() の素の高さ h を受けて、掘ったあとの高さを
+   返す。掘るだけで盛らない（min を取る）ので、既存の地形とは必ず繋がる。 */
+function terrainCarve(s, t, h) {
+  // 新池の窪地
+  if (s > 0) {
+    const w = (1 - smoothstep(POND.tflat, POND.trim, Math.abs(t - POND.z)))
+            * (1 - smoothstep(POND.far0, POND.far1, s));
+    if (w > 0.001) {
+      const bed = POND.bedRel + (pathYAt(POND.z) - pathYAt(t));   // 水平な池底
+      const target = lerp(POND.shoreY, bed, smoothstep(POND.shore0, POND.shore1, s));
+      if (target < h) h += (target - h) * w;
+    }
+  }
+  // 沢の溝
+  if (t > STREAM.t0 - STREAM.lip && t < STREAM.t1 + STREAM.lip) {
+    const d = Math.abs(s - streamSAt(t));
+    if (d < STREAM.half + 3.2) {
+      const w = 1 - smoothstep(STREAM.half, STREAM.half + 3.2, d);
+      const ends = smoothstep(STREAM.t0 - STREAM.lip, STREAM.t0 + 2, t)
+                 * (1 - smoothstep(STREAM.t1 - 2, STREAM.t1 + STREAM.lip, t));
+      h -= STREAM.depth * w * ends;
+    }
+  }
+  // 四ツ辻の見晴らし。街のある側（+X）だけ落とす
+  if (s > VIEW.s0) {
+    const vo = viewOpenAt(t);
+    if (vo > 0.001) {
+      const fall = -VIEW.fall * (s - VIEW.s0);
+      const w = vo * smoothstep(VIEW.s0, VIEW.s1, s);
+      if (fall < h) h += (fall - h) * w;
+    }
+  }
+  return h;
+}
 
 /* 石段。地面そのものを段にするとカメラも参拝客も跳ねるので、当たり判定は
    滑らかな坂のまま、見た目だけ段にする。 */
@@ -44,6 +168,126 @@ function buildOtsuka() {
   return g;
 }
 
+/* 分岐した道の敷石。本体の舗装は中心線の ±1.45m にしか敷かれていないので、
+   第2の道はそのままだと苔の上を歩くことになる。分かれ目と合流点では2本が
+   重なるので、離れている区間だけ、幅を絞りながら敷く（重ねると z 争いで
+   ちらつく）。 */
+function buildBranchPath() {
+  const g = new Geo();
+  const rows = [];
+  for (let t = BRANCH.t0; t <= BRANCH.t1; t += 0.5) {
+    const off = branchOffsetAt(t);
+    const hw = 1.45 * smoothstep(1.9, 3.1, off);
+    if (hw <= 0.02) continue;
+    const P = pathPos(t), Rt = pathRight(t);
+    const row = [];
+    for (let i = 0; i <= 6; i++) {
+      const s = off + lerp(-hw, hw, i / 6);
+      row.push({ x: P[0] + Rt[0] * s, y: P[1] + bankHeight(s, t), z: P[2] + Rt[2] * s, s, t });
+    }
+    rows.push(row);
+  }
+  const ids = [];
+  for (let r = 0; r < rows.length; r++) {
+    const row = [];
+    for (let i = 0; i < rows[r].length; i++) {
+      const c = rows[r][i];
+      row.push(g.push(c.x, c.y, c.z, 0, 1, 0, (c.s - branchOffsetAt(c.t)) * 0.60, c.t * 0.60,
+                      MAT.STONE));
+    }
+    ids.push(row);
+  }
+  for (let r = 0; r < ids.length - 1; r++)
+    for (let i = 0; i < ids[r].length - 1; i++)
+      g.quad(ids[r][i], ids[r + 1][i], ids[r + 1][i + 1], ids[r][i + 1]);
+  return g;
+}
+
+/* 沢の水面。地形に掘った溝の底を追いかけるリボン。下流へ向かって高さが
+   単調に下がるように締める（1箇所でも上を向くと水が坂を登って見える）。 */
+function buildStreamWater() {
+  const g = new Geo();
+  const pondY = pathYAt(POND.z) + POND.waterRel;
+  const rows = [];
+  let prevY = Infinity;
+  for (let t = STREAM.t1; t >= STREAM.t0 - 2.0; t -= 1.0) {
+    const sc = streamSAt(t);
+    const P = pathPos(t), Rt = pathRight(t), T = pathTan(t);
+    const cx = P[0] + Rt[0] * sc, cz = P[2] + Rt[2] * sc;
+    let y = WORLD.groundAt(cx, cz).y + 0.12;
+    y = Math.min(y, prevY - 0.015);
+    if (t < STREAM.t0 + 7) y = Math.max(y, pondY);   // 池に注ぐところで水面を合わせる
+    prevY = y;
+    const u = (t - STREAM.t0) / (STREAM.t1 - STREAM.t0);
+    const hw = 1.35 - 0.45 * u;                       // 下流ほど広い
+    rows.push({ cx, cz, y, hw, rx: Rt[0], rz: Rt[2], tx: T[0], tz: T[2], t });
+  }
+  const ids = [];
+  for (const r of rows) {
+    const row = [];
+    for (const k of [-1, 0, 1]) {
+      const w = r.hw * k * (k === 0 ? 0 : 1);
+      row.push(g.push(r.cx + r.rx * w, r.y - (k === 0 ? 0.02 : 0), r.cz + r.rz * w,
+                      0, 1, 0, k * 2.0, r.t * 0.5, MAT.STONE));
+    }
+    ids.push(row);
+  }
+  for (let i = 0; i < ids.length - 1; i++)
+    for (let k = 0; k < 2; k++)
+      g.quad(ids[i][k], ids[i][k + 1], ids[i + 1][k + 1], ids[i + 1][k]);
+  return g;
+}
+
+/* 沢べりの石。水際の継ぎ目はここで隠れる。 */
+function buildStreamStone() {
+  return roundedBox(0.62, 0.42, 0.55, 0.13, 2, { mat: MAT.GRANITE, uScale: 1.6 });
+}
+
+/* 見晴らしの裾。地形メッシュは横 46m で終わるので、そのままだと四ツ辻から
+   見たときに切り口が直線で空に接する。落ちていく斜面をもう一枚伸ばして、
+   霧に溶けるところまで持っていく。 */
+function buildViewSkirt() {
+  const g = new Geo();
+  const rows = [];
+  for (let t = 226; t <= 458; t += 5.0) {
+    const P = pathPos(t), Rt = pathRight(t);
+    const vo = viewOpenAt(t);
+    const row = [];
+    for (let i = 0; i <= 6; i++) {
+      /* 見晴らしが開いている t だけ外へ伸ばす。開いていないところまで一律に
+         伸ばすと、そこは掘られていないので土手がそのまま伸び、100m 先に
+         高さ 50m の壁が立つ。四ツ辻から街を見ると、それが視界の下半分を
+         霞んだ茶色で埋めていた。開いていない t では幅 0 に畳む。 */
+      const s = 46.0 + i * 13.0 * vo;
+      // 起伏は本体メッシュの切り口（s=46）から効かせる。ここで段差を作ると
+      // 継ぎ目に隙間が開く
+      const fade = smoothstep(46.0, 64.0, s);
+      const h = bankHeight(s, t) + (Math.sin(s * 0.21 + t * 0.13) * 0.9
+              + Math.sin(t * 0.07 - s * 0.05) * 1.6) * fade;
+      row.push({ x: P[0] + Rt[0] * s, y: P[1] + h, z: P[2] + Rt[2] * s, s, t });
+    }
+    rows.push(row);
+  }
+  const ids = [];
+  for (let r = 0; r < rows.length; r++) {
+    const row = [];
+    for (let i = 0; i < rows[r].length; i++) {
+      const c = rows[r][i];
+      const cL = rows[r][Math.max(i - 1, 0)], cR = rows[r][Math.min(i + 1, rows[r].length - 1)];
+      const cD = rows[Math.max(r - 1, 0)][i], cU = rows[Math.min(r + 1, rows.length - 1)][i];
+      const n = norm(cross([cU.x - cD.x, cU.y - cD.y, cU.z - cD.z],
+                           [cR.x - cL.x, cR.y - cL.y, cR.z - cL.z]));
+      if (n[1] < 0) { n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2]; }
+      row.push(g.push(c.x, c.y, c.z, n[0], n[1], n[2], c.s * 0.10, c.t * 0.10, MAT.MOSS));
+    }
+    ids.push(row);
+  }
+  for (let r = 0; r < ids.length - 1; r++)
+    for (let i = 0; i < ids[r].length - 1; i++)
+      g.quad(ids[r][i], ids[r + 1][i], ids[r + 1][i + 1], ids[r][i + 1]);
+  return g;
+}
+
 function buildPondSurface() {
   const g = new Geo(), N = 56;
   const c = g.push(0, 0, 0, 0, 1, 0, 0.5, 0.5, MAT.STONE);
@@ -54,7 +298,11 @@ function buildPondSurface() {
     ring.push(g.push(Math.cos(a) * rr, 0, Math.sin(a) * rr, 0, 1, 0,
                      Math.cos(a) * 3, Math.sin(a) * 3, MAT.STONE));
   }
-  for (let i = 0; i < N; i++) g.tri(c, ring[i], ring[i + 1]);
+  /* 巻き方向。(中心, ring[i], ring[i+1]) の順だと面法線が -Y を向き、上から
+     見ると裏面カリングで消える。頂点法線が +Y を向いていても、カリングは
+     三角形の巻きだけを見る。池が一度も見えなかったのは、山に埋まっていた
+     ことに加えてこれが理由。 */
+  for (let i = 0; i < N; i++) g.tri(c, ring[i + 1], ring[i]);
   return g;
 }
 
@@ -74,13 +322,74 @@ function buildZones() {
   S.draws.push({ mesh: slab, name: 'steps' });
   S.shadowDraws.push({ mesh: slab });
 
-  POND.x = pathXAt(POND.z) + 15.5;
-  POND.y = pathYAt(POND.z) - 1.05;
+  /* 新池。窪地の底に張るので、水面は路面のすこし下に来る。 */
+  const Pp = pathPos(POND.z), Rp = pathRight(POND.z);
+  POND.x = Pp[0] + Rp[0] * POND.s;
+  const pondZ = Pp[2] + Rp[2] * POND.s;
+  POND.y = Pp[1] + POND.waterRel;
   const pond = new Mesh(buildPondSurface());
   const pm = M4.create();
-  M4.compose(pm, [POND.x, POND.y, POND.z], 0, [1, 1, 1]);
+  M4.compose(pm, [POND.x, POND.y, pondZ], 0, [1, 1, 1]);
   pond.setInstances([{ m: pm, tint: [0.30, 0.36, 0.34, 0.2] }]);
   S.draws.push({ mesh: pond, name: 'pond' });
+
+  /* 沢。池に注ぐところまで一続き。 */
+  const stream = new Mesh(buildStreamWater());
+  const sm = M4.create();
+  M4.compose(sm, [0, 0, 0], 0, [1, 1, 1]);
+  stream.setInstances([{ m: sm, tint: [0.34, 0.40, 0.38, 0.6] }]);
+  S.draws.push({ mesh: stream, name: 'stream' });
+
+  const rock = new Mesh(buildStreamStone());
+  const ri = [];
+  for (let t = STREAM.t0 - 1; t < STREAM.t1 + 1; t += 0.85) {
+    const sc = streamSAt(t), P = pathPos(t), Rt = pathRight(t), T = pathTan(t);
+    for (const sgn of [-1, 1]) {
+      if (rn() < 0.28) continue;
+      const off = sgn * (1.15 + rn() * 1.5);
+      const x = P[0] + Rt[0] * (sc + off) + T[0] * (rn() - 0.5) * 0.8;
+      const z = P[2] + Rt[2] * (sc + off) + T[2] * (rn() - 0.5) * 0.8;
+      const sk = 0.55 + rn() * 1.35, m = M4.create();
+      M4.compose(m, [x, WORLD.groundAt(x, z).y - 0.10 * sk, z], rn() * TAU,
+                 [sk, sk * (0.6 + rn() * 0.6), sk], (rn() - 0.5) * 0.4, (rn() - 0.5) * 0.4);
+      ri.push({ m, tint: [0.74 + rn() * 0.24, 0.76 + rn() * 0.22, 0.74 + rn() * 0.22, rn()], t });
+    }
+  }
+  rock.setInstances(ri);
+  S.draws.push({ mesh: rock, name: 'stream_rocks' });
+  S.shadowDraws.push({ mesh: rock });
+
+  /* 見晴らしの裾。土手のメッシュと同じくインスタンスを付けずに置く
+     （付けると色の扱いが変わって、そこだけ質感が浮く）。 */
+  const skirt = new Mesh(buildViewSkirt());
+  S.draws.push({ mesh: skirt, name: 'view_skirt' });
+  S.shadowDraws.push({ mesh: skirt });
+
+  /* 分岐した第2の参道の鳥居。中心線の鳥居とぶつからないよう、十分に
+     離れたところからだけ立てる。太陽の遮蔽モデルが読むのは中心線の
+     R.toriiTs なので、こちらは別のメッシュにして混ぜない。 */
+  const bt = new Mesh(buildTorii(true));
+  const btLow = new Mesh(buildTorii(false));
+  const bi = [];
+  for (let t = BRANCH.t0; t < BRANCH.t1; t += 0.545 + rn() * 0.14) {
+    if (branchOffsetAt(t) < 2.6) continue;
+    const P = branchPos(t), T = branchTan(t), m = M4.create();
+    const big = rn() < 0.07;
+    const sc = (big ? 1.14 + rn() * 0.12 : 0.93 + rn() * 0.14) * 1.26;
+    M4.compose(m, [P[0], P[1] - 0.03, P[2]], Math.atan2(T[0], T[2]),
+               [sc * (0.96 + rn() * 0.11), sc, sc], 0, (rn() - 0.5) * 0.014);
+    const age = Math.pow(rn(), 0.8);
+    bi.push({ m, t, tint: [1.06 - age * 0.36 + (rn() - 0.5) * 0.10,
+                           1.00 - age * 0.16 + (rn() - 0.5) * 0.09,
+                           0.98 - age * 0.06 + (rn() - 0.5) * 0.09, rn()] });
+  }
+  const bpath = new Mesh(buildBranchPath());
+  S.draws.push({ mesh: bpath, name: 'branch_path' });
+  S.shadowDraws.push({ mesh: bpath });
+
+  bt.setInstances(bi); btLow.setInstances(bi);
+  S.draws.push({ mesh: bt, name: 'torii_branch' });
+  S.shadowDraws.push({ mesh: btLow });
 
   const ot = new Mesh(buildOtsuka());
   const oi = [];
@@ -110,5 +419,6 @@ function buildZones() {
   S.draws.push({ mesh: ot, name: 'otsuka' });
   S.shadowDraws.push({ mesh: ot });
   console.log('区間 ' + ZONES.map(z => z.name).join('/') + '  石段 ' + si.length
-    + ' 段  お塚 ' + oi.length + ' 基');
+    + ' 段  お塚 ' + oi.length + ' 基  分岐鳥居 ' + bi.length + ' 基  沢の石 '
+    + ri.length + ' 個');
 }

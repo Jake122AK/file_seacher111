@@ -1574,6 +1574,7 @@ layout(location=9) in vec4 aBI;
 layout(location=10) in vec4 aBW;
 layout(location=11) in vec3 aBlink;
 uniform int uSkin;
+uniform int uRowBase;
 uniform float uBlink;
 uniform sampler2D uBones;
 /* 4テクセルで1つのボーン行列（列ベクトル4本） */
@@ -1590,7 +1591,9 @@ void main(){
      まばたきのたびに頂点バッファを丸ごと上げ直すことになる。 */
   if(uBlink > 0.0) sPos += aBlink*uBlink;
   if(uSkin==1){
-    int row = uInstanced==1 ? gl_InstanceID : 0;
+    /* 行 = uRowBase + インスタンス番号。近くの人（本メッシュ）と遠くの人
+       （間引きメッシュ）は別々の描画になるので、後者は続きの行から読む。 */
+    int row = uRowBase + (uInstanced==1 ? gl_InstanceID : 0);
     mat4 S = boneAt(aBI.x,row)*aBW.x + boneAt(aBI.y,row)*aBW.y
            + boneAt(aBI.z,row)*aBW.z + boneAt(aBI.w,row)*aBW.w;
     sPos = (S*vec4(aPos,1.0)).xyz;
@@ -1745,6 +1748,7 @@ layout(location=9) in vec4 aBI;
 layout(location=10) in vec4 aBW;
 layout(location=11) in vec3 aBlink;
 uniform int uSkin;
+uniform int uRowBase;
 uniform float uBlink;
 uniform sampler2D uBones;
 /* 4テクセルで1つのボーン行列（列ベクトル4本） */
@@ -1761,7 +1765,9 @@ void main(){
      まばたきのたびに頂点バッファを丸ごと上げ直すことになる。 */
   if(uBlink > 0.0) sPos += aBlink*uBlink;
   if(uSkin==1){
-    int row = uInstanced==1 ? gl_InstanceID : 0;
+    /* 行 = uRowBase + インスタンス番号。近くの人（本メッシュ）と遠くの人
+       （間引きメッシュ）は別々の描画になるので、後者は続きの行から読む。 */
+    int row = uRowBase + (uInstanced==1 ? gl_InstanceID : 0);
     mat4 S = boneAt(aBI.x,row)*aBW.x + boneAt(aBI.y,row)*aBW.y
            + boneAt(aBI.z,row)*aBW.z + boneAt(aBI.w,row)*aBW.w;
     sPos = (S*vec4(aPos,1.0)).xyz;
@@ -1873,6 +1879,7 @@ uniform int uNumLights;
 uniform vec4 uLightPos[16];   // xyz, radius
 uniform vec4 uLightCol[16];   // rgb, intensity
 uniform samplerCube uSky;
+uniform vec3 uCityDir;   // 京都盆地の方位（世界座標）
 uniform vec3 uHazeColor;
 uniform float uHazeAmt;
 uniform int uShadowQuality;
@@ -1959,6 +1966,39 @@ void main(){
       sky += stc*st*uStarAmt*smoothstep(0.005, 0.20, dir.y)*2.6;
     }
     sky = mix(sky, uHazeColor, smoothstep(0.16, -0.03, dir.y)*uHazeAmt);
+
+    /* ---- 京都盆地 ---- */
+    float open = smoothstep(17.0, 34.0, uCamPos.y);     // 登るほど開ける
+    if(open > 0.003){
+      vec3 hd = normalize(vec3(dir.x, 0.0, dir.z) + vec3(1e-5, 0.0, 0.0));
+      float sector = smoothstep(0.08, 0.60, dot(hd, uCityDir));
+      if(sector > 0.002){
+        float az = atan(dir.x, dir.z), el = dir.y;
+        /* 西山の稜線。方位に沿った 1次元の起伏で十分に山に見える */
+        float rid = 0.028 + 0.032*fbm(vec2(az*3.1, 2.7), 4, 2.2, 0.55)
+                          + 0.008*sin(az*13.0);
+        /* 色はその画素の空に**掛けて**作る。加算や定数置き換えにすると露出と
+           時刻に追従しないが、掛け算なら朝焼けにも夕景にもそのまま乗る。 */
+        vec3 mnt = sky * vec3(0.44, 0.52, 0.68);           // 稜線は暗く、青に寄る
+        /* 街の粒。細かすぎると距離で潰れて一様な靄になるので、区画くらいの
+           大きさに落とす。仰角方向は圧縮されて見えるので係数を変える。 */
+        float grain = fbm(vec2(az*42.0, el*110.0), 4, 2.2, 0.5);
+        float dep = smoothstep(-0.006, -0.105, el);         // 下ほど手前
+        vec3 town = sky * mix(vec3(0.90,0.89,0.88), vec3(0.70,0.685,0.655), dep)
+                        * (0.90 + 0.21*grain);
+        town += vec3(0.052,0.035,0.015)*smoothstep(0.60,0.92,grain)*uStarAmt*1.6;
+        /* 盆地は「地平のすぐ下の細い帯」でしかない。42m の高さから見て、
+           3km 先の地面は -0.8°、10km 先なら -0.24°。そこから下へ延ばすと、
+           本来なら手前の山が塞いでいるはずの角度まで街になってしまう。
+           帯の下は手前の山として暗く落とし、霧色へ繋ぐ。 */
+        vec3 hill = sky * vec3(0.56, 0.60, 0.58);
+        float mAmt = smoothstep(rid + 0.010, rid - 0.016, el);   // 稜線から下
+        float cAmt = smoothstep(-0.004, -0.020, el);             // その下が盆地
+        float hAmt = smoothstep(-0.030, -0.075, el);             // さらに下は手前の山
+        vec3 far = mix(mix(mnt, town, cAmt), hill, hAmt);
+        sky = mix(sky, far, mAmt*sector*open);
+      }
+    }
     outC = vec4(sky, 1.0);
     return;
   }
@@ -2856,14 +2896,24 @@ function buildInscriptionDecals() {
 }
 
 /* ---------------- ground: path surface + banks ---------------- */
-function bankHeight(s) {
-  const a = Math.abs(s);
-  if (a < 1.42) return -0.010 * a * a;
-  const k = a - 1.42;
-  // shallow gutter, then a steep wooded slope
-  return -0.02 + 0.42 * Math.min(k, 0.55) / 0.55
-    + 0.92 * Math.max(Math.min(k, 7.0) - 0.55, 0)
-    + 0.62 * Math.max(k - 7.0, 0);
+function bankHeight(s, t) {
+  /* 分岐区間では2本の参道からの距離のうち近いほうを使う。間に土手が1本
+     残るので、そのまま2本を隔てる仕切りになる。 */
+  let a = Math.abs(s);
+  if (t !== undefined) {
+    const off = branchOffsetAt(t);
+    if (off > 0) a = Math.min(a, Math.abs(s - off));
+  }
+  let h;
+  if (a < 1.42) h = -0.010 * a * a;
+  else {
+    const k = a - 1.42;
+    // shallow gutter, then a steep wooded slope
+    h = -0.02 + 0.42 * Math.min(k, 0.55) / 0.55
+      + 0.92 * Math.max(Math.min(k, 7.0) - 0.55, 0)
+      + 0.62 * Math.max(k - 7.0, 0);
+  }
+  return t === undefined ? h : terrainCarve(s, t, h);
 }
 function groundNoise(s, t) {
   const n = Math.sin(s * 2.3 + t * 0.7) * 0.012 + Math.sin(t * 1.7 - s * 1.1) * 0.010 + Math.sin(t * 0.31 + s * 0.5) * 0.03;
@@ -2881,7 +2931,7 @@ function buildGroundStrip(sMin, sMax, matId, nS, tStep, yOff, uvScale) {
     const row = [];
     for (let i = 0; i <= nS; i++) {
       const s = lerp(sMin, sMax, i / nS);
-      const h = bankHeight(s) + groundNoise(s, t) * (Math.abs(s) > 1.4 ? 3.0 : 1.0);
+      const h = bankHeight(s, t) + groundNoise(s, t) * (Math.abs(s) > 1.4 ? 3.0 : 1.0);
       const x = P[0] + R[0] * s, z = P[2] + R[2] * s;
       const y = P[1] + h + yOff;
       row.push({ x, y, z, s, t });
@@ -3139,7 +3189,7 @@ function buildScene(quality) {
     for (const sgn of [-1, 1]) {
       const s = sgn * (1.40 + rnd() * 0.05);
       const m = M4.create();
-      M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.06 + (rnd() - .5) * 0.02, P[2] + R[2] * s],
+      M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(s, tt) - 0.06 + (rnd() - .5) * 0.02, P[2] + R[2] * s],
         ry + (rnd() - .5) * 0.09, [1, 0.85 + rnd() * 0.4, 1]);
       kerbInst.push({ m, tint: [0.85 + rnd() * 0.3, 0.85 + rnd() * 0.3, 0.85 + rnd() * 0.3, rnd()], t: tt });
     }
@@ -3156,10 +3206,13 @@ function buildScene(quality) {
     for (const sgn of [-1, 1]) {
       if (rnd() > 0.72) continue;
       const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);
+      if (nearStream(s, tt) || overWater(s, tt)) continue;
+      // 見晴らしの扇は伐り開ける。斜面を落としても、木が立っていれば見えない
+      if (rnd() < viewClearAt(s, tt) * 0.97) continue;
       const P = pathPos(tt + (rnd() - .5) * 2.2), R = pathRight(tt);
       const m = M4.create();
       const sc = 0.7 + rnd() * 0.75;
-      M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.25, P[2] + R[2] * s],
+      M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(s, tt) - 0.25, P[2] + R[2] * s],
         rnd() * TAU, [sc, sc * (0.8 + rnd() * 0.5), sc], (rnd() - .5) * 0.09, (rnd() - .5) * 0.09);
       trunkInst.push({ m, tint: [0.8 + rnd() * 0.45, 0.8 + rnd() * 0.4, 0.8 + rnd() * 0.4, rnd()], t: tt });
     }
@@ -3175,10 +3228,14 @@ function buildScene(quality) {
   for (let i = 0; i < canopyCount; i++) {
     const tt = -16 + rnd() * (PATH_LEN + 40);
     const s = (rnd() - 0.5) * 40.0;
+    if (rnd() < viewClearAt(s, tt) * 0.97) continue;
+    // 沢と池の上は空けておく。覆われていると水面に映るものが無く、ただの
+    // 暗い面になる
+    if (overWater(s, tt) && rnd() < 0.9) continue;
     const P = pathPos(tt), Rp = pathRight(tt);
-    const base = P[1] + bankHeight(Math.abs(s));
+    const base = P[1] + bankHeight(s, tt);
     // hug the corridor: lower over the path, higher out on the slopes
-    const hgt = base + 5.0 + rnd() * 9.0 + Math.abs(s) * 0.32;
+    const hgt = base + 5.0 + rnd() * 9.0 + Math.max(0, base - P[1]) * 0.35;
     const m = M4.create();
     const sc = 1.0 + rnd() * 1.9;
     M4.compose(m, [P[0] + Rp[0] * s, hgt, P[2] + Rp[2] * s], rnd() * TAU,
@@ -3197,10 +3254,11 @@ function buildScene(quality) {
     const tt = -6 + rnd() * (PATH_LEN + 20);
     const sgn = rnd() < 0.5 ? -1 : 1;
     const s = sgn * (1.95 + Math.pow(rnd(), 0.7) * 10.0);
+    if (nearStream(s, tt) || overWater(s, tt)) continue;
     const P = pathPos(tt), R = pathRight(tt);
     const m = M4.create();
     const sc = 0.6 + rnd() * 0.9;
-    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.04, P[2] + R[2] * s],
+    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(s, tt) - 0.04, P[2] + R[2] * s],
       rnd() * TAU, [sc, sc * (0.8 + rnd() * 0.6), sc]);
     fernInst.push({ m, tint: [0.6 + rnd() * 0.7, 0.75 + rnd() * 0.5, 0.55 + rnd() * 0.5, rnd()], t: tt });
   }
@@ -3220,7 +3278,7 @@ function buildScene(quality) {
     const P = pathPos(tt), R = pathRight(tt);
     const m = M4.create();
     const sc = 0.7 + rnd() * 0.9;
-    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) + 0.012, P[2] + R[2] * s],
+    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(s, tt) + 0.012, P[2] + R[2] * s],
       rnd() * TAU, [sc, 1, sc], (rnd() - .5) * 0.5, (rnd() - .5) * 0.5);
     const br = 0.5 + rnd() * 0.9;
     leafInst.push({ m, tint: [br * 1.35, br * 0.85, br * 0.5, rnd()], t: tt });
@@ -3237,7 +3295,7 @@ function buildScene(quality) {
     const sgn = i % 2 === 0 ? -1 : 1;
     const s = sgn * 2.15;
     const P = pathPos(tt), R = pathRight(tt), T = pathTan(tt);
-    const wx = P[0] + R[0] * s, wz = P[2] + R[2] * s, wy = P[1] + bankHeight(Math.abs(s)) - 0.05;
+    const wx = P[0] + R[0] * s, wz = P[2] + R[2] * s, wy = P[1] + bankHeight(s, tt) - 0.05;
     const m = M4.create();
     M4.compose(m, [wx, wy, wz], Math.atan2(T[0], T[2]) + (rnd() - .5) * 0.3, [1, 1, 1]);
     lanternInst.push({ m, tint: [0.9 + rnd() * 0.2, 0.9 + rnd() * 0.2, 0.9 + rnd() * 0.2, rnd()], t: tt });
@@ -3264,7 +3322,7 @@ function buildScene(quality) {
     const P = pathPos(tt), R = pathRight(tt), T = pathTan(tt);
     const s = sgn * 2.45;
     const m = M4.create();
-    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(Math.abs(s)) - 0.06, P[2] + R[2] * s],
+    M4.compose(m, [P[0] + R[0] * s, P[1] + bankHeight(s, tt) - 0.06, P[2] + R[2] * s],
       Math.atan2(T[0], T[2]) + PI + sgn * 0.22, [1, 1, 1]);
     foxInst.push({ m, tint: [1, 1, 1, 0.3] });
   }
@@ -3708,7 +3766,8 @@ function drawGeometry(prog, list, isShadow) {
     u1i(prog, 'uAlphaMask', d.alphaMask ? 1 : 0);
     u1f(prog, 'uWind', d.wind || 0);
     u1i(prog, 'uSkin', d.skin ? 1 : 0);
-    if (d.skin) tex(prog, 'uBones', 6, d.skin, gl.TEXTURE_2D);
+    u1i(prog, 'uRowBase', d.rowBase || 0);
+    tex(prog, 'uBones', 6, d.skin || dummyBoneTex(), gl.TEXTURE_2D);
     u1f(prog, 'uBlink', d.blink || 0);
     if (!isShadow) {
       u1i(prog, 'uDecalMode', d.decal ? 1 : 0);
@@ -3807,6 +3866,10 @@ function renderFrame(dt) {
   tex(p_l, 'uSh1', 8, R.shadow[1].tex);
   tex(p_l, 'uSh2', 9, R.shadow[2].tex);
   tex(p_l, 'uSky', 10, R.skyCube.tex, gl.TEXTURE_CUBE_MAP);
+  {
+    const cd = R.cityDir || (R.cityDir = norm(bearingToWorld(CITY_BEARING)));
+    u3f(p_l, 'uCityDir', cd[0], cd[1], cd[2]);
+  }
   umat(p_l, 'uInvViewProj', CAM.invViewProj);
   umat(p_l, 'uInvProj', CAM.invProj);
   umat(p_l, 'uView', CAM.view);
@@ -4170,7 +4233,7 @@ function groundHeightAt(x, z) {
   }
   const P = pathPos(t), Rt = pathRight(t);
   const s = (x - P[0]) * Rt[0] + (z - P[2]) * Rt[2];
-  return { y: P[1] + bankHeight(Math.abs(s)), s, t };
+  return { y: P[1] + bankHeight(s, t), s, t };
 }
 
 /* The two halves of the shrine, registered most-specific first. Adding a
@@ -4265,8 +4328,10 @@ function updateCamera(dt) {
       // The precinct is 60m across and the corridor is 5m. Funnel rather
       // than clamp, or crossing the seam off-axis snaps the player sideways.
       const half = lerp(5.0, CFG.corridorHalf, smoothstep(0.0, 8.0, CAM.pos[2]));
-      if (Math.abs(g.s) > half) {
-        const k = (Math.abs(g.s) - half) * Math.sign(g.s);
+      const off = branchOffsetAt(g.t);
+      const k = g.s > off + half ? g.s - (off + half)
+              : (g.s < -half ? g.s + half : 0);
+      if (k !== 0) {
         const Rt = pathRight(g.t);
         CAM.pos[0] -= Rt[0] * k * 0.42; CAM.pos[2] -= Rt[2] * k * 0.42;
       }
@@ -7592,7 +7657,131 @@ function toriiSkip(t) {
   return false;
 }
 
-const POND = { x: 0, z: 182, r: 13.5, y: 0 };
+/* ---------------------------------------------------------------------------
+   参道の分岐
+   実物の千本鳥居は途中で2本に分かれ、しばらく並んで走ってからまた合流する。
+   第2経路は「中心線から横に off(t) だけ寄った道」として持つ。地形のほうは
+   bankHeight() が2本のうち近いほうからの距離で土手を作るので、間に土手が
+   1本残り、それがそのまま2本を隔てる仕切りになる。
+   --------------------------------------------------------------------------- */
+const BRANCH = { t0: 30, t1: 75, off: 5.6, ramp: 0.30 };
+
+/* 分かれ目と合流点で 0、途中は平行。両端は smoothstep なので傾きも 0 になり、
+   地形にも道にも折れ目が出ない。 */
+function branchOffsetAt(t) {
+  if (t <= BRANCH.t0 || t >= BRANCH.t1) return 0;
+  const u = (t - BRANCH.t0) / (BRANCH.t1 - BRANCH.t0);
+  return BRANCH.off * smoothstep(0, BRANCH.ramp, u) * smoothstep(0, BRANCH.ramp, 1 - u);
+}
+function pathXAt2(t) { return pathXAt(t) + branchOffsetAt(t) * pathRight(t)[0]; }
+function branchPos(t) {
+  const P = pathPos(t), R = pathRight(t), o = branchOffsetAt(t);
+  return [P[0] + R[0] * o, P[1], P[2] + R[2] * o];
+}
+function branchTan(t) {
+  const a = branchPos(t - 0.3), b = branchPos(t + 0.3);
+  return norm(sub(b, a));
+}
+
+/* ---------------------------------------------------------------------------
+   水 — 新池と、そこへ落ちる沢
+   もとの POND は路面から 15m 横・1m 下に水面の円盤を置いていただけで、その
+   高さの地形は路面より 10.7m 高い。つまり池は山の中に完全に埋まっていて、
+   一度も見えていなかった。地形のほうに窪地を掘って、そこに水を張る。
+   --------------------------------------------------------------------------- */
+/* 窪地は「池の中心からの半径」で掘ってはいけない。参道は池から 16m 離れて
+   いるので、半径で掘ると路肩の手前で効果が消え、参道と水面のあいだに高さ 5m
+   の壁が残る。池は見えないままになる。
+   掘るのは断面で決める: 路肩から水際へ向かってなだらかに落ちる形を、t の窓
+   （新池の区間）で掛ける。参道そのものは、素の地面のほうが低いので掘れない。 */
+const POND = {
+  x: 0, z: 182, r: 8.6, y: 0, s: 16.0, bedRel: -1.35, waterRel: -0.75,
+  tflat: 11.0, trim: 26.0,      // 参道に沿った池の長さ
+  shoreY: 0.55, shore0: 1.6, shore1: 9.5,   // 路肩から水際までの落とし方
+  far0: 22.0, far1: 42.0,       // 対岸。ここから山へ戻す
+};
+/* 沢は t=242 で止める。そこから先（248〜）は見晴らしのために斜面を落として
+   あるので、溝を伸ばすと川床のほうが下流より低くなり、水が坂を登る。 */
+const STREAM = { t0: 193, t1: 242, half: 1.55, depth: 1.20, lip: 4.6 };
+
+/* 沢の中心線（参道からの横距離）。上流ほど参道から離れる。 */
+function streamSAt(t) {
+  const u = (t - STREAM.t0) / (STREAM.t1 - STREAM.t0);
+  return 14.5 + 7.0 * u + 1.5 * Math.sin(t * 0.115) + 0.7 * Math.sin(t * 0.31);
+}
+function nearStream(s, t) {
+  if (t < STREAM.t0 - 3 || t > STREAM.t1 + 3) return false;
+  return Math.abs(s - streamSAt(t)) < STREAM.half + 1.2;
+}
+
+/* 水の上。樹冠を抜く範囲はこれより広く取る（幹より梢のほうが張り出す）。 */
+function overWater(s, t) {
+  if (s < 3.0) return false;
+  if (t >= STREAM.t0 - 4 && t <= STREAM.t1 + 4 && Math.abs(s - streamSAt(t)) < 6.5) return true;
+  return Math.abs(t - POND.z) < POND.trim * 0.8 && s > 6.0 && s < POND.far1;
+}
+
+/* ---------------------------------------------------------------------------
+   四ツ辻の見晴らし
+   京都盆地は WNW。参道は ENE に登るので、世界座標では **+X・-Z**、つまり
+   登っていく自分から見て「右うしろ」にある（実行時の R.cityDir が
+   (+0.707, 0, -0.707) を返す）。その側の斜面を落としておかないと、目の前の
+   土手で視線が止まる。t の窓を広く取るのは、斜めに振り返る視線が隣の区間の
+   土手に当たるため。
+   --------------------------------------------------------------------------- */
+/* s0/s1 は効き始めと効き切りの横距離。ここを 3.0→8.0 にしていたときは、
+   路肩に高さ 2m の土手が残り、それが仰角 +5° を塞いでいた。街の帯は地平の
+   すぐ下（-0.3°〜-2.2°）なので、路肩が目の高さを越えた時点で何も見えない。 */
+const VIEW = { t0: 248, t1: 300, t2: 402, t3: 444, s0: 2.1, s1: 5.2, fall: 0.55 };
+function viewOpenAt(t) {
+  return smoothstep(VIEW.t0, VIEW.t1, t) * (1 - smoothstep(VIEW.t2, VIEW.t3, t));
+}
+
+/* 木を伐り開ける範囲。斜面を落としただけでは木立が視線を塞ぐし、かといって
+   区間まるごと坊主にすると伐採跡にしか見えない。四ツ辻から街の方角（斜め
+   うしろ・+X / -Z）へ開く扇形だけを抜く。扇は遠いほど広い。 */
+const LOOKOUT = { t: 352, half: 15.0, spread: 0.44 };
+function viewClearAt(s, t) {
+  if (s <= 1.5) return 0;
+  const half = LOOKOUT.half + s * LOOKOUT.spread;
+  const d = Math.abs(t - (LOOKOUT.t - s));      // 45度で下がっていく扇の中心
+  return (1 - smoothstep(half * 0.62, half, d)) * smoothstep(1.5, 5.0, s);
+}
+
+/* 地形に掘るもの一式。bankHeight() の素の高さ h を受けて、掘ったあとの高さを
+   返す。掘るだけで盛らない（min を取る）ので、既存の地形とは必ず繋がる。 */
+function terrainCarve(s, t, h) {
+  // 新池の窪地
+  if (s > 0) {
+    const w = (1 - smoothstep(POND.tflat, POND.trim, Math.abs(t - POND.z)))
+            * (1 - smoothstep(POND.far0, POND.far1, s));
+    if (w > 0.001) {
+      const bed = POND.bedRel + (pathYAt(POND.z) - pathYAt(t));   // 水平な池底
+      const target = lerp(POND.shoreY, bed, smoothstep(POND.shore0, POND.shore1, s));
+      if (target < h) h += (target - h) * w;
+    }
+  }
+  // 沢の溝
+  if (t > STREAM.t0 - STREAM.lip && t < STREAM.t1 + STREAM.lip) {
+    const d = Math.abs(s - streamSAt(t));
+    if (d < STREAM.half + 3.2) {
+      const w = 1 - smoothstep(STREAM.half, STREAM.half + 3.2, d);
+      const ends = smoothstep(STREAM.t0 - STREAM.lip, STREAM.t0 + 2, t)
+                 * (1 - smoothstep(STREAM.t1 - 2, STREAM.t1 + STREAM.lip, t));
+      h -= STREAM.depth * w * ends;
+    }
+  }
+  // 四ツ辻の見晴らし。街のある側（+X）だけ落とす
+  if (s > VIEW.s0) {
+    const vo = viewOpenAt(t);
+    if (vo > 0.001) {
+      const fall = -VIEW.fall * (s - VIEW.s0);
+      const w = vo * smoothstep(VIEW.s0, VIEW.s1, s);
+      if (fall < h) h += (fall - h) * w;
+    }
+  }
+  return h;
+}
 
 /* 石段。地面そのものを段にするとカメラも参拝客も跳ねるので、当たり判定は
    滑らかな坂のまま、見た目だけ段にする。 */
@@ -7614,6 +7803,126 @@ function buildOtsuka() {
   return g;
 }
 
+/* 分岐した道の敷石。本体の舗装は中心線の ±1.45m にしか敷かれていないので、
+   第2の道はそのままだと苔の上を歩くことになる。分かれ目と合流点では2本が
+   重なるので、離れている区間だけ、幅を絞りながら敷く（重ねると z 争いで
+   ちらつく）。 */
+function buildBranchPath() {
+  const g = new Geo();
+  const rows = [];
+  for (let t = BRANCH.t0; t <= BRANCH.t1; t += 0.5) {
+    const off = branchOffsetAt(t);
+    const hw = 1.45 * smoothstep(1.9, 3.1, off);
+    if (hw <= 0.02) continue;
+    const P = pathPos(t), Rt = pathRight(t);
+    const row = [];
+    for (let i = 0; i <= 6; i++) {
+      const s = off + lerp(-hw, hw, i / 6);
+      row.push({ x: P[0] + Rt[0] * s, y: P[1] + bankHeight(s, t), z: P[2] + Rt[2] * s, s, t });
+    }
+    rows.push(row);
+  }
+  const ids = [];
+  for (let r = 0; r < rows.length; r++) {
+    const row = [];
+    for (let i = 0; i < rows[r].length; i++) {
+      const c = rows[r][i];
+      row.push(g.push(c.x, c.y, c.z, 0, 1, 0, (c.s - branchOffsetAt(c.t)) * 0.60, c.t * 0.60,
+                      MAT.STONE));
+    }
+    ids.push(row);
+  }
+  for (let r = 0; r < ids.length - 1; r++)
+    for (let i = 0; i < ids[r].length - 1; i++)
+      g.quad(ids[r][i], ids[r + 1][i], ids[r + 1][i + 1], ids[r][i + 1]);
+  return g;
+}
+
+/* 沢の水面。地形に掘った溝の底を追いかけるリボン。下流へ向かって高さが
+   単調に下がるように締める（1箇所でも上を向くと水が坂を登って見える）。 */
+function buildStreamWater() {
+  const g = new Geo();
+  const pondY = pathYAt(POND.z) + POND.waterRel;
+  const rows = [];
+  let prevY = Infinity;
+  for (let t = STREAM.t1; t >= STREAM.t0 - 2.0; t -= 1.0) {
+    const sc = streamSAt(t);
+    const P = pathPos(t), Rt = pathRight(t), T = pathTan(t);
+    const cx = P[0] + Rt[0] * sc, cz = P[2] + Rt[2] * sc;
+    let y = WORLD.groundAt(cx, cz).y + 0.12;
+    y = Math.min(y, prevY - 0.015);
+    if (t < STREAM.t0 + 7) y = Math.max(y, pondY);   // 池に注ぐところで水面を合わせる
+    prevY = y;
+    const u = (t - STREAM.t0) / (STREAM.t1 - STREAM.t0);
+    const hw = 1.35 - 0.45 * u;                       // 下流ほど広い
+    rows.push({ cx, cz, y, hw, rx: Rt[0], rz: Rt[2], tx: T[0], tz: T[2], t });
+  }
+  const ids = [];
+  for (const r of rows) {
+    const row = [];
+    for (const k of [-1, 0, 1]) {
+      const w = r.hw * k * (k === 0 ? 0 : 1);
+      row.push(g.push(r.cx + r.rx * w, r.y - (k === 0 ? 0.02 : 0), r.cz + r.rz * w,
+                      0, 1, 0, k * 2.0, r.t * 0.5, MAT.STONE));
+    }
+    ids.push(row);
+  }
+  for (let i = 0; i < ids.length - 1; i++)
+    for (let k = 0; k < 2; k++)
+      g.quad(ids[i][k], ids[i][k + 1], ids[i + 1][k + 1], ids[i + 1][k]);
+  return g;
+}
+
+/* 沢べりの石。水際の継ぎ目はここで隠れる。 */
+function buildStreamStone() {
+  return roundedBox(0.62, 0.42, 0.55, 0.13, 2, { mat: MAT.GRANITE, uScale: 1.6 });
+}
+
+/* 見晴らしの裾。地形メッシュは横 46m で終わるので、そのままだと四ツ辻から
+   見たときに切り口が直線で空に接する。落ちていく斜面をもう一枚伸ばして、
+   霧に溶けるところまで持っていく。 */
+function buildViewSkirt() {
+  const g = new Geo();
+  const rows = [];
+  for (let t = 226; t <= 458; t += 5.0) {
+    const P = pathPos(t), Rt = pathRight(t);
+    const vo = viewOpenAt(t);
+    const row = [];
+    for (let i = 0; i <= 6; i++) {
+      /* 見晴らしが開いている t だけ外へ伸ばす。開いていないところまで一律に
+         伸ばすと、そこは掘られていないので土手がそのまま伸び、100m 先に
+         高さ 50m の壁が立つ。四ツ辻から街を見ると、それが視界の下半分を
+         霞んだ茶色で埋めていた。開いていない t では幅 0 に畳む。 */
+      const s = 46.0 + i * 13.0 * vo;
+      // 起伏は本体メッシュの切り口（s=46）から効かせる。ここで段差を作ると
+      // 継ぎ目に隙間が開く
+      const fade = smoothstep(46.0, 64.0, s);
+      const h = bankHeight(s, t) + (Math.sin(s * 0.21 + t * 0.13) * 0.9
+              + Math.sin(t * 0.07 - s * 0.05) * 1.6) * fade;
+      row.push({ x: P[0] + Rt[0] * s, y: P[1] + h, z: P[2] + Rt[2] * s, s, t });
+    }
+    rows.push(row);
+  }
+  const ids = [];
+  for (let r = 0; r < rows.length; r++) {
+    const row = [];
+    for (let i = 0; i < rows[r].length; i++) {
+      const c = rows[r][i];
+      const cL = rows[r][Math.max(i - 1, 0)], cR = rows[r][Math.min(i + 1, rows[r].length - 1)];
+      const cD = rows[Math.max(r - 1, 0)][i], cU = rows[Math.min(r + 1, rows.length - 1)][i];
+      const n = norm(cross([cU.x - cD.x, cU.y - cD.y, cU.z - cD.z],
+                           [cR.x - cL.x, cR.y - cL.y, cR.z - cL.z]));
+      if (n[1] < 0) { n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2]; }
+      row.push(g.push(c.x, c.y, c.z, n[0], n[1], n[2], c.s * 0.10, c.t * 0.10, MAT.MOSS));
+    }
+    ids.push(row);
+  }
+  for (let r = 0; r < ids.length - 1; r++)
+    for (let i = 0; i < ids[r].length - 1; i++)
+      g.quad(ids[r][i], ids[r + 1][i], ids[r + 1][i + 1], ids[r][i + 1]);
+  return g;
+}
+
 function buildPondSurface() {
   const g = new Geo(), N = 56;
   const c = g.push(0, 0, 0, 0, 1, 0, 0.5, 0.5, MAT.STONE);
@@ -7624,7 +7933,11 @@ function buildPondSurface() {
     ring.push(g.push(Math.cos(a) * rr, 0, Math.sin(a) * rr, 0, 1, 0,
                      Math.cos(a) * 3, Math.sin(a) * 3, MAT.STONE));
   }
-  for (let i = 0; i < N; i++) g.tri(c, ring[i], ring[i + 1]);
+  /* 巻き方向。(中心, ring[i], ring[i+1]) の順だと面法線が -Y を向き、上から
+     見ると裏面カリングで消える。頂点法線が +Y を向いていても、カリングは
+     三角形の巻きだけを見る。池が一度も見えなかったのは、山に埋まっていた
+     ことに加えてこれが理由。 */
+  for (let i = 0; i < N; i++) g.tri(c, ring[i + 1], ring[i]);
   return g;
 }
 
@@ -7644,13 +7957,74 @@ function buildZones() {
   S.draws.push({ mesh: slab, name: 'steps' });
   S.shadowDraws.push({ mesh: slab });
 
-  POND.x = pathXAt(POND.z) + 15.5;
-  POND.y = pathYAt(POND.z) - 1.05;
+  /* 新池。窪地の底に張るので、水面は路面のすこし下に来る。 */
+  const Pp = pathPos(POND.z), Rp = pathRight(POND.z);
+  POND.x = Pp[0] + Rp[0] * POND.s;
+  const pondZ = Pp[2] + Rp[2] * POND.s;
+  POND.y = Pp[1] + POND.waterRel;
   const pond = new Mesh(buildPondSurface());
   const pm = M4.create();
-  M4.compose(pm, [POND.x, POND.y, POND.z], 0, [1, 1, 1]);
+  M4.compose(pm, [POND.x, POND.y, pondZ], 0, [1, 1, 1]);
   pond.setInstances([{ m: pm, tint: [0.30, 0.36, 0.34, 0.2] }]);
   S.draws.push({ mesh: pond, name: 'pond' });
+
+  /* 沢。池に注ぐところまで一続き。 */
+  const stream = new Mesh(buildStreamWater());
+  const sm = M4.create();
+  M4.compose(sm, [0, 0, 0], 0, [1, 1, 1]);
+  stream.setInstances([{ m: sm, tint: [0.34, 0.40, 0.38, 0.6] }]);
+  S.draws.push({ mesh: stream, name: 'stream' });
+
+  const rock = new Mesh(buildStreamStone());
+  const ri = [];
+  for (let t = STREAM.t0 - 1; t < STREAM.t1 + 1; t += 0.85) {
+    const sc = streamSAt(t), P = pathPos(t), Rt = pathRight(t), T = pathTan(t);
+    for (const sgn of [-1, 1]) {
+      if (rn() < 0.28) continue;
+      const off = sgn * (1.15 + rn() * 1.5);
+      const x = P[0] + Rt[0] * (sc + off) + T[0] * (rn() - 0.5) * 0.8;
+      const z = P[2] + Rt[2] * (sc + off) + T[2] * (rn() - 0.5) * 0.8;
+      const sk = 0.55 + rn() * 1.35, m = M4.create();
+      M4.compose(m, [x, WORLD.groundAt(x, z).y - 0.10 * sk, z], rn() * TAU,
+                 [sk, sk * (0.6 + rn() * 0.6), sk], (rn() - 0.5) * 0.4, (rn() - 0.5) * 0.4);
+      ri.push({ m, tint: [0.74 + rn() * 0.24, 0.76 + rn() * 0.22, 0.74 + rn() * 0.22, rn()], t });
+    }
+  }
+  rock.setInstances(ri);
+  S.draws.push({ mesh: rock, name: 'stream_rocks' });
+  S.shadowDraws.push({ mesh: rock });
+
+  /* 見晴らしの裾。土手のメッシュと同じくインスタンスを付けずに置く
+     （付けると色の扱いが変わって、そこだけ質感が浮く）。 */
+  const skirt = new Mesh(buildViewSkirt());
+  S.draws.push({ mesh: skirt, name: 'view_skirt' });
+  S.shadowDraws.push({ mesh: skirt });
+
+  /* 分岐した第2の参道の鳥居。中心線の鳥居とぶつからないよう、十分に
+     離れたところからだけ立てる。太陽の遮蔽モデルが読むのは中心線の
+     R.toriiTs なので、こちらは別のメッシュにして混ぜない。 */
+  const bt = new Mesh(buildTorii(true));
+  const btLow = new Mesh(buildTorii(false));
+  const bi = [];
+  for (let t = BRANCH.t0; t < BRANCH.t1; t += 0.545 + rn() * 0.14) {
+    if (branchOffsetAt(t) < 2.6) continue;
+    const P = branchPos(t), T = branchTan(t), m = M4.create();
+    const big = rn() < 0.07;
+    const sc = (big ? 1.14 + rn() * 0.12 : 0.93 + rn() * 0.14) * 1.26;
+    M4.compose(m, [P[0], P[1] - 0.03, P[2]], Math.atan2(T[0], T[2]),
+               [sc * (0.96 + rn() * 0.11), sc, sc], 0, (rn() - 0.5) * 0.014);
+    const age = Math.pow(rn(), 0.8);
+    bi.push({ m, t, tint: [1.06 - age * 0.36 + (rn() - 0.5) * 0.10,
+                           1.00 - age * 0.16 + (rn() - 0.5) * 0.09,
+                           0.98 - age * 0.06 + (rn() - 0.5) * 0.09, rn()] });
+  }
+  const bpath = new Mesh(buildBranchPath());
+  S.draws.push({ mesh: bpath, name: 'branch_path' });
+  S.shadowDraws.push({ mesh: bpath });
+
+  bt.setInstances(bi); btLow.setInstances(bi);
+  S.draws.push({ mesh: bt, name: 'torii_branch' });
+  S.shadowDraws.push({ mesh: btLow });
 
   const ot = new Mesh(buildOtsuka());
   const oi = [];
@@ -7680,7 +8054,8 @@ function buildZones() {
   S.draws.push({ mesh: ot, name: 'otsuka' });
   S.shadowDraws.push({ mesh: ot });
   console.log('区間 ' + ZONES.map(z => z.name).join('/') + '  石段 ' + si.length
-    + ' 段  お塚 ' + oi.length + ' 基');
+    + ' 段  お塚 ' + oi.length + ' 基  分岐鳥居 ' + bi.length + ' 基  沢の石 '
+    + ri.length + ' 個');
 }
 
 /* ==== g_glb.js ==== */
@@ -7790,8 +8165,86 @@ function qslerp(o, a, b, t) {
   return o;
 }
 
+/* 骨を持たない描画のための 1x1。中身は使われない（uSkin=0 なので読まれない）。
+   ここで一枚差しておく目的はサンプラの型を揃えることだけ。 */
+let _dummyBone = null;
+function dummyBoneTex() {
+  if (_dummyBone) return _dummyBone;
+  _dummyBone = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, _dummyBone);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1, 1, 0, gl.RGBA, gl.FLOAT,
+                new Float32Array([0, 0, 0, 0]));
+  for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER])
+    gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
+  for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T])
+    gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE);
+  return _dummyBone;
+}
+
+/* ---------------- 群衆用の間引きメッシュ ----------------
+   参拝客に主人公と同じ 62,824 三角形を使っているのが負荷の根本原因だった。
+   本来は Blender の Decimate で作った版を持てばいいが、モデルは遊ぶ人が
+   落としてくるので、こちらで読み込み時に作る。
+
+   やり方は頂点クラスタリング。格子を切り、同じマスに落ちた頂点を1点に潰す。
+   O(N) で終わり、位相が壊れても遠くの人に使うぶんには分からない。
+   骨の番号と重みはマスの代表頂点のものを引き継ぐので、そのまま同じボーン
+   テクスチャで動く。 */
+function buildCrowdLOD(pos, nrm, idx, bi, bw, NV, cells) {
+  let mnx = 1e9, mny = 1e9, mnz = 1e9, mxx = -1e9, mxy = -1e9, mxz = -1e9;
+  for (let i = 0; i < NV; i++) {
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    if (x < mnx) mnx = x; if (y < mny) mny = y; if (z < mnz) mnz = z;
+    if (x > mxx) mxx = x; if (y > mxy) mxy = y; if (z > mxz) mxz = z;
+  }
+  const span = Math.max(mxx - mnx, mxy - mny, mxz - mnz) || 1;
+  const cs = span / cells;
+  const nx = Math.ceil((mxx - mnx) / cs) + 1, ny = Math.ceil((mxy - mny) / cs) + 1;
+  const nz = Math.ceil((mxz - mnz) / cs) + 1;
+  const map = new Int32Array(NV);
+  const cellId = new Map();
+  const ax = [], ay = [], az = [], an = [], bn = [], cn = [], cnt = [], src = [];
+  for (let i = 0; i < NV; i++) {
+    const ix = ((pos[i * 3] - mnx) / cs) | 0;
+    const iy = ((pos[i * 3 + 1] - mny) / cs) | 0;
+    const iz = ((pos[i * 3 + 2] - mnz) / cs) | 0;
+    const key = (ix * ny + iy) * nz + iz;
+    let id = cellId.get(key);
+    if (id === undefined) {
+      id = ax.length; cellId.set(key, id);
+      ax.push(0); ay.push(0); az.push(0); an.push(0); bn.push(0); cn.push(0);
+      cnt.push(0); src.push(i);
+    }
+    ax[id] += pos[i * 3]; ay[id] += pos[i * 3 + 1]; az[id] += pos[i * 3 + 2];
+    an[id] += nrm ? nrm[i * 3] : 0;
+    bn[id] += nrm ? nrm[i * 3 + 1] : 1;
+    cn[id] += nrm ? nrm[i * 3 + 2] : 0;
+    cnt[id]++; map[i] = id;
+  }
+  const M = ax.length;
+  const g = new Geo();
+  for (let i = 0; i < M; i++) {
+    const k = cnt[i];
+    const l = Math.hypot(an[i], bn[i], cn[i]) || 1;
+    g.push(ax[i] / k, ay[i] / k, az[i] / k, an[i] / l, bn[i] / l, cn[i] / l,
+           0.5, 0.5, MAT.LINEN);
+  }
+  let tris = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = map[idx[t]], b = map[idx[t + 1]], c = map[idx[t + 2]];
+    if (a === b || b === c || a === c) continue;    // マスに潰れた三角形
+    g.tri(a, b, c); tris++;
+  }
+  const lbi = new Float32Array(M * 4), lbw = new Float32Array(M * 4);
+  for (let i = 0; i < M; i++) {
+    const s0 = src[i];
+    for (let k = 0; k < 4; k++) { lbi[i * 4 + k] = bi[s0 * 4 + k]; lbw[i * 4 + k] = bw[s0 * 4 + k]; }
+  }
+  return { geo: g, bi: lbi, bw: lbw, verts: M, tris };
+}
+
 const PLAY = {
-  ready: false, mesh: null, boneTex: null, boneData: null,
+  ready: false, mesh: null, lod: null, boneTex: null, boneData: null,
   nodes: null, roots: null, skin: null, clips: null, morph: null,
   snap: null, fade: 0, fadeLen: 0.16, jumpY: 0,
   clip: 'idle', t: 0, yaw: 0, pos: [0, 0, 0], eye: null, vy: 0, air: false,
@@ -7865,6 +8318,29 @@ function loadGLB(buf, status) {
   }
   gl.bindVertexArray(null);
 
+  // --- 遠くの人のための間引きメッシュ ---
+  const L = buildCrowdLOD(pos, nrm, idx, bi, bw, NV, CROWD_LOD_CELLS);
+  const lodMesh = new Mesh(L.geo);
+  lodMesh.setInstances([{ m: M4.create(), tint: PLAY_TINT }]);
+  gl.bindVertexArray(lodMesh.vao);
+  {
+    const b = gl.createBuffer();          // まばたきは遠くでは要らない
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(L.verts * 3), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(11);
+    gl.vertexAttribPointer(11, 3, gl.FLOAT, false, 12, 0);
+  }
+  for (const [loc, data] of [[9, L.bi], [10, L.bw]]) {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 16, 0);
+  }
+  gl.bindVertexArray(null);
+  console.log('群衆メッシュ ' + (idx.length / 3).toLocaleString() + ' 三角形 -> '
+    + L.tris.toLocaleString() + ' 三角形（' + (idx.length / 3 / Math.max(L.tris, 1)).toFixed(1) + '分の1）');
+
   // --- 骨 ---
   const nodes = J.nodes.map(nd => {
     const o = nodeTRS(nd);
@@ -7931,7 +8407,7 @@ function loadGLB(buf, status) {
 
   Object.assign(PLAY, {
     snap: nodes.map(n => ({ t: n.trs.t.slice(), r: n.trs.r.slice(), s: n.trs.s.slice() })),
-    ready: true, mesh, boneTex, rows: ROWS, NB,
+    ready: true, mesh, lod: lodMesh, lodTris: L.tris, boneTex, rows: ROWS, NB,
     boneData: new Float32Array(NB * 16 * ROWS),
     nodes, roots, joints, ibm, clips, morph, NV, foot: ylo, top: yhi,
     scale: 1.0, names: Object.keys(clips)
@@ -7942,6 +8418,14 @@ function loadGLB(buf, status) {
   R.scene.shadowDraws.push(dr);
   R.baseDraws && R.baseDraws.push(dr);
   R.shadowBase && R.shadowBase.push(dr);
+  /* 遠くの人。ボーンテクスチャは同じで、読む行だけずらす。 */
+  const drLod = { mesh: lodMesh, name: 'crowd_lod', skin: boneTex, blink: 0,
+                  rowBase: 1 + CROWD_NEAR };
+  PLAY.lodDraw = drLod;
+  R.scene.draws.push(drLod);
+  R.scene.shadowDraws.push(drLod);
+  R.baseDraws && R.baseDraws.push(drLod);
+  R.shadowBase && R.shadowBase.push(drLod);
   initCrowd();
   status('');
   return true;
@@ -8022,13 +8506,17 @@ function uploadBones() {
    同じメッシュ・同じ骨で、行だけ変えて全員ぶんの姿勢を持つ。描画は1回。
    骨を解く相手は近い順に絞る — 見えないところで解いても仕方がない。 */
 const CROWD_N = 44;         // 参道に散っている人数
-const CROWD_DRAW = 14;      // そのうち実際に描く人数（近い順）
+const CROWD_DRAW = 26;      // そのうち実際に描く人数（近い順）
+/* そのうち本メッシュで描くのは手前だけ。残りは間引きメッシュ。人数を 14 -> 26
+   に増やしてなお、三角形は前より減る。 */
+const CROWD_NEAR = 6;
+const CROWD_LOD_CELLS = 26; // 間引きの格子の粗さ（大きいほど細かい）
 /* 打ち切りは霧の見通し（1/fogDensity ≒ 80m）と鳥居の間引き（±78m）に
    合わせる。46m で切っていたときは、まだはっきり見えている人が忽然と
    消えていた。境界の手前 9m は縮めて消すので、消える瞬間は見えない。 */
 const CROWD_FAR = 80;
 const CROWD_FADE = 9;
-const CROWD = { list: [], inst: [], drawn: 0 };
+const CROWD = { list: [], inst: [], lodInst: [], drawn: 0, near: 0, far: 0 };
 
 function initCrowd() {
   const rn = mulberry32(20260811);
@@ -8038,6 +8526,7 @@ function initCrowd() {
     CROWD.list.push({
       t: 6 + rn() * (PATH_LEN - 12),
       side: (rn() < 0.5 ? -1 : 1) * (0.5 + rn() * 1.5),
+      lane: rn() < 0.45 ? 1 : 0,        // 分岐区間でどちらの道を通るか
       spd: (up ? 1 : -1) * (0.75 + rn() * 0.85),
       ph: rn() * 4, scale: 0.93 + rn() * 0.13,
       tint: [0.52 + rn() * 0.22, 0.48 + rn() * 0.20, 0.46 + rn() * 0.20, 0.3],
@@ -8059,7 +8548,10 @@ function updateCrowd(dt) {
     }
     if (c.pause < -6) c.pause = 6 + Math.random() * 16;
     const P = pathPos(c.t), Rt = pathRight(c.t), T = pathTan(c.t);
-    const x = P[0] + Rt[0] * c.side, z = P[2] + Rt[2] * c.side;
+    /* 分岐区間では半分ほどが第2の道へ流れる。合流点で offset は 0 に戻るので、
+       横に飛ぶことなく自然に元の道へ合流する。 */
+    const sd = c.side + branchOffsetAt(c.t) * c.lane;
+    const x = P[0] + Rt[0] * sd, z = P[2] + Rt[2] * sd;
     const gy = WORLD.groundAt(x, z).y;
     const sg = c.spd < 0 ? -1 : 1;
     c.yaw = Math.atan2(T[0] * sg, T[2] * sg);
@@ -8078,19 +8570,31 @@ function updateCrowd(dt) {
      出さない**（インスタンスの配列に入れない）。骨を解くのも同じ人だけ。 */
   order.sort((a, b) => CROWD.list[a].d2 - CROWD.list[b].d2);
   CROWD.inst.length = 0;
+  CROWD.lodInst.length = 0;
   CROWD.inst.push({ m: PLAY.m, tint: PLAY_TINT });
-  let row = 1;
-  for (let k = 0; k < order.length && row <= CROWD_DRAW; k++) {
+  /* 手前の CROWD_NEAR 人だけ本メッシュ。そこから先は間引きメッシュに回す。
+     ボーンテクスチャの行は 0=自分 / 1..CROWD_NEAR=手前 / その先=遠く、と
+     詰めて使い、遠くの描画は uRowBase で頭出しする。 */
+  let near = 0, far = 0;
+  for (let k = 0; k < order.length && near + far < CROWD_DRAW; k++) {
     const c = CROWD.list[order[k]];
     if (c.d2 > CROWD_FAR * CROWD_FAR) break;      // 距離順なので、以降も遠い
     c.ph += dt * (c.moving ? Math.abs(c.spd) / CFG.walkSpeed * 1.7 : 0.7);
     sampleClip(c.moving ? 'walk' : 'idle', c.ph);
-    solveSkeleton(row);
-    CROWD.inst.push({ m: c.m, tint: c.tint });
-    row++;
+    if (near < CROWD_NEAR) {
+      solveSkeleton(1 + near);
+      CROWD.inst.push({ m: c.m, tint: c.tint });
+      near++;
+    } else {
+      solveSkeleton(1 + CROWD_NEAR + far);
+      CROWD.lodInst.push({ m: c.m, tint: c.tint });
+      far++;
+    }
   }
   PLAY.mesh.updateInstances(CROWD.inst);
-  CROWD.drawn = row - 1;
+  if (PLAY.lod) PLAY.lod.updateInstances(CROWD.lodInst);
+  CROWD.drawn = near + far;
+  CROWD.near = near; CROWD.far = far;
 }
 
 /* 表情を混ぜて、影響する範囲だけ頂点バッファに書き戻す */
@@ -8465,7 +8969,8 @@ async function boot() {
   };
   window.__DBG = { CFG, R, CAM, QUALITY, updateSun, sunENU, dayLength, pathPos, resize,
     KY, sunExposure, kyonshiReset, ringBell, WORLD, keidaiGroundY,
-    KIT, JOINTS, poseKitsune, placeKitsune };
+    KIT, JOINTS, poseKitsune, placeKitsune,
+    PLAY, CROWD, pathRight, pathTan, branchOffsetAt, viewOpenAt, ZONES, POND, STREAM };
   window.__probe = function (rtName, px, py, n) {
     const rt = R.rt[rtName]; if (!rt) return null;
     n = n || 1;

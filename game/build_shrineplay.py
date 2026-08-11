@@ -38,6 +38,7 @@ SKIN_DECL = '''layout(location=9) in vec4 aBI;
 layout(location=10) in vec4 aBW;
 layout(location=11) in vec3 aBlink;
 uniform int uSkin;
+uniform int uRowBase;
 uniform float uBlink;
 uniform sampler2D uBones;
 /* 4テクセルで1つのボーン行列（列ベクトル4本） */
@@ -54,7 +55,9 @@ SKIN_BODY = '''  vec3 sPos = aPos; vec3 sNrm = aNrm;
      まばたきのたびに頂点バッファを丸ごと上げ直すことになる。 */
   if(uBlink > 0.0) sPos += aBlink*uBlink;
   if(uSkin==1){
-    int row = uInstanced==1 ? gl_InstanceID : 0;
+    /* 行 = uRowBase + インスタンス番号。近くの人（本メッシュ）と遠くの人
+       （間引きメッシュ）は別々の描画になるので、後者は続きの行から読む。 */
+    int row = uRowBase + (uInstanced==1 ? gl_InstanceID : 0);
     mat4 S = boneAt(aBI.x,row)*aBW.x + boneAt(aBI.y,row)*aBW.y
            + boneAt(aBI.z,row)*aBW.z + boneAt(aBI.w,row)*aBW.w;
     sPos = (S*vec4(aPos,1.0)).xyz;
@@ -75,11 +78,84 @@ for _vs in ('VS_GBUF', 'VS_SHADOW'):
                       SKIN_BODY + '  mat4 M = uInstanced==1 ? aInst : uModel;')
     src = src[:i0] + blk + src[i1:]
 
+# uBones は**毎回**ユニット6に割り当てる。サンプラは既定で 0 番を指すので、
+# 骨のない描画では uBones(sampler2D) と uMatA(sampler2DArray) が同じ 0 番を
+# 共有することになり、WebGL はその描画を GL_INVALID_OPERATION で捨てる
+# （"Two textures of different types use the same sampler location"）。
+# モデルを落とさずに遊ぶと世界がまるごと消えていたのはこれが原因。
+# 骨が無いときは 1x1 のダミーを差しておく（未バインドのままでも実装依存で
+# 黒が返るだけだが、環境によって警告が出るので明示的に埋める）。
 rep("    u1f(prog, 'uWind', d.wind || 0);",
     "    u1f(prog, 'uWind', d.wind || 0);\n"
     "    u1i(prog, 'uSkin', d.skin ? 1 : 0);\n"
-    "    if (d.skin) tex(prog, 'uBones', 6, d.skin, gl.TEXTURE_2D);\n"
+    "    u1i(prog, 'uRowBase', d.rowBase || 0);\n"
+    "    tex(prog, 'uBones', 6, d.skin || dummyBoneTex(), gl.TEXTURE_2D);\n"
     "    u1f(prog, 'uBlink', d.blink || 0);")
+
+# ---------------------------------------------------------------------------
+# 1.5 四ツ辻からの京都市街
+#
+# 幾何として置くことはできない。霧の見通しは 1/fogDensity ≒ 80m しかないので、
+# 何km も先の街をメッシュで置いた瞬間、合成パスが完全に霧で塗り潰す。近くに
+# 縮小して置けば視差が嘘になる。
+#
+# なので**空として描く**。深度が遠クリップのままの画素（= 空）はライティング
+# パスで色が決まり、そのあとの霧の対象にならない。稜線と盆地を仰角で切り分けて
+# 空の色から作れば、遠景として矛盾なく成立する。
+#
+# 出るのはカメラが稜線より上に出たときだけ。石段を登りきって四ツ辻に着くと
+# 街が開ける、という順番そのものが、この区間の意味になる。
+# ---------------------------------------------------------------------------
+rep("uniform samplerCube uSky;\nuniform vec3 uHazeColor;",
+    "uniform samplerCube uSky;\nuniform vec3 uCityDir;   // 京都盆地の方位（世界座標）\n"
+    "uniform vec3 uHazeColor;")
+
+rep("""    sky = mix(sky, uHazeColor, smoothstep(0.16, -0.03, dir.y)*uHazeAmt);
+    outC = vec4(sky, 1.0);
+    return;""",
+"""    sky = mix(sky, uHazeColor, smoothstep(0.16, -0.03, dir.y)*uHazeAmt);
+
+    /* ---- 京都盆地 ---- */
+    float open = smoothstep(17.0, 34.0, uCamPos.y);     // 登るほど開ける
+    if(open > 0.003){
+      vec3 hd = normalize(vec3(dir.x, 0.0, dir.z) + vec3(1e-5, 0.0, 0.0));
+      float sector = smoothstep(0.08, 0.60, dot(hd, uCityDir));
+      if(sector > 0.002){
+        float az = atan(dir.x, dir.z), el = dir.y;
+        /* 西山の稜線。方位に沿った 1次元の起伏で十分に山に見える */
+        float rid = 0.028 + 0.032*fbm(vec2(az*3.1, 2.7), 4, 2.2, 0.55)
+                          + 0.008*sin(az*13.0);
+        /* 色はその画素の空に**掛けて**作る。加算や定数置き換えにすると露出と
+           時刻に追従しないが、掛け算なら朝焼けにも夕景にもそのまま乗る。 */
+        vec3 mnt = sky * vec3(0.44, 0.52, 0.68);           // 稜線は暗く、青に寄る
+        /* 街の粒。細かすぎると距離で潰れて一様な靄になるので、区画くらいの
+           大きさに落とす。仰角方向は圧縮されて見えるので係数を変える。 */
+        float grain = fbm(vec2(az*42.0, el*110.0), 4, 2.2, 0.5);
+        float dep = smoothstep(-0.006, -0.105, el);         // 下ほど手前
+        vec3 town = sky * mix(vec3(0.90,0.89,0.88), vec3(0.70,0.685,0.655), dep)
+                        * (0.90 + 0.21*grain);
+        town += vec3(0.052,0.035,0.015)*smoothstep(0.60,0.92,grain)*uStarAmt*1.6;
+        /* 盆地は「地平のすぐ下の細い帯」でしかない。42m の高さから見て、
+           3km 先の地面は -0.8°、10km 先なら -0.24°。そこから下へ延ばすと、
+           本来なら手前の山が塞いでいるはずの角度まで街になってしまう。
+           帯の下は手前の山として暗く落とし、霧色へ繋ぐ。 */
+        vec3 hill = sky * vec3(0.56, 0.60, 0.58);
+        float mAmt = smoothstep(rid + 0.010, rid - 0.016, el);   // 稜線から下
+        float cAmt = smoothstep(-0.004, -0.020, el);             // その下が盆地
+        float hAmt = smoothstep(-0.030, -0.075, el);             // さらに下は手前の山
+        vec3 far = mix(mix(mnt, town, cAmt), hill, hAmt);
+        sky = mix(sky, far, mAmt*sector*open);
+      }
+    }
+    outC = vec4(sky, 1.0);
+    return;""")
+
+rep("  tex(p_l, 'uSky', 10, R.skyCube.tex, gl.TEXTURE_CUBE_MAP);",
+    "  tex(p_l, 'uSky', 10, R.skyCube.tex, gl.TEXTURE_CUBE_MAP);\n"
+    "  {\n"
+    "    const cd = R.cityDir || (R.cityDir = norm(bearingToWorld(CITY_BEARING)));\n"
+    "    u3f(p_l, 'uCityDir', cd[0], cd[1], cd[2]);\n"
+    "  }")
 
 # ---------------------------------------------------------------------------
 # 2. 三人称カメラのフック
@@ -104,6 +180,77 @@ rep('const PATH_LEN = 210;', 'const PATH_LEN = 520;')
 # 頭のすぐ上に来ていた。実物の千本鳥居は人がゆったり通れる高さがある。
 rep("    const scale = (big ? 1.14 + rnd() * 0.12 : 0.93 + rnd() * 0.14);",
     "    const scale = (big ? 1.14 + rnd() * 0.12 : 0.93 + rnd() * 0.14) * 1.26;")
+
+# 地形に手を入れる口をひとつ開ける。bankHeight は「参道の中心線からの距離」
+# だけで高さを決めていたので、分岐も、池の窪地も、見晴らしも作れなかった。
+# t を受け取れるようにして、掘る処理（terrainCarve / zones.js）を通す。
+# t を渡さない呼び出しは今までどおりの形をそのまま返す。
+rep("""function bankHeight(s) {
+  const a = Math.abs(s);
+  if (a < 1.42) return -0.010 * a * a;
+  const k = a - 1.42;
+  // shallow gutter, then a steep wooded slope
+  return -0.02 + 0.42 * Math.min(k, 0.55) / 0.55
+    + 0.92 * Math.max(Math.min(k, 7.0) - 0.55, 0)
+    + 0.62 * Math.max(k - 7.0, 0);
+}""",
+"""function bankHeight(s, t) {
+  /* 分岐区間では2本の参道からの距離のうち近いほうを使う。間に土手が1本
+     残るので、そのまま2本を隔てる仕切りになる。 */
+  let a = Math.abs(s);
+  if (t !== undefined) {
+    const off = branchOffsetAt(t);
+    if (off > 0) a = Math.min(a, Math.abs(s - off));
+  }
+  let h;
+  if (a < 1.42) h = -0.010 * a * a;
+  else {
+    const k = a - 1.42;
+    // shallow gutter, then a steep wooded slope
+    h = -0.02 + 0.42 * Math.min(k, 0.55) / 0.55
+      + 0.92 * Math.max(Math.min(k, 7.0) - 0.55, 0)
+      + 0.62 * Math.max(k - 7.0, 0);
+  }
+  return t === undefined ? h : terrainCarve(s, t, h);
+}""")
+
+# 地形メッシュ・当たり判定・散らしもの、すべて同じ高さを見るように t を渡す。
+# ここを揃えないと、掘ったところに木や石が浮く。
+rep("      const h = bankHeight(s) + groundNoise(s, t) * (Math.abs(s) > 1.4 ? 3.0 : 1.0);",
+    "      const h = bankHeight(s, t) + groundNoise(s, t) * (Math.abs(s) > 1.4 ? 3.0 : 1.0);")
+rep("  return { y: P[1] + bankHeight(Math.abs(s)), s, t };",
+    "  return { y: P[1] + bankHeight(s, t), s, t };")
+src = src.replace("bankHeight(Math.abs(s))", "bankHeight(s, tt)")
+
+# 木と下草は沢の中に立たせない
+rep("""      if (rnd() > 0.72) continue;
+      const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);""",
+    """      if (rnd() > 0.72) continue;
+      const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);
+      if (nearStream(s, tt) || overWater(s, tt)) continue;
+      // 見晴らしの扇は伐り開ける。斜面を落としても、木が立っていれば見えない
+      if (rnd() < viewClearAt(s, tt) * 0.97) continue;""")
+rep("""    const s = sgn * (1.95 + Math.pow(rnd(), 0.7) * 10.0);
+    const P = pathPos(tt), R = pathRight(tt);""",
+    """    const s = sgn * (1.95 + Math.pow(rnd(), 0.7) * 10.0);
+    if (nearStream(s, tt) || overWater(s, tt)) continue;
+    const P = pathPos(tt), R = pathRight(tt);""")
+
+# 樹冠も同じ。梢が視線の高さに残ると、地面を落としても盆地は見えない
+rep("""    const tt = -16 + rnd() * (PATH_LEN + 40);
+    const s = (rnd() - 0.5) * 40.0;""",
+    """    const tt = -16 + rnd() * (PATH_LEN + 40);
+    const s = (rnd() - 0.5) * 40.0;
+    if (rnd() < viewClearAt(s, tt) * 0.97) continue;
+    // 沢と池の上は空けておく。覆われていると水面に映るものが無く、ただの
+    // 暗い面になる
+    if (overWater(s, tt) && rnd() < 0.9) continue;""")
+
+# 樹冠の高さは「横に離れるほど高く」で持ち上げていた。土手が必ず上がる前提の
+# 式なので、掘って下がる斜面では地面から切り離されて宙に浮く。土手の高さその
+# ものを見るように変えると、上がる側では今までどおり、下がる側では浮かない。
+rep("    const hgt = base + 5.0 + rnd() * 9.0 + Math.abs(s) * 0.32;",
+    "    const hgt = base + 5.0 + rnd() * 9.0 + Math.max(0, base - P[1]) * 0.35;")
 
 # 千本鳥居は本殿の正面からではなく**右手**から始まる。入口を右へずらし、
 # 70m ほどかけて元の稜線に戻す（ガウスで減衰させるので折れ目が出ない）。
@@ -169,6 +316,24 @@ rep("""  WORLD.add({
                corridor: z > 0.5, solid: z <= 0.5 };
     }
   });""")
+
+# 分岐区間は2本ぶんの帯を歩けるようにする。もとは中心線から左右対称に
+# corridorHalf で押し戻していたので、第2の参道へ入った瞬間に中心へ引き戻され、
+# 道があるのに歩けない状態になる。帯を [-half, off+half] に広げる。
+rep("""      const half = lerp(5.0, CFG.corridorHalf, smoothstep(0.0, 8.0, CAM.pos[2]));
+      if (Math.abs(g.s) > half) {
+        const k = (Math.abs(g.s) - half) * Math.sign(g.s);
+        const Rt = pathRight(g.t);
+        CAM.pos[0] -= Rt[0] * k * 0.42; CAM.pos[2] -= Rt[2] * k * 0.42;
+      }""",
+"""      const half = lerp(5.0, CFG.corridorHalf, smoothstep(0.0, 8.0, CAM.pos[2]));
+      const off = branchOffsetAt(g.t);
+      const k = g.s > off + half ? g.s - (off + half)
+              : (g.s < -half ? g.s + half : 0);
+      if (k !== 0) {
+        const Rt = pathRight(g.t);
+        CAM.pos[0] -= Rt[0] * k * 0.42; CAM.pos[2] -= Rt[2] * k * 0.42;
+      }""")
 
 # 移動の計算は**プレイヤーの位置**に対して行う。三人称でカメラを後ろへ
 # 引いたあと、その位置をそのまま次のフレームの入力にしてはいけない。
@@ -321,8 +486,86 @@ function qslerp(o, a, b, t) {
   return o;
 }
 
+/* 骨を持たない描画のための 1x1。中身は使われない（uSkin=0 なので読まれない）。
+   ここで一枚差しておく目的はサンプラの型を揃えることだけ。 */
+let _dummyBone = null;
+function dummyBoneTex() {
+  if (_dummyBone) return _dummyBone;
+  _dummyBone = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, _dummyBone);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1, 1, 0, gl.RGBA, gl.FLOAT,
+                new Float32Array([0, 0, 0, 0]));
+  for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER])
+    gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
+  for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T])
+    gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE);
+  return _dummyBone;
+}
+
+/* ---------------- 群衆用の間引きメッシュ ----------------
+   参拝客に主人公と同じ 62,824 三角形を使っているのが負荷の根本原因だった。
+   本来は Blender の Decimate で作った版を持てばいいが、モデルは遊ぶ人が
+   落としてくるので、こちらで読み込み時に作る。
+
+   やり方は頂点クラスタリング。格子を切り、同じマスに落ちた頂点を1点に潰す。
+   O(N) で終わり、位相が壊れても遠くの人に使うぶんには分からない。
+   骨の番号と重みはマスの代表頂点のものを引き継ぐので、そのまま同じボーン
+   テクスチャで動く。 */
+function buildCrowdLOD(pos, nrm, idx, bi, bw, NV, cells) {
+  let mnx = 1e9, mny = 1e9, mnz = 1e9, mxx = -1e9, mxy = -1e9, mxz = -1e9;
+  for (let i = 0; i < NV; i++) {
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    if (x < mnx) mnx = x; if (y < mny) mny = y; if (z < mnz) mnz = z;
+    if (x > mxx) mxx = x; if (y > mxy) mxy = y; if (z > mxz) mxz = z;
+  }
+  const span = Math.max(mxx - mnx, mxy - mny, mxz - mnz) || 1;
+  const cs = span / cells;
+  const nx = Math.ceil((mxx - mnx) / cs) + 1, ny = Math.ceil((mxy - mny) / cs) + 1;
+  const nz = Math.ceil((mxz - mnz) / cs) + 1;
+  const map = new Int32Array(NV);
+  const cellId = new Map();
+  const ax = [], ay = [], az = [], an = [], bn = [], cn = [], cnt = [], src = [];
+  for (let i = 0; i < NV; i++) {
+    const ix = ((pos[i * 3] - mnx) / cs) | 0;
+    const iy = ((pos[i * 3 + 1] - mny) / cs) | 0;
+    const iz = ((pos[i * 3 + 2] - mnz) / cs) | 0;
+    const key = (ix * ny + iy) * nz + iz;
+    let id = cellId.get(key);
+    if (id === undefined) {
+      id = ax.length; cellId.set(key, id);
+      ax.push(0); ay.push(0); az.push(0); an.push(0); bn.push(0); cn.push(0);
+      cnt.push(0); src.push(i);
+    }
+    ax[id] += pos[i * 3]; ay[id] += pos[i * 3 + 1]; az[id] += pos[i * 3 + 2];
+    an[id] += nrm ? nrm[i * 3] : 0;
+    bn[id] += nrm ? nrm[i * 3 + 1] : 1;
+    cn[id] += nrm ? nrm[i * 3 + 2] : 0;
+    cnt[id]++; map[i] = id;
+  }
+  const M = ax.length;
+  const g = new Geo();
+  for (let i = 0; i < M; i++) {
+    const k = cnt[i];
+    const l = Math.hypot(an[i], bn[i], cn[i]) || 1;
+    g.push(ax[i] / k, ay[i] / k, az[i] / k, an[i] / l, bn[i] / l, cn[i] / l,
+           0.5, 0.5, MAT.LINEN);
+  }
+  let tris = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = map[idx[t]], b = map[idx[t + 1]], c = map[idx[t + 2]];
+    if (a === b || b === c || a === c) continue;    // マスに潰れた三角形
+    g.tri(a, b, c); tris++;
+  }
+  const lbi = new Float32Array(M * 4), lbw = new Float32Array(M * 4);
+  for (let i = 0; i < M; i++) {
+    const s0 = src[i];
+    for (let k = 0; k < 4; k++) { lbi[i * 4 + k] = bi[s0 * 4 + k]; lbw[i * 4 + k] = bw[s0 * 4 + k]; }
+  }
+  return { geo: g, bi: lbi, bw: lbw, verts: M, tris };
+}
+
 const PLAY = {
-  ready: false, mesh: null, boneTex: null, boneData: null,
+  ready: false, mesh: null, lod: null, boneTex: null, boneData: null,
   nodes: null, roots: null, skin: null, clips: null, morph: null,
   snap: null, fade: 0, fadeLen: 0.16, jumpY: 0,
   clip: 'idle', t: 0, yaw: 0, pos: [0, 0, 0], eye: null, vy: 0, air: false,
@@ -396,6 +639,29 @@ function loadGLB(buf, status) {
   }
   gl.bindVertexArray(null);
 
+  // --- 遠くの人のための間引きメッシュ ---
+  const L = buildCrowdLOD(pos, nrm, idx, bi, bw, NV, CROWD_LOD_CELLS);
+  const lodMesh = new Mesh(L.geo);
+  lodMesh.setInstances([{ m: M4.create(), tint: PLAY_TINT }]);
+  gl.bindVertexArray(lodMesh.vao);
+  {
+    const b = gl.createBuffer();          // まばたきは遠くでは要らない
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(L.verts * 3), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(11);
+    gl.vertexAttribPointer(11, 3, gl.FLOAT, false, 12, 0);
+  }
+  for (const [loc, data] of [[9, L.bi], [10, L.bw]]) {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 16, 0);
+  }
+  gl.bindVertexArray(null);
+  console.log('群衆メッシュ ' + (idx.length / 3).toLocaleString() + ' 三角形 -> '
+    + L.tris.toLocaleString() + ' 三角形（' + (idx.length / 3 / Math.max(L.tris, 1)).toFixed(1) + '分の1）');
+
   // --- 骨 ---
   const nodes = J.nodes.map(nd => {
     const o = nodeTRS(nd);
@@ -462,7 +728,7 @@ function loadGLB(buf, status) {
 
   Object.assign(PLAY, {
     snap: nodes.map(n => ({ t: n.trs.t.slice(), r: n.trs.r.slice(), s: n.trs.s.slice() })),
-    ready: true, mesh, boneTex, rows: ROWS, NB,
+    ready: true, mesh, lod: lodMesh, lodTris: L.tris, boneTex, rows: ROWS, NB,
     boneData: new Float32Array(NB * 16 * ROWS),
     nodes, roots, joints, ibm, clips, morph, NV, foot: ylo, top: yhi,
     scale: 1.0, names: Object.keys(clips)
@@ -473,6 +739,14 @@ function loadGLB(buf, status) {
   R.scene.shadowDraws.push(dr);
   R.baseDraws && R.baseDraws.push(dr);
   R.shadowBase && R.shadowBase.push(dr);
+  /* 遠くの人。ボーンテクスチャは同じで、読む行だけずらす。 */
+  const drLod = { mesh: lodMesh, name: 'crowd_lod', skin: boneTex, blink: 0,
+                  rowBase: 1 + CROWD_NEAR };
+  PLAY.lodDraw = drLod;
+  R.scene.draws.push(drLod);
+  R.scene.shadowDraws.push(drLod);
+  R.baseDraws && R.baseDraws.push(drLod);
+  R.shadowBase && R.shadowBase.push(drLod);
   initCrowd();
   status('');
   return true;
@@ -553,13 +827,17 @@ function uploadBones() {
    同じメッシュ・同じ骨で、行だけ変えて全員ぶんの姿勢を持つ。描画は1回。
    骨を解く相手は近い順に絞る — 見えないところで解いても仕方がない。 */
 const CROWD_N = 44;         // 参道に散っている人数
-const CROWD_DRAW = 14;      // そのうち実際に描く人数（近い順）
+const CROWD_DRAW = 26;      // そのうち実際に描く人数（近い順）
+/* そのうち本メッシュで描くのは手前だけ。残りは間引きメッシュ。人数を 14 -> 26
+   に増やしてなお、三角形は前より減る。 */
+const CROWD_NEAR = 6;
+const CROWD_LOD_CELLS = 26; // 間引きの格子の粗さ（大きいほど細かい）
 /* 打ち切りは霧の見通し（1/fogDensity ≒ 80m）と鳥居の間引き（±78m）に
    合わせる。46m で切っていたときは、まだはっきり見えている人が忽然と
    消えていた。境界の手前 9m は縮めて消すので、消える瞬間は見えない。 */
 const CROWD_FAR = 80;
 const CROWD_FADE = 9;
-const CROWD = { list: [], inst: [], drawn: 0 };
+const CROWD = { list: [], inst: [], lodInst: [], drawn: 0, near: 0, far: 0 };
 
 function initCrowd() {
   const rn = mulberry32(20260811);
@@ -569,6 +847,7 @@ function initCrowd() {
     CROWD.list.push({
       t: 6 + rn() * (PATH_LEN - 12),
       side: (rn() < 0.5 ? -1 : 1) * (0.5 + rn() * 1.5),
+      lane: rn() < 0.45 ? 1 : 0,        // 分岐区間でどちらの道を通るか
       spd: (up ? 1 : -1) * (0.75 + rn() * 0.85),
       ph: rn() * 4, scale: 0.93 + rn() * 0.13,
       tint: [0.52 + rn() * 0.22, 0.48 + rn() * 0.20, 0.46 + rn() * 0.20, 0.3],
@@ -590,7 +869,10 @@ function updateCrowd(dt) {
     }
     if (c.pause < -6) c.pause = 6 + Math.random() * 16;
     const P = pathPos(c.t), Rt = pathRight(c.t), T = pathTan(c.t);
-    const x = P[0] + Rt[0] * c.side, z = P[2] + Rt[2] * c.side;
+    /* 分岐区間では半分ほどが第2の道へ流れる。合流点で offset は 0 に戻るので、
+       横に飛ぶことなく自然に元の道へ合流する。 */
+    const sd = c.side + branchOffsetAt(c.t) * c.lane;
+    const x = P[0] + Rt[0] * sd, z = P[2] + Rt[2] * sd;
     const gy = WORLD.groundAt(x, z).y;
     const sg = c.spd < 0 ? -1 : 1;
     c.yaw = Math.atan2(T[0] * sg, T[2] * sg);
@@ -609,19 +891,31 @@ function updateCrowd(dt) {
      出さない**（インスタンスの配列に入れない）。骨を解くのも同じ人だけ。 */
   order.sort((a, b) => CROWD.list[a].d2 - CROWD.list[b].d2);
   CROWD.inst.length = 0;
+  CROWD.lodInst.length = 0;
   CROWD.inst.push({ m: PLAY.m, tint: PLAY_TINT });
-  let row = 1;
-  for (let k = 0; k < order.length && row <= CROWD_DRAW; k++) {
+  /* 手前の CROWD_NEAR 人だけ本メッシュ。そこから先は間引きメッシュに回す。
+     ボーンテクスチャの行は 0=自分 / 1..CROWD_NEAR=手前 / その先=遠く、と
+     詰めて使い、遠くの描画は uRowBase で頭出しする。 */
+  let near = 0, far = 0;
+  for (let k = 0; k < order.length && near + far < CROWD_DRAW; k++) {
     const c = CROWD.list[order[k]];
     if (c.d2 > CROWD_FAR * CROWD_FAR) break;      // 距離順なので、以降も遠い
     c.ph += dt * (c.moving ? Math.abs(c.spd) / CFG.walkSpeed * 1.7 : 0.7);
     sampleClip(c.moving ? 'walk' : 'idle', c.ph);
-    solveSkeleton(row);
-    CROWD.inst.push({ m: c.m, tint: c.tint });
-    row++;
+    if (near < CROWD_NEAR) {
+      solveSkeleton(1 + near);
+      CROWD.inst.push({ m: c.m, tint: c.tint });
+      near++;
+    } else {
+      solveSkeleton(1 + CROWD_NEAR + far);
+      CROWD.lodInst.push({ m: c.m, tint: c.tint });
+      far++;
+    }
   }
   PLAY.mesh.updateInstances(CROWD.inst);
-  CROWD.drawn = row - 1;
+  if (PLAY.lod) PLAY.lod.updateInstances(CROWD.lodInst);
+  CROWD.drawn = near + far;
+  CROWD.near = near; CROWD.far = far;
 }
 
 /* 表情を混ぜて、影響する範囲だけ頂点バッファに書き戻す */
@@ -782,6 +1076,11 @@ function setupPlayerUI() {
 '''
 
 rep('/* ==== e_main.js ==== */', PLAYER.lstrip('\n') + '/* ==== e_main.js ==== */')
+
+# 参道側のものも覗けるようにしておく（位置を飛ばして絵を確認するのに要る）
+rep("""    KIT, JOINTS, poseKitsune, placeKitsune };""",
+    """    KIT, JOINTS, poseKitsune, placeKitsune,
+    PLAY, CROWD, pathRight, pathTan, branchOffsetAt, viewOpenAt, ZONES, POND, STREAM };""")
 rep("  window.__ready = true;", "  buildZones();\n  setupPlayerUI();\n  window.__ready = true;")
 
 # キャラクターは前景なので、遠景カリングの対象から外す
