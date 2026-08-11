@@ -94,6 +94,16 @@ rep("""  CAM.pitch = clamp(CAM.pitch, -1.25, 1.25);
 
 rep("    updateKyonshi(dt);", "    updateKyonshi(dt);\n    updatePlayer(dt);")
 
+# 移動の計算は**プレイヤーの位置**に対して行う。三人称でカメラを後ろへ
+# 引いたあと、その位置をそのまま次のフレームの入力にしてはいけない。
+rep("function updateCamera(dt) {",
+    "function updateCamera(dt) {\n"
+    "  /* 前のフレームで CAM.pos はカメラ位置に書き換わっている。移動も接地も\n"
+    "     プレイヤーに対して行うものなので、先に戻す。これを忘れると、毎フレーム\n"
+    "     カメラの後退ぶん（3.1m）と目線の高さのぶんが位置に足し込まれ続けて、\n"
+    "     世界の下へ抜けていく（地面が消えて空中浮遊に見えた原因）。 */\n"
+    "  if (PLAY.ready && PLAY.eye) { CAM.pos[0] = PLAY.eye[0]; CAM.pos[1] = PLAY.eye[1]; CAM.pos[2] = PLAY.eye[2]; }")
+
 # ---------------------------------------------------------------------------
 # 3. UI
 # ---------------------------------------------------------------------------
@@ -235,7 +245,7 @@ const PLAY = {
   ready: false, mesh: null, boneTex: null, boneData: null,
   nodes: null, roots: null, skin: null, clips: null, morph: null,
   snap: null, fade: 0, fadeLen: 0.16, jumpY: 0,
-  clip: 'idle', t: 0, yaw: 0, pos: [0, 0, 0], vy: 0, air: false,
+  clip: 'idle', t: 0, yaw: 0, pos: [0, 0, 0], eye: null, vy: 0, air: false,
   scale: 1, blink: 0, blinkNext: 2.0, m: M4.create(), tmp: M4.create()
 };
 
@@ -545,6 +555,8 @@ function updatePlayer(dt) {
 
 /* カメラを肩の後ろへ。壁に埋まらないよう、間に何かあれば寄る。 */
 function thirdPerson(dt, dir) {
+  PLAY.eye = PLAY.eye || [0, 0, 0];
+  PLAY.eye[0] = CAM.pos[0]; PLAY.eye[1] = CAM.pos[1]; PLAY.eye[2] = CAM.pos[2];
   PLAY.pos[0] = CAM.pos[0];
   PLAY.pos[2] = CAM.pos[2];
   PLAY.pos[1] = CAM.pos[1] - CFG.eyeHeight;
