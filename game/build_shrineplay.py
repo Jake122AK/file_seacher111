@@ -100,6 +100,13 @@ rep("    updateKyonshi(dt);", "    updateKyonshi(dt);\n    updatePlayer(dt);")
 # PATH_LEN を見て並ぶので、ここ1行で全部が伸びる。描画は CAM.t±78 で間引かれる。
 rep('const PATH_LEN = 210;', 'const PATH_LEN = 520;')
 
+# 鳥居を区間ごとに間引く。ずっと同じ密度だと、長いだけの一本道になる。
+rep('''    const P = pathPos(t), T = pathTan(t);
+    const ry = Math.atan2(T[0], T[2]);''',
+'''    if (toriiSkip(t)) { t += 0.9; continue; }
+    const P = pathPos(t), T = pathTan(t);
+    const ry = Math.atan2(T[0], T[2]);''')
+
 # 観光地なので、キョンシーは出さない
 rep('  const spots = [[34, -0.9], [52, 1.0], [70, -0.6], [88, 0.8], [106, -1.0], [124, 0.7], [142, -0.5]];',
     '  const spots = [];        // 参拝客だけの世界にする')
@@ -145,7 +152,9 @@ rep('#joy{position:fixed;width:110px;height:110px;border-radius:50%;border:1.5px
 # ---------------------------------------------------------------------------
 # 4. 本体
 # ---------------------------------------------------------------------------
-PLAYER = r'''
+ZONES_JS = io.open(os.path.join(HERE, 'zones.js'), encoding='utf-8').read()
+
+PLAYER = ZONES_JS + r'''
 /* ==== g_glb.js ==== */
 /* =========================================================================
    glTF (.glb) の読み込みと再生、そして三人称の操作
@@ -707,7 +716,7 @@ function setupPlayerUI() {
 '''
 
 rep('/* ==== e_main.js ==== */', PLAYER.lstrip('\n') + '/* ==== e_main.js ==== */')
-rep("  window.__ready = true;", "  setupPlayerUI();\n  window.__ready = true;")
+rep("  window.__ready = true;", "  buildZones();\n  setupPlayerUI();\n  window.__ready = true;")
 
 # キャラクターは前景なので、遠景カリングの対象から外す
 rep("""  if (QS.has('walk')) CFG.autoWalk = QS.get('walk') !== '0';""",
