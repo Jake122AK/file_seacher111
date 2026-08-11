@@ -143,6 +143,33 @@ rep('''    const P = pathPos(t), T = pathTan(t);
 rep('  const spots = [[34, -0.9], [52, 1.0], [70, -0.6], [88, 0.8], [106, -1.0], [124, 0.7], [142, -0.5]];',
     '  const spots = [];        // 参拝客だけの世界にする')
 
+# 境内と参道の継ぎ目。地面の関数が2つ（keidaiGroundY と groundHeightAt）あって、
+# z=1.0 で切り替わるだけだったので、そこに段差ができていた。両者を z=-11〜+11 の
+# 帯で混ぜる。混ぜるだけで段差は消える。
+rep("""  WORLD.add({
+    name: 'keidai',
+    contains: (x, z) => z < 1.0,
+    ground: (x, z) => ({ y: keidaiGroundY(x, z), solid: true })
+  });""",
+"""  WORLD.add({
+    name: 'keidai',
+    contains: (x, z) => z < -11.0,
+    ground: (x, z) => ({ y: keidaiGroundY(x, z), solid: true })
+  });
+  /* 継ぎ目。境内の地面と参道の地面は別々の関数なので、切り替えるだけでは
+     段差になる。22m かけて混ぜる。参道側の funnel は z>0.5 からで、
+     もともと z=0 付近では幅 5m に開いているので、そのまま繋がる。 */
+  WORLD.add({
+    name: 'seam',
+    contains: (x, z) => z < 11.0,
+    ground: (x, z) => {
+      const g = groundHeightAt(x, z);
+      const w = smoothstep(-11.0, 11.0, z);
+      return { y: lerp(keidaiGroundY(x, z), g.y, w), s: g.s, t: g.t,
+               corridor: z > 0.5, solid: z <= 0.5 };
+    }
+  });""")
+
 # 移動の計算は**プレイヤーの位置**に対して行う。三人称でカメラを後ろへ
 # 引いたあと、その位置をそのまま次のフレームの入力にしてはいけない。
 rep("function updateCamera(dt) {",

@@ -4180,8 +4180,21 @@ function registerAreas() {
   WORLD.areas.length = 0;
   WORLD.add({
     name: 'keidai',
-    contains: (x, z) => z < 1.0,
+    contains: (x, z) => z < -11.0,
     ground: (x, z) => ({ y: keidaiGroundY(x, z), solid: true })
+  });
+  /* 継ぎ目。境内の地面と参道の地面は別々の関数なので、切り替えるだけでは
+     段差になる。22m かけて混ぜる。参道側の funnel は z>0.5 からで、
+     もともと z=0 付近では幅 5m に開いているので、そのまま繋がる。 */
+  WORLD.add({
+    name: 'seam',
+    contains: (x, z) => z < 11.0,
+    ground: (x, z) => {
+      const g = groundHeightAt(x, z);
+      const w = smoothstep(-11.0, 11.0, z);
+      return { y: lerp(keidaiGroundY(x, z), g.y, w), s: g.s, t: g.t,
+               corridor: z > 0.5, solid: z <= 0.5 };
+    }
   });
   WORLD.add({
     name: 'senbon',
