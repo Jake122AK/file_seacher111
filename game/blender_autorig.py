@@ -482,6 +482,104 @@ def skin(ob, arm, P, IDX):
     print('スキニング完了: %d / %d 頂点にウェイト' % (nz, NV))
 
 
+# ---------------------------------------------------------------- 歩行
+def axis_of(pb, world_axis):
+    """このボーンのローカル軸のうち、指定した世界軸に一番近いものを返す。
+
+    ボーンのローカル軸は骨の向きとロールで決まるので、腿と上腕と指では
+    「前後に振る軸」が別々の番号になる。番号を決め打ちで書くと、腕を振った
+    つもりが捻れる。骨ごとに引き当てるのが確実。
+    """
+    m = pb.bone.matrix_local.to_3x3()
+    best, bv = 0, -1.0
+    for i in range(3):
+        d = abs(m.col[i].dot(world_axis))
+        if d > bv:
+            bv, best = d, i
+    return best, (1.0 if m.col[best].dot(world_axis) > 0 else -1.0)
+
+
+def walk_cycle(arm, L, FG, frames=32):
+    """歩行サイクルをキーフレームで焼く。rigplay.html の walk と同じ設計。
+
+    世界軸は X が左右、Y が前後（キャラクターは -Y を向く）、Z が上。
+    脚も腕も前後に振るので回転軸は世界 X、腕を体側に下ろすのは世界 Y。
+    """
+    X, Y = Vector((1, 0, 0)), Vector((0, 1, 0))
+    P = arm.pose.bones
+    for pb in P:
+        pb.rotation_mode = 'XYZ'
+
+    # A ポーズなら、まず腕を下ろすところから始まる（既に下りていれば 0 に近い）
+    already = math.atan2(max(0.0, L['armYc'] - L['wristY']),
+                         max(1e-4, L['wristX'] - L['shoulderX']))
+    drop = max(0.0, (1.26 if L['armsOut'] else 0.10) - already)
+
+    D = math.radians
+    rows = {s: sorted([f for f in FG if f['side'] == s], key=lambda f: f['q'])
+            for s in (-1, 1)}
+
+    def key(name, world_axis, ang, fr):
+        pb = P.get(name)
+        if not pb:
+            return
+        i, sg = axis_of(pb, world_axis)
+        pb.rotation_euler[i] = sg * ang
+        pb.keyframe_insert('rotation_euler', index=i, frame=fr)
+
+    z0 = arm.location.z
+    for fr in range(1, frames + 2):            # 最後は最初と同じ姿勢＝ループ
+        ph = (fr - 1) / frames * 2 * math.pi
+        for k, sgn in (('L', -1), ('R', 1)):
+            o = 0.0 if k == 'L' else math.pi
+            p = ph + o
+            sp = math.sin(p)
+            key('thigh' + k, X, sp * D(24), fr)
+            # 膝は片方向にしか曲がらない。足が地面を離れた直後に最も曲がる
+            bend = max(0.0, math.sin(p - 0.9))
+            key('shin' + k, X, -(bend * D(46) + D(6)), fr)
+            key('foot' + k, X, math.sin(p + 1.6) * D(14) + D(2), fr)
+            key('upArm' + k, X, -sp * D(22), fr)
+            key('upArm' + k, Y, sgn * (drop + D(6)), fr)
+            key('loArm' + k, X, -(D(20) + max(0.0, -sp) * D(14)), fr)
+            # 手は軽く握ったまま。親指だけは 40% しか閉じない
+            for n, f in enumerate(rows[sgn]):
+                g = 0.34 * (0.40 if f['thumb'] else 1.0)
+                key('fg%da%s' % (n, k), Y, sgn * g * D(62), fr)
+                key('fg%db%s' % (n, k), Y, sgn * g * D(74), fr)
+        key('spine', X, D(2), fr)
+        key('spine', Vector((0, 0, 1)), math.sin(ph) * D(3), fr)
+        key('chest', Vector((0, 0, 1)), -math.sin(ph) * D(5), fr)
+        key('head', X, -D(1), fr)
+        # 上下動 : 両足が地面についた瞬間がいちばん低い
+        arm.location.z = z0 - abs(math.cos(ph)) * 0.022 + 0.010
+        arm.keyframe_insert('location', index=2, frame=fr)
+
+    act = arm.animation_data.action
+    act.name = 'walk'
+    fcs = action_fcurves(act)
+    for fc in fcs:
+        for kp in fc.keyframe_points:
+            kp.interpolation = 'BEZIER'
+    sc = bpy.context.scene
+    sc.frame_start, sc.frame_end = 1, frames + 1
+    print('歩行サイクル: %d フレーム / F カーブ %d 本' % (frames + 1, len(fcs)))
+
+
+def action_fcurves(act):
+    """Blender 4.4 以降のアクションはスロット付きで、F カーブは
+    layers/strips/channelbags の下にある。4.3 以前は act.fcurves に直接。
+    どちらでも動くようにしておく。"""
+    if hasattr(act, 'fcurves') and len(act.fcurves):
+        return list(act.fcurves)
+    out = []
+    for layer in getattr(act, 'layers', []):
+        for strip in layer.strips:
+            for cb in getattr(strip, 'channelbags', []):
+                out.extend(cb.fcurves)
+    return out
+
+
 # ---------------------------------------------------------------- Blender
 def to_blender(p):
     """OBJ(Y上) -> Blender(Z上)。正面が -Y を向く。"""
@@ -570,6 +668,7 @@ def build(src, dst):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     skin(ob, arm, P, IDX)
+    walk_cycle(arm, L, FG)
 
     bpy.ops.export_scene.gltf(filepath=dst, export_format='GLB',
                               export_animations=True, export_skins=True)
