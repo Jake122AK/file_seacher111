@@ -483,12 +483,11 @@ def skin(ob, arm, P, IDX):
 
 
 # ---------------------------------------------------------------- 歩行
-def axis_of(pb, world_axis):
-    """このボーンのローカル軸のうち、指定した世界軸に一番近いものを返す。
+def local_axis(pb, world_axis):
+    """世界軸に一番近いボーンのローカル軸を、ローカル座標のベクトルで返す。
 
-    ボーンのローカル軸は骨の向きとロールで決まるので、腿と上腕と指では
-    「前後に振る軸」が別々の番号になる。番号を決め打ちで書くと、腕を振った
-    つもりが捻れる。骨ごとに引き当てるのが確実。
+    ローカル軸は骨の向きとロールで決まるので、腿と上腕と指では「前後に振る
+    軸」が別々の番号になる。番号を決め打ちすると、腕を振ったつもりが捻れる。
     """
     m = pb.bone.matrix_local.to_3x3()
     best, bv = 0, -1.0
@@ -496,64 +495,132 @@ def axis_of(pb, world_axis):
         d = abs(m.col[i].dot(world_axis))
         if d > bv:
             bv, best = d, i
-    return best, (1.0 if m.col[best].dot(world_axis) > 0 else -1.0)
+    v = Vector((0.0, 0.0, 0.0))
+    v[best] = 1.0 if m.col[best].dot(world_axis) > 0 else -1.0
+    return v
+
+
+def two_bone_ik(l1, l2, df, dz):
+    """股関節から見た足首の位置 (前 df, 下 dz) を、腿と脛の角度に解く。
+
+    返すのは (腿の角度, 脛の相対角度)。どちらも「前が正、鉛直が0」。
+    脛は必ず後ろにしか曲がらない（膝は前に折れない）ので相対角は負。
+    """
+    d = math.hypot(df, dz)
+    lim = (l1 + l2) * 0.999
+    if d > lim:                       # 届かないときは脚を伸ばし切る
+        df *= lim / d; dz *= lim / d; d = lim
+    d = max(d, abs(l1 - l2) * 1.001 + 1e-6)
+    phi = math.atan2(df, dz)                       # 股-足首を結ぶ線の傾き
+    ca = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1.0, 1.0)
+    ck = clamp((l1 * l1 + l2 * l2 - d * d) / (2 * l1 * l2), -1.0, 1.0)
+    return phi + math.acos(ca), -(math.pi - math.acos(ck))
 
 
 def walk_cycle(arm, L, FG, frames=32):
-    """歩行サイクルをキーフレームで焼く。rigplay.html の walk と同じ設計。
+    """歩行サイクルをキーフレームで焼く。
+
+    関節角を直接振る方式はやめた。実測すると、あれは歩いていない ──
+    足首の最低高 0.080 m に対して最高 0.186 m、接地とみなせるのは33フレーム中
+    5フレームだけで、その間に 0.188 m 滑っていた。腿を24度、膝を46度と決めて
+    振ると、その合計がどこに足を置くのかを誰も見ていないからである。
+
+    なので**足の軌道のほうを決めて、股と膝の角度は逆運動学で解く**。
+    立脚中の足首は接地したまま一定速度で後ろへ流れ（その場歩きなので、
+    地面のほうが後ろへ流れると解釈する）、遊脚中に持ち上がって前へ戻る。
 
     世界軸は X が左右、Y が前後（キャラクターは -Y を向く）、Z が上。
-    脚も腕も前後に振るので回転軸は世界 X、腕を体側に下ろすのは世界 Y。
+    世界 X まわりの正の回転は脚を**後ろ**へ振るので、前向きの角度には
+    負号が付く。
     """
-    X, Y = Vector((1, 0, 0)), Vector((0, 1, 0))
+    from mathutils import Quaternion
+    X, Y, Z = Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))
     P = arm.pose.bones
     for pb in P:
-        pb.rotation_mode = 'XYZ'
+        pb.rotation_mode = 'QUATERNION'
 
-    # A ポーズなら、まず腕を下ろすところから始まる（既に下りていれば 0 に近い）
+    hipZ = L['hip'] - L['H'] * 0.01          # thigh ボーンの頭の高さ
+    l1 = hipZ - L['knee']
+    l2 = L['knee'] - L['ankle']
+    ankle0 = L['ankle']
+    STRIDE = (l1 + l2) * 0.54                # 足首の前後移動量
+    LIFT = (l1 + l2) * 0.14                  # 遊脚での持ち上げ
+    ST = 0.62                                # 立脚の割合
+    # 真っ直ぐな脚のままでは足を前後に置けない（伸び切っている）。
+    # 骨盤が下がるのはそのため。実際の歩行でも 30〜50mm 下がる。
+    DROP = (l1 + l2) * 0.044
+    BOB = (l1 + l2) * 0.026
+
     already = math.atan2(max(0.0, L['armYc'] - L['wristY']),
                          max(1e-4, L['wristX'] - L['shoulderX']))
     drop = max(0.0, (1.26 if L['armsOut'] else 0.10) - already)
-
-    D = math.radians
     rows = {s: sorted([f for f in FG if f['side'] == s], key=lambda f: f['q'])
             for s in (-1, 1)}
+    D = math.radians
 
-    def key(name, world_axis, ang, fr):
-        pb = P.get(name)
-        if not pb:
-            return
-        i, sg = axis_of(pb, world_axis)
-        pb.rotation_euler[i] = sg * ang
-        pb.keyframe_insert('rotation_euler', index=i, frame=fr)
+    def foot_at(p):
+        """位相 p (0..1) の足首の (前後, 高さ)。0 で接地、ST で離地。"""
+        p %= 1.0
+        if p < ST:
+            t = p / ST
+            return STRIDE * (0.5 - t), ankle0
+        t = (p - ST) / (1.0 - ST)
+        e = t * t * (3 - 2 * t)                       # なめらかに前へ戻す
+        return STRIDE * (-0.5 + e), ankle0 + LIFT * math.sin(math.pi * t)
 
-    z0 = arm.location.z
-    for fr in range(1, frames + 2):            # 最後は最初と同じ姿勢＝ループ
-        ph = (fr - 1) / frames * 2 * math.pi
+    for fr in range(1, frames + 2):        # 最後は最初と同じ姿勢＝ループ
+        ph = (fr - 1) / frames
+        acc = {}
+
+        def add(name, axis, ang):
+            acc.setdefault(name, []).append((axis, ang))
+
+        # 骨盤は両足接地の瞬間がいちばん低い
+        bob = -BOB * math.cos(4 * math.pi * ph)
+        hz = hipZ - DROP + bob
+
         for k, sgn in (('L', -1), ('R', 1)):
-            o = 0.0 if k == 'L' else math.pi
-            p = ph + o
-            sp = math.sin(p)
-            key('thigh' + k, X, sp * D(24), fr)
-            # 膝は片方向にしか曲がらない。足が地面を離れた直後に最も曲がる
-            bend = max(0.0, math.sin(p - 0.9))
-            key('shin' + k, X, -(bend * D(46) + D(6)), fr)
-            key('foot' + k, X, math.sin(p + 1.6) * D(14) + D(2), fr)
-            key('upArm' + k, X, -sp * D(22), fr)
-            key('upArm' + k, Y, sgn * (drop + D(6)), fr)
-            key('loArm' + k, X, -(D(20) + max(0.0, -sp) * D(14)), fr)
-            # 手は軽く握ったまま。親指だけは 40% しか閉じない
+            p = ph if k == 'L' else ph + 0.5
+            af, au = foot_at(p)
+            th, sh = two_bone_ik(l1, l2, af, hz - au)
+            add('thigh' + k, X, -th)                  # 前向き = 負
+            add('shin' + k, X, -sh)
+            # 足は立脚中は地面と平行のまま。遊脚の終わりだけ爪先を上げる
+            swing = (p % 1.0) >= ST
+            toe = D(10) * math.sin(math.pi * ((p % 1.0) - ST) / (1 - ST)) if swing else 0.0
+            add('foot' + k, X, -(-(th + sh) + toe))
+            # 腕は同じ側の脚と逆位相。
+            # 軸は X ではなく Z。休めの姿勢で腕は真横を向いているので、
+            # そこで世界 X まわりに回しても腕が「捻れる」だけで前後には
+            # 振れない（実測：手首の振れ幅 0.028 m しかなかった）。
+            # 真横の腕を前後に振る軸は鉛直の Z。腕を体側へ下ろすのはその後。
+            add('upArm' + k, Y, sgn * (drop + D(5)))     # 先に足す＝後から適用
+            add('upArm' + k, Z, sgn * th * 0.95)
+            add('loArm' + k, Z, -sgn * (D(20) + max(0.0, -th) * 0.7))
             for n, f in enumerate(rows[sgn]):
                 g = 0.34 * (0.40 if f['thumb'] else 1.0)
-                key('fg%da%s' % (n, k), Y, sgn * g * D(62), fr)
-                key('fg%db%s' % (n, k), Y, sgn * g * D(74), fr)
-        key('spine', X, D(2), fr)
-        key('spine', Vector((0, 0, 1)), math.sin(ph) * D(3), fr)
-        key('chest', Vector((0, 0, 1)), -math.sin(ph) * D(5), fr)
-        key('head', X, -D(1), fr)
-        # 上下動 : 両足が地面についた瞬間がいちばん低い
-        arm.location.z = z0 - abs(math.cos(ph)) * 0.022 + 0.010
-        arm.keyframe_insert('location', index=2, frame=fr)
+                add('fg%da%s' % (n, k), Y, sgn * g * D(62))
+                add('fg%db%s' % (n, k), Y, sgn * g * D(74))
+
+        # 骨盤と胸は逆向きに捻れる
+        add('hips', Z, math.sin(2 * math.pi * ph) * D(4))
+        add('chest', Z, -math.sin(2 * math.pi * ph) * D(7))
+        add('spine', X, -D(3))
+        add('head', X, D(2))
+
+        for name, ops in acc.items():
+            pb = P.get(name)
+            if not pb:
+                continue
+            q = Quaternion()
+            for ax, ang in ops:
+                q = q @ Quaternion(local_axis(pb, ax), ang)
+            pb.rotation_quaternion = q
+            pb.keyframe_insert('rotation_quaternion', frame=fr)
+
+        hb = P['hips']
+        hb.location = local_axis(hb, Z) * (bob - DROP)
+        hb.keyframe_insert('location', frame=fr)
 
     act = arm.animation_data.action
     act.name = 'walk'
