@@ -504,139 +504,270 @@ def two_bone_ik(l1, l2, df, dz):
     """股関節から見た足首の位置 (前 df, 下 dz) を、腿と脛の角度に解く。
 
     返すのは (腿の角度, 脛の相対角度)。どちらも「前が正、鉛直が0」。
-    脛は必ず後ろにしか曲がらない（膝は前に折れない）ので相対角は負。
+    膝は前に折れないので脛の相対角は常に負。
     """
     d = math.hypot(df, dz)
     lim = (l1 + l2) * 0.999
-    if d > lim:                       # 届かないときは脚を伸ばし切る
+    if d > lim:
         df *= lim / d; dz *= lim / d; d = lim
     d = max(d, abs(l1 - l2) * 1.001 + 1e-6)
-    phi = math.atan2(df, dz)                       # 股-足首を結ぶ線の傾き
+    phi = math.atan2(df, dz)
     ca = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1.0, 1.0)
     ck = clamp((l1 * l1 + l2 * l2 - d * d) / (2 * l1 * l2), -1.0, 1.0)
     return phi + math.acos(ca), -(math.pi - math.acos(ck))
 
 
-def walk_cycle(arm, L, FG, frames=32):
-    """歩行サイクルをキーフレームで焼く。
+def smooth(t):
+    t = clamp(t, 0.0, 1.0)
+    return t * t * (3 - 2 * t)
 
-    関節角を直接振る方式はやめた。実測すると、あれは歩いていない ──
-    足首の最低高 0.080 m に対して最高 0.186 m、接地とみなせるのは33フレーム中
-    5フレームだけで、その間に 0.188 m 滑っていた。腿を24度、膝を46度と決めて
-    振ると、その合計がどこに足を置くのかを誰も見ていないからである。
 
-    なので**足の軌道のほうを決めて、股と膝の角度は逆運動学で解く**。
-    立脚中の足首は接地したまま一定速度で後ろへ流れ（その場歩きなので、
-    地面のほうが後ろへ流れると解釈する）、遊脚中に持ち上がって前へ戻る。
+class Rig:
+    """クリップを焼くための、この骨格についての寸法と道具一式。"""
 
-    世界軸は X が左右、Y が前後（キャラクターは -Y を向く）、Z が上。
-    世界 X まわりの正の回転は脚を**後ろ**へ振るので、前向きの角度には
-    負号が付く。
+    def __init__(self, arm, L, FG):
+        self.arm, self.L, self.FG = arm, L, FG
+        self.X, self.Y, self.Z = Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))
+        self.hipZ = L['hip'] - L['H'] * 0.01
+        self.l1 = self.hipZ - L['knee']
+        self.l2 = L['knee'] - L['ankle']
+        self.leg = self.l1 + self.l2
+        self.ankle0 = L['ankle']
+        self.legX = L['legX']
+        already = math.atan2(max(0.0, L['armYc'] - L['wristY']),
+                             max(1e-4, L['wristX'] - L['shoulderX']))
+        self.drop = max(0.0, (1.26 if L['armsOut'] else 0.10) - already)
+        self.rows = {s: sorted([f for f in FG if f['side'] == s], key=lambda f: f['q'])
+                     for s in (-1, 1)}
+
+    # ---- 姿勢を組み立てる ----
+    def new_pose(self):
+        return {'ops': {}, 'loc': Vector((0, 0, 0))}
+
+    def add(self, po, name, axis, ang):
+        po['ops'].setdefault(name, []).append((axis, ang))
+
+    def leg_ik(self, po, k, ax, af, au, hz, foot_ang):
+        """足首を (左右 ax, 前後 af, 高さ au) に置く。hz は股関節の高さ。
+
+        股から足首までを 3 次元で解く。横方向は世界 Y まわりの開き（内転外転）、
+        残りを矢状面で 2 骨 IK に渡す。これがないと足が骨盤と同じ幅の 2 本の
+        レールの上を進むことになり、実際の歩行の狭い足幅にならない。
+        """
+        lat = ax - self.legX * (-1 if k == 'L' else 1)
+        down = hz - au
+        ab = math.atan2(lat, max(1e-4, down))
+        dz = math.hypot(lat, down)
+        th, sh = two_bone_ik(self.l1, self.l2, af, dz)
+        self.add(po, 'thigh' + k, self.Y, -ab)
+        self.add(po, 'thigh' + k, self.X, -th)
+        self.add(po, 'shin' + k, self.X, -sh)
+        # 足の角度は「地面と平行」を基準に、そこからの転がりを足す
+        self.add(po, 'foot' + k, self.X, -(-(th + sh) + foot_ang))
+        return th
+
+    def arms(self, po, k, sgn, swing, elbow_extra=0.0, lift=0.0):
+        """腕。真横を向いた休めの姿勢では、前後に振る軸は鉛直の Z。
+        世界 X まわりに回しても腕が捻れるだけで前へ出ない。"""
+        self.add(po, 'upArm' + k, self.Y, sgn * (self.drop + lift))
+        self.add(po, 'upArm' + k, self.Z, sgn * swing)
+        self.add(po, 'loArm' + k, self.Z, -sgn * (math.radians(18) + elbow_extra))
+
+    def hands(self, po, k, sgn, grip):
+        for n, f in enumerate(self.rows[sgn]):
+            g = grip * (0.40 if f['thumb'] else 1.0)
+            self.add(po, 'fg%da%s' % (n, k), self.Y, sgn * g * math.radians(62))
+            self.add(po, 'fg%db%s' % (n, k), self.Y, sgn * g * math.radians(74))
+
+
+def foot_roll(p, st):
+    """立脚中の足首の転がり。踵接地→足裏全接地→蹴り出し。
+
+    立脚のあいだずっと足裏が地面と平行、というのがいちばん不自然に見える。
+    返すのは (足の角度, 足首を持ち上げる量)。蹴り出しでは踵が浮くので、
+    足首は爪先を軸に持ち上がる。
     """
+    D = math.radians
+    if p < 0.06:                       # 踵接地 : 爪先が上を向いている
+        return -D(9) * (1 - p / 0.06), 0.0
+    if p < st * 0.62:                  # 足裏全接地
+        return 0.0, 0.0
+    t = (p - st * 0.62) / (st - st * 0.62)
+    a = D(26) * smooth(t)              # 蹴り出し
+    return a, 0.055 * smooth(t)
+
+
+def gait(R, ph, stride, cadence_lift, st, hip_drop, bob, arm_gain, lean,
+         base=0.55, grip=0.30, airborne=0.0):
+    """歩きと走りに共通の1歩ぶんの姿勢。ph は 0..1。"""
+    D = math.radians
+    po = R.new_pose()
+    # 骨盤の高さ : 両足接地の瞬間がいちばん低い（走りは滞空で上がる）
+    bobz = -bob * math.cos(4 * math.pi * ph)
+    hz = R.hipZ - hip_drop + bobz + airborne * max(0.0, -math.cos(4 * math.pi * ph))
+    thighs = {}
+    for k, sgn in (('L', -1), ('R', 1)):
+        p = (ph if k == 'L' else ph + 0.5) % 1.0
+        if p < st:
+            t = p / st
+            af = stride * (0.5 - t)
+            fa, rise = foot_roll(p / st * st, st)
+            au = R.ankle0 + rise
+        else:
+            t = (p - st) / (1.0 - st)
+            af = stride * (-0.5 + smooth(t))
+            au = R.ankle0 + cadence_lift * math.sin(math.pi * t)
+            fa = -D(7) * smooth(t)          # 遊脚の終わりに爪先を上げる
+        # 足幅 : 骨盤の幅そのままだと蟹股に見える
+        ax = R.legX * (-1 if k == 'L' else 1) * base
+        thighs[k] = R.leg_ik(po, k, ax, af, au, hz, fa)
+    for k, sgn in (('L', -1), ('R', 1)):
+        th = thighs[k]
+        R.arms(po, k, sgn, -th * arm_gain, max(0.0, -th) * 0.8)
+        R.hands(po, k, sgn, grip)
+    # 骨盤 : 遊脚側が下がる（トレンデレンブルグ）。左右への体重移動も。
+    sw = math.sin(2 * math.pi * ph)
+    R.add(po, 'hips', R.Z, sw * D(5))
+    R.add(po, 'hips', R.Y, -sw * D(4))
+    R.add(po, 'chest', R.Z, -sw * D(8))
+    R.add(po, 'spine', R.X, -lean)
+    # 頭は胸の捻れを打ち消して、進行方向を向いたままにする
+    R.add(po, 'neck', R.Z, sw * D(5))
+    R.add(po, 'head', R.X, lean * 0.6)
+    # 骨盤の実際の移動量は、IK に渡した股関節の高さと**同じでなければならない**。
+    # 滞空ぶんを IK にだけ渡して骨盤に渡していなかったせいで、走りで足が
+    # 2cm 地面にめり込んでいた。差分は hz からそのまま取る。
+    po['loc'] = local_axis(R.arm.pose.bones['hips'], R.Z) * (hz - R.hipZ) \
+        + local_axis(R.arm.pose.bones['hips'], R.X) * (-sw * R.leg * 0.028)
+    return po
+
+
+def clip_walk(R, ph):
+    return gait(R, ph, stride=R.leg * 0.54, cadence_lift=R.leg * 0.13, st=0.62,
+                hip_drop=R.leg * 0.044, bob=R.leg * 0.026, arm_gain=0.95,
+                lean=math.radians(3), grip=0.30)
+
+
+def clip_run(R, ph):
+    return gait(R, ph, stride=R.leg * 0.92, cadence_lift=R.leg * 0.30, st=0.38,
+                hip_drop=R.leg * 0.075, bob=R.leg * 0.050, arm_gain=1.35,
+                lean=math.radians(11), base=0.35, grip=0.62,
+                airborne=R.leg * 0.055)
+
+
+def clip_idle(R, ph):
+    """立ち。足は動かない。呼吸と、左右への体重移動だけ。"""
+    D = math.radians
+    po = R.new_pose()
+    br = math.sin(2 * math.pi * ph * 2)          # 呼吸は1周期に2回
+    sw = math.sin(2 * math.pi * ph)
+    hz = R.hipZ - R.leg * 0.012 + br * 0.004
+    for k, sgn in (('L', -1), ('R', 1)):
+        ax = R.legX * (-1 if k == 'L' else 1) * 0.62
+        th = R.leg_ik(po, k, ax, sw * R.leg * 0.012 * sgn, R.ankle0, hz, 0.0)
+        R.arms(po, k, sgn, -sw * D(2) * sgn, D(4), D(3))
+        R.hands(po, k, sgn, 0.26)
+    R.add(po, 'hips', R.Y, -sw * D(3))
+    R.add(po, 'chest', R.X, br * D(2))
+    R.add(po, 'spine', R.Z, sw * D(2))
+    R.add(po, 'neck', R.Z, -sw * D(2))
+    R.add(po, 'head', R.Z, math.sin(2 * math.pi * ph * 0.5) * D(6))
+    po['loc'] = local_axis(R.arm.pose.bones['hips'], R.Z) * (br * 0.004 - R.leg * 0.012) \
+        + local_axis(R.arm.pose.bones['hips'], R.X) * (sw * R.leg * 0.020)
+    return po
+
+
+def clip_jump(R, ph):
+    """しゃがむ → 跳ぶ → 空中 → 着地 → 戻る。"""
+    D = math.radians
+    po = R.new_pose()
+    CR, TO, LD, RC = 0.20, 0.30, 0.72, 0.88
+    if ph < CR:
+        t = smooth(ph / CR); h = -R.leg * 0.22 * t; tuck = 0.0; arm = -D(50) * t
+    elif ph < TO:
+        t = smooth((ph - CR) / (TO - CR)); h = -R.leg * 0.22 * (1 - t); tuck = 0.0
+        arm = -D(50) * (1 - t) + D(60) * t
+    elif ph < LD:
+        t = (ph - TO) / (LD - TO)
+        h = R.leg * 0.46 * math.sin(math.pi * t)
+        tuck = R.leg * 0.30 * math.sin(math.pi * t)
+        arm = D(60) * (1 - t) - D(20) * t
+    elif ph < RC:
+        t = smooth((ph - LD) / (RC - LD)); h = -R.leg * 0.26 * t; tuck = 0.0
+        arm = -D(20) - D(30) * t
+    else:
+        t = smooth((ph - RC) / (1 - RC)); h = -R.leg * 0.26 * (1 - t); tuck = 0.0
+        arm = -D(50) * (1 - t)
+    hz = R.hipZ + h
+    for k, sgn in (('L', -1), ('R', 1)):
+        ax = R.legX * (-1 if k == 'L' else 1) * 0.62
+        au = R.ankle0 + tuck
+        fa = D(24) * (tuck / max(1e-6, R.leg * 0.30)) if tuck else 0.0
+        R.leg_ik(po, k, ax, tuck * 0.35, au, hz, fa)
+        R.arms(po, k, sgn, arm, D(26) + abs(arm) * 0.35, D(6))
+        R.hands(po, k, sgn, 0.42 if ph < TO else 0.20)
+    R.add(po, 'spine', R.X, -min(0.0, h) / R.leg * D(56) - max(0.0, h) / R.leg * D(10))
+    R.add(po, 'chest', R.X, -min(0.0, h) / R.leg * D(30))
+    po['loc'] = local_axis(R.arm.pose.bones['hips'], R.Z) * h
+    return po
+
+
+CLIPS = [('idle', 64, clip_idle), ('walk', 32, clip_walk),
+         ('run', 24, clip_run), ('jump', 40, clip_jump)]
+
+
+def bake(arm, L, FG, frames, name, fn):
+    """1クリップぶんを焼いて、NLA トラックに積む。"""
     from mathutils import Quaternion
-    X, Y, Z = Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))
+    R = Rig(arm, L, FG)
     P = arm.pose.bones
     for pb in P:
         pb.rotation_mode = 'QUATERNION'
-
-    hipZ = L['hip'] - L['H'] * 0.01          # thigh ボーンの頭の高さ
-    l1 = hipZ - L['knee']
-    l2 = L['knee'] - L['ankle']
-    ankle0 = L['ankle']
-    STRIDE = (l1 + l2) * 0.54                # 足首の前後移動量
-    LIFT = (l1 + l2) * 0.14                  # 遊脚での持ち上げ
-    ST = 0.62                                # 立脚の割合
-    # 真っ直ぐな脚のままでは足を前後に置けない（伸び切っている）。
-    # 骨盤が下がるのはそのため。実際の歩行でも 30〜50mm 下がる。
-    DROP = (l1 + l2) * 0.044
-    BOB = (l1 + l2) * 0.026
-
-    already = math.atan2(max(0.0, L['armYc'] - L['wristY']),
-                         max(1e-4, L['wristX'] - L['shoulderX']))
-    drop = max(0.0, (1.26 if L['armsOut'] else 0.10) - already)
-    rows = {s: sorted([f for f in FG if f['side'] == s], key=lambda f: f['q'])
-            for s in (-1, 1)}
-    D = math.radians
-
-    def foot_at(p):
-        """位相 p (0..1) の足首の (前後, 高さ)。0 で接地、ST で離地。"""
-        p %= 1.0
-        if p < ST:
-            t = p / ST
-            return STRIDE * (0.5 - t), ankle0
-        t = (p - ST) / (1.0 - ST)
-        e = t * t * (3 - 2 * t)                       # なめらかに前へ戻す
-        return STRIDE * (-0.5 + e), ankle0 + LIFT * math.sin(math.pi * t)
-
-    for fr in range(1, frames + 2):        # 最後は最初と同じ姿勢＝ループ
-        ph = (fr - 1) / frames
-        acc = {}
-
-        def add(name, axis, ang):
-            acc.setdefault(name, []).append((axis, ang))
-
-        # 骨盤は両足接地の瞬間がいちばん低い
-        bob = -BOB * math.cos(4 * math.pi * ph)
-        hz = hipZ - DROP + bob
-
-        for k, sgn in (('L', -1), ('R', 1)):
-            p = ph if k == 'L' else ph + 0.5
-            af, au = foot_at(p)
-            th, sh = two_bone_ik(l1, l2, af, hz - au)
-            add('thigh' + k, X, -th)                  # 前向き = 負
-            add('shin' + k, X, -sh)
-            # 足は立脚中は地面と平行のまま。遊脚の終わりだけ爪先を上げる
-            swing = (p % 1.0) >= ST
-            toe = D(10) * math.sin(math.pi * ((p % 1.0) - ST) / (1 - ST)) if swing else 0.0
-            add('foot' + k, X, -(-(th + sh) + toe))
-            # 腕は同じ側の脚と逆位相。
-            # 軸は X ではなく Z。休めの姿勢で腕は真横を向いているので、
-            # そこで世界 X まわりに回しても腕が「捻れる」だけで前後には
-            # 振れない（実測：手首の振れ幅 0.028 m しかなかった）。
-            # 真横の腕を前後に振る軸は鉛直の Z。腕を体側へ下ろすのはその後。
-            add('upArm' + k, Y, sgn * (drop + D(5)))     # 先に足す＝後から適用
-            add('upArm' + k, Z, sgn * th * 0.95)
-            add('loArm' + k, Z, -sgn * (D(20) + max(0.0, -th) * 0.7))
-            for n, f in enumerate(rows[sgn]):
-                g = 0.34 * (0.40 if f['thumb'] else 1.0)
-                add('fg%da%s' % (n, k), Y, sgn * g * D(62))
-                add('fg%db%s' % (n, k), Y, sgn * g * D(74))
-
-        # 骨盤と胸は逆向きに捻れる
-        add('hips', Z, math.sin(2 * math.pi * ph) * D(4))
-        add('chest', Z, -math.sin(2 * math.pi * ph) * D(7))
-        add('spine', X, -D(3))
-        add('head', X, D(2))
-
-        for name, ops in acc.items():
-            pb = P.get(name)
+    if arm.animation_data is None:
+        arm.animation_data_create()
+    act = bpy.data.actions.new(name)
+    arm.animation_data.action = act
+    try:
+        if arm.animation_data.action_slot is None and act.slots:
+            arm.animation_data.action_slot = act.slots[0]
+    except AttributeError:
+        pass
+    for fr in range(1, frames + 2):          # 最後は最初と同じ姿勢＝ループ
+        po = fn(R, (fr - 1) / frames)
+        for pb in P:
+            pb.rotation_quaternion = Quaternion()
+            pb.location = (0, 0, 0)
+        for nm, ops in po['ops'].items():
+            pb = P.get(nm)
             if not pb:
                 continue
             q = Quaternion()
             for ax, ang in ops:
                 q = q @ Quaternion(local_axis(pb, ax), ang)
             pb.rotation_quaternion = q
+        P['hips'].location = po['loc']
+        for pb in P:
             pb.keyframe_insert('rotation_quaternion', frame=fr)
-
-        hb = P['hips']
-        hb.location = local_axis(hb, Z) * (bob - DROP)
-        hb.keyframe_insert('location', frame=fr)
-
-    act = arm.animation_data.action
-    act.name = 'walk'
-    fcs = action_fcurves(act)
-    for fc in fcs:
+        P['hips'].keyframe_insert('location', frame=fr)
+    for fc in action_fcurves(act):
         for kp in fc.keyframe_points:
             kp.interpolation = 'BEZIER'
-    sc = bpy.context.scene
-    sc.frame_start, sc.frame_end = 1, frames + 1
-    print('歩行サイクル: %d フレーム / F カーブ %d 本' % (frames + 1, len(fcs)))
+    tr = arm.animation_data.nla_tracks.new()
+    tr.name = name
+    tr.strips.new(name, 1, act)
+    arm.animation_data.action = None
+    return act
+
+
+def bake_all(arm, L, FG):
+    for name, frames, fn in CLIPS:
+        bake(arm, L, FG, frames, name, fn)
+    print('クリップ: ' + ' / '.join('%s(%dF)' % (n, f + 1) for n, f, _ in CLIPS))
 
 
 def action_fcurves(act):
     """Blender 4.4 以降のアクションはスロット付きで、F カーブは
-    layers/strips/channelbags の下にある。4.3 以前は act.fcurves に直接。
-    どちらでも動くようにしておく。"""
+    layers/strips/channelbags の下にある。4.3 以前は act.fcurves に直接。"""
     if hasattr(act, 'fcurves') and len(act.fcurves):
         return list(act.fcurves)
     out = []
@@ -735,10 +866,11 @@ def build(src, dst):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     skin(ob, arm, P, IDX)
-    walk_cycle(arm, L, FG)
+    bake_all(arm, L, FG)
 
     bpy.ops.export_scene.gltf(filepath=dst, export_format='GLB',
-                              export_animations=True, export_skins=True)
+                              export_animations=True, export_skins=True,
+                              export_animation_mode='ACTIONS')
     print('書き出し: %s (%.0f KB)' % (dst, os.path.getsize(dst) / 1024))
     return ob, arm, L, FG
 
