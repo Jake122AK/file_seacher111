@@ -2690,7 +2690,7 @@ const PATH_LEN = 520;
 const pathXAt = t => 7.2 * Math.sin(t * 0.0455) + 3.1 * Math.sin(t * 0.0192 + 1.35)
   - 0.35 * Math.sin(t * 0.061)
   + 9.5 * Math.exp(-t * t / 1450);   // 入口は本殿の右手
-const _grade = t => (t < 95 ? 0.030 : t < 150 ? 0.048 : t < 215 ? 0.018 :
+const _grade = t => (t < 95 ? 0.090 : t < 150 ? 0.115 : t < 215 ? 0.022 :
                      t < 330 ? 0.225 : t < 385 ? 0.010 : 0.115);
 const _YTAB = (() => {
   const N = 1300, dt = 0.5, a = new Float64Array(N + 1);
@@ -3084,7 +3084,7 @@ function buildScene(quality) {
     const P = pathPos(t), T = pathTan(t);
     const ry = Math.atan2(T[0], T[2]);
     const big = rnd() < 0.07;
-    const scale = (big ? 1.14 + rnd() * 0.12 : 0.93 + rnd() * 0.14);
+    const scale = (big ? 1.14 + rnd() * 0.12 : 0.93 + rnd() * 0.14) * 1.26;
     const wide = 0.96 + rnd() * 0.11;
     const m = M4.create();
     // torii plane is XY in local space, path direction is +Z -> rotate so local +X is lateral

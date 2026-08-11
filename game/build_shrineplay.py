@@ -100,6 +100,11 @@ rep("    updateKyonshi(dt);", "    updateKyonshi(dt);\n    updatePlayer(dt);")
 # PATH_LEN を見て並ぶので、ここ1行で全部が伸びる。描画は CAM.t±78 で間引かれる。
 rep('const PATH_LEN = 210;', 'const PATH_LEN = 520;')
 
+# 鳥居が小さい。全体 2.91〜3.94m に対して身長 1.66m なので、貫（下の横木）が
+# 頭のすぐ上に来ていた。実物の千本鳥居は人がゆったり通れる高さがある。
+rep("    const scale = (big ? 1.14 + rnd() * 0.12 : 0.93 + rnd() * 0.14);",
+    "    const scale = (big ? 1.14 + rnd() * 0.12 : 0.93 + rnd() * 0.14) * 1.26;")
+
 # 千本鳥居は本殿の正面からではなく**右手**から始まる。入口を右へずらし、
 # 70m ほどかけて元の稜線に戻す（ガウスで減衰させるので折れ目が出ない）。
 rep("const pathXAt = t => 7.2 * Math.sin(t * 0.0455) + 3.1 * Math.sin(t * 0.0192 + 1.35) - 0.35 * Math.sin(t * 0.061);",
@@ -112,7 +117,7 @@ rep("const pathXAt = t => 7.2 * Math.sin(t * 0.0455) + 3.1 * Math.sin(t * 0.0192
 # 表にする（この関数は太陽の遮蔽計算から毎秒何万回も呼ばれるので、
 # 中で計算も確保もできない）。
 rep("const pathYAt = t => t * 0.055 + 0.5 * Math.sin(t * 0.035 + 0.4) + 0.20 * Math.sin(t * 0.09);",
-"""const _grade = t => (t < 95 ? 0.030 : t < 150 ? 0.048 : t < 215 ? 0.018 :
+"""const _grade = t => (t < 95 ? 0.090 : t < 150 ? 0.115 : t < 215 ? 0.022 :
                      t < 330 ? 0.225 : t < 385 ? 0.010 : 0.115);
 const _YTAB = (() => {
   const N = 1300, dt = 0.5, a = new Float64Array(N + 1);
