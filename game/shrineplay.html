@@ -7733,7 +7733,7 @@ function loadGLB(buf, status) {
   const ibm = skin.inverseBindMatrices !== undefined ? glbAcc(G, skin.inverseBindMatrices) : null;
   const joints = skin.joints;
   const NB = joints.length;
-  const ROWS = 1 + CROWD_N;                 // 0 行目が自分、あとは参拝客
+  const ROWS = 1 + CROWD_DRAW;              // 0 行目が自分、あとは描いている人
   const boneTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, boneTex);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, NB * 4, ROWS, 0, gl.RGBA, gl.FLOAT, null);
@@ -7877,8 +7877,10 @@ function uploadBones() {
 /* ---------------- 参拝客 ----------------
    同じメッシュ・同じ骨で、行だけ変えて全員ぶんの姿勢を持つ。描画は1回。
    骨を解く相手は近い順に絞る — 見えないところで解いても仕方がない。 */
-const CROWD_N = 44;
-const CROWD = { list: [], inst: [] };
+const CROWD_N = 44;         // 参道に散っている人数
+const CROWD_DRAW = 12;      // そのうち実際に描く人数（近い順）
+const CROWD_FAR = 46;       // これより遠い人は描かない（m）
+const CROWD = { list: [], inst: [], drawn: 0 };
 
 function initCrowd() {
   const rn = mulberry32(20260811);
@@ -7918,19 +7920,26 @@ function updateCrowd(dt) {
     c.d2 = (x - PLAY.pos[0]) * (x - PLAY.pos[0]) + (z - PLAY.pos[2]) * (z - PLAY.pos[2]);
     order.push(i);
   }
+  /* ---- ここが一番の負荷 ----
+     このモデルは 62,824 三角形ある。44人ぜんぶ描くと 1フレーム 280万三角形、
+     影を3枚焼くとその4倍になる。参道は鳥居で仕切られていて、そもそも先の
+     ほうは見えない。近い順に CROWD_DRAW 人だけ描き、遠い人は**描画にも
+     出さない**（インスタンスの配列に入れない）。骨を解くのも同じ人だけ。 */
   order.sort((a, b) => CROWD.list[a].d2 - CROWD.list[b].d2);
-  const budget = Math.min(order.length, 10);
-  for (let k = 0; k < budget; k++) {
-    const i = order[k], c = CROWD.list[i];
-    if (c.d2 > 70 * 70) continue;
-    c.ph += dt * (c.moving ? Math.abs(c.spd) / CFG.walkSpeed * 1.7 : 0.7);
-    sampleClip(c.moving ? 'walk' : 'idle', c.ph);
-    solveSkeleton(1 + i);
-  }
   CROWD.inst.length = 0;
   CROWD.inst.push({ m: PLAY.m, tint: PLAY_TINT });
-  for (const c of CROWD.list) CROWD.inst.push({ m: c.m, tint: c.tint });
+  let row = 1;
+  for (let k = 0; k < order.length && row <= CROWD_DRAW; k++) {
+    const c = CROWD.list[order[k]];
+    if (c.d2 > CROWD_FAR * CROWD_FAR) break;      // 距離順なので、以降も遠い
+    c.ph += dt * (c.moving ? Math.abs(c.spd) / CFG.walkSpeed * 1.7 : 0.7);
+    sampleClip(c.moving ? 'walk' : 'idle', c.ph);
+    solveSkeleton(row);
+    CROWD.inst.push({ m: c.m, tint: c.tint });
+    row++;
+  }
   PLAY.mesh.updateInstances(CROWD.inst);
+  CROWD.drawn = row - 1;
 }
 
 /* 表情を混ぜて、影響する範囲だけ頂点バッファに書き戻す */
