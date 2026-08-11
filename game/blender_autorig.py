@@ -482,6 +482,276 @@ def skin(ob, arm, P, IDX):
     print('スキニング完了: %d / %d 頂点にウェイト' % (nz, NV))
 
 
+# ---------------------------------------------------------------- 表情
+def find_face(P, IDX, L):
+    """顔のパーツの位置を測る。目は独立したシェルなので連結成分で拾い、
+    残りは目と頭の箱からの比率で置く。
+
+    測った値（参考モデル、身長1.65m 正規化）:
+        目の中心 (±0.050, 1.456, 0.064)  半径 0.026  各165頂点
+        中心線の前面 z : 1.426 で極大 0.1043（鼻先）
+                        1.462 で極小 0.0816（鼻根・眼窩）
+                        1.522 で極大 0.1152（額）
+    アニメ顔なので**額が鼻より前に出ています**。「いちばん前の点＝鼻先」
+    という素直な探し方は、この種のモデルでは額を拾います。
+    """
+    NV, H = len(P), L['H']
+    lab = components(NV, IDX)
+    grp = {}
+    for i, r in enumerate(lab):
+        grp.setdefault(r, []).append(i)
+    cand = []
+    for vs in grp.values():
+        if not (24 <= len(vs) <= NV * 0.12):
+            continue
+        xs = [P[i][0] for i in vs]; ys = [P[i][1] for i in vs]; zs = [P[i][2] for i in vs]
+        c = (sum(xs) / len(vs), sum(ys) / len(vs), sum(zs) / len(vs))
+        dim = (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+        dmax, dmin = max(dim), max(1e-6, min(dim))
+        if not (H * 0.008 < dmax < H * 0.075) or c[1] < L['neck']:
+            continue
+        if not (H * 0.008 < abs(c[0]) < H * 0.055):
+            continue
+        cand.append({'c': c, 'v': vs, 'r': dmax * 0.5, 'ball': dmax / dmin < 1.7})
+    # 目のあたりには板も球もある。まつ毛やアイラインは板、眼球は球。
+    # 大きさだけで選ぶと、まつ毛の板を「目」と呼んでしまう（実際そうなった）。
+    # 球状のものを目の中心とし、その周りのシェルをまとめて目のグループにする。
+    eyes = []
+    for a in cand:
+        if not a['ball'] or a['c'][0] >= 0:
+            continue
+        for b in cand:
+            if not b['ball'] or b['c'][0] <= 0:
+                continue
+            if abs(abs(a['c'][0]) - b['c'][0]) > H * 0.006:
+                continue
+            if abs(a['c'][1] - b['c'][1]) > H * 0.006:
+                continue
+            if not eyes:
+                eyes = [a, b]
+    if not eyes:
+        return None
+    # まつ毛・虹彩・眼球をまとめる。目を大きくするとき、眼球だけ広げて
+    # まつ毛を置き去りにしたら破綻する。
+    eyeSet = set()
+    for e in eyes:
+        for o in cand:
+            if o['c'][0] * e['c'][0] <= 0:
+                continue
+            if math.dist(o['c'], e['c']) < e['r'] * 1.3:
+                eyeSet |= set(o['v'])
+                e.setdefault('grp', []).extend(o['v'])
+        e['v'] = e.get('grp', e['v'])
+    ey = (eyes[0]['c'][1] + eyes[1]['c'][1]) * 0.5
+    R = (eyes[0]['r'] + eyes[1]['r']) * 0.5
+
+    head = [i for i in range(NV) if P[i][1] > L['neck'] and i not in eyeSet]
+    # 中心線の前面を高さで刻む : 鼻先は「目より下にある極大」
+    prof = {}
+    for i in head:
+        if abs(P[i][0]) > H * 0.007:
+            continue
+        b = int((P[i][1] - L['neck']) / (H * 0.007))
+        prof[b] = max(prof.get(b, -9), P[i][2])
+    ys = sorted(prof)
+    nose = (ey - H * 0.018, 0.0)
+    best = -9
+    for b in ys:
+        y = L['neck'] + (b + 0.5) * H * 0.007
+        if not (ey - H * 0.055 < y < ey - H * 0.004):
+            continue
+        if prof[b] > best:
+            best, nose = prof[b], (y, prof[b])
+    chin = min((P[i][1] for i in head if abs(P[i][0]) < H * 0.02 and P[i][2] > nose[1] * 0.3),
+               default=L['neck'])
+    mouth = chin + (nose[0] - chin) * 0.44
+    return {'eyes': eyes, 'eyeSet': eyeSet, 'ey': ey, 'R': R, 'ex': abs(eyes[1]['c'][0]),
+            'ez': (eyes[0]['c'][2] + eyes[1]['c'][2]) * 0.5,
+            'noseY': nose[0], 'noseZ': nose[1], 'chin': chin, 'mouth': mouth,
+            'head': head, 'front': max(P[i][2] for i in head)}
+
+
+def _fall(d, r):
+    t = clamp(1.0 - d / r, 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def face_shapes(ob, P, IDX, L):
+    """表情をシェイプキーとして焼く。glTF ではモーフターゲットになる。"""
+    F = find_face(P, IDX, L)
+    if not F:
+        print('目のシェルが見つからないので表情は作りません')
+        return []
+    R, ey, ex, ez = F['R'], F['ey'], F['ex'], F['ez']
+    print('顔: 目 (±%.3f, %.3f, %.3f) 半径 %.3f / 鼻先 y %.3f z %.3f / 口 %.3f / 顎 %.3f'
+          % (ex, ey, ez, R, F['noseY'], F['noseZ'], F['mouth'], F['chin']))
+    NV = len(P)
+    eyeSet = F['eyeSet']
+    face = [i for i in F['head'] if P[i][2] > ez - R * 2.0]     # 顔の前半分
+
+    def blink(shut=1.0):
+        d = {}
+        for i in face:
+            for e in F['eyes']:
+                c = e['c']
+                h = math.hypot(P[i][0] - c[0], (P[i][2] - c[2]) * 0.7)
+                if h > R * 1.55:
+                    continue
+                w = _fall(h, R * 1.55)
+                dy = P[i][1] - c[1]
+                if dy > -R * 0.10:                     # 上まぶた : 下ろす
+                    t = w * clamp(dy / (R * 1.15), 0.0, 1.0)
+                    tgt = c[1] - R * 0.04
+                    v = d.setdefault(i, [0.0, 0.0, 0.0])
+                    v[1] += (tgt - P[i][1]) * t * shut
+                    v[2] += R * 0.09 * t * shut        # 眼球より前に出す
+                elif dy > -R * 0.85:                   # 下まぶた : 少し上げる
+                    t = w * clamp((dy + R * 0.85) / (R * 0.75), 0.0, 1.0)
+                    v = d.setdefault(i, [0.0, 0.0, 0.0])
+                    v[1] += R * 0.16 * t * shut
+        return d
+
+    def smile(a=1.0):
+        d = {}
+        for i in F['head']:
+            x, y, z = P[i]
+            if z < ez:
+                continue
+            # 口角 : 口の高さ、中心から少し外
+            for sx in (-1, 1):
+                cx = sx * R * 0.62
+                h = math.hypot(x - cx, (y - F['mouth']) * 1.5)
+                w = _fall(h, R * 0.95)
+                if w <= 0:
+                    continue
+                v = d.setdefault(i, [0.0, 0.0, 0.0])
+                v[1] += R * 0.42 * w * a
+                v[0] += sx * R * 0.24 * w * a
+                v[2] -= R * 0.10 * w * a
+            # 頬が上がる
+            for sx in (-1, 1):
+                h = math.hypot(x - sx * R * 1.05, (y - (F['mouth'] + R * 0.72)) * 1.2)
+                w = _fall(h, R * 1.1)
+                if w > 0:
+                    v = d.setdefault(i, [0.0, 0.0, 0.0])
+                    v[1] += R * 0.19 * w * a
+                    v[2] += R * 0.09 * w * a
+        return d
+
+    def mouth_open(a=1.0):
+        """顎を蝶番で回す。顎より上と後ろは動かさない。"""
+        d = {}
+        piv = (0.0, F['mouth'] + R * 0.34, ez - R * 0.9)
+        ang = math.radians(26) * a
+        for i in F['head']:
+            x, y, z = P[i]
+            if y > piv[1] or z < piv[2]:
+                continue
+            t = clamp((piv[1] - y) / (piv[1] - F['chin'] + 1e-6), 0.0, 1.0)
+            t = t * t * (3 - 2 * t)
+            dy, dz = y - piv[1], z - piv[2]
+            c, s = math.cos(ang * t), math.sin(ang * t)
+            d[i] = [0.0, (dy * c - dz * s) - dy, (dy * s + dz * c) - dz]
+        return d
+
+    def brow(up=1.0):
+        d = {}
+        for i in F['head']:
+            x, y, z = P[i]
+            if z < ez:
+                continue
+            for sx in (-1, 1):
+                h = math.hypot(x - sx * ex, (y - (ey + R * 0.95)) * 1.4)
+                w = _fall(h, R * 1.5)
+                if w > 0:
+                    v = d.setdefault(i, [0.0, 0.0, 0.0])
+                    v[1] += R * 0.22 * w * up
+                    v[2] += R * 0.05 * w * abs(up)
+        return d
+
+    def wide(a=1.0):
+        """驚き : まぶたを開いて、眼球をわずかに前へ。"""
+        d = {}
+        for i in face:
+            for e in F['eyes']:
+                c = e['c']
+                h = math.hypot(P[i][0] - c[0], (P[i][2] - c[2]) * 0.7)
+                w = _fall(h, R * 1.5)
+                if w <= 0:
+                    continue
+                dy = P[i][1] - c[1]
+                v = d.setdefault(i, [0.0, 0.0, 0.0])
+                v[1] += (R * 0.17 if dy > 0 else -R * 0.10) * w * a
+        for e in F['eyes']:
+            for i in e['v']:
+                d.setdefault(i, [0.0, 0.0, 0.0])[2] += R * 0.05 * a
+        return d
+
+    def cute(a=1.0):
+        """アニメ寄りの寄せ : 目を大きく・少し下げ、鼻を控えめに、顎を細く。"""
+        d = {}
+        # 眼球を広げすぎるとまぶたの開口部からはみ出す（実際そうなった）。
+        # 拡大は控えめにして、開口部のほうを大きく広げる。
+        for e in F['eyes']:
+            c = e['c']
+            for i in e['v']:
+                v = d.setdefault(i, [0.0, 0.0, 0.0])
+                for k in range(3):
+                    v[k] += (P[i][k] - c[k]) * 0.10 * a
+                v[1] -= R * 0.06 * a
+        for i in F['head']:
+            x, y, z = P[i]
+            # 目の開口部を広げる（眼球に合わせて）
+            for e in F['eyes']:
+                c = e['c']
+                if z < ez - R * 0.6:
+                    continue
+                dx, dy = x - c[0], y - c[1]
+                h = math.hypot(dx, dy)
+                if h > R * 1.7 or h < 1e-6:
+                    continue
+                w = _fall(h, R * 1.7) * (1 - _fall(h, R * 0.55))
+                v = d.setdefault(i, [0.0, 0.0, 0.0])
+                v[0] += dx / h * R * 0.26 * w * a
+                v[1] += (dy / h * R * 0.26 - R * 0.06) * w * a
+            # 鼻を控えめに
+            h = math.hypot(x, (y - F['noseY']) * 1.1)
+            w = _fall(h, R * 0.85)
+            if w > 0 and z > ez:
+                d.setdefault(i, [0.0, 0.0, 0.0])[2] -= (F['noseZ'] - ez) * 0.22 * w * a
+            # 顎を細く、短く
+            t = clamp((F['mouth'] - y) / max(1e-6, F['mouth'] - F['chin']), 0.0, 1.0)
+            if t > 0:
+                t = t * t
+                v = d.setdefault(i, [0.0, 0.0, 0.0])
+                v[0] -= x * 0.16 * t * a
+                v[1] += (F['chin'] - y) * -0.14 * t * a
+            # 頭を少し大きく（目の上）
+            if y > ey + R * 0.5:
+                u = clamp((y - ey - R * 0.5) / (L['yhi'] - ey), 0.0, 1.0)
+                v = d.setdefault(i, [0.0, 0.0, 0.0])
+                v[0] += x * 0.05 * u * a
+                v[1] += (y - ey) * 0.04 * u * a
+        return d
+
+    SHAPES = [('blink', blink), ('smile', smile), ('mouth_open', mouth_open),
+              ('brow_up', lambda: brow(1.0)), ('brow_down', lambda: brow(-0.75)),
+              ('eye_wide', wide), ('cute', cute)]
+    me = ob.data
+    if me.shape_keys is None:
+        ob.shape_key_add(name='Basis', from_mix=False)
+    base = [v.co.copy() for v in me.vertices]
+    made = []
+    for name, fn in SHAPES:
+        d = fn()
+        k = ob.shape_key_add(name=name, from_mix=False)
+        for i, dl in d.items():
+            k.data[i].co = base[i] + to_blender(dl)
+        made.append(name)
+    print('表情: ' + ' / '.join(made))
+    return made
+
+
 # ---------------------------------------------------------------- 歩行
 def local_axis(pb, world_axis):
     """世界軸をこのボーンのローカル座標に持ち込む。
@@ -864,11 +1134,13 @@ def build(src, dst):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     skin(ob, arm, P, IDX)
+    face_shapes(ob, P, IDX, L)
     bake_all(arm, L, FG)
 
     bpy.ops.export_scene.gltf(filepath=dst, export_format='GLB',
                               export_animations=True, export_skins=True,
-                              export_animation_mode='ACTIONS')
+                              export_animation_mode='ACTIONS',
+                              export_morph=True)
     print('書き出し: %s (%.0f KB)' % (dst, os.path.getsize(dst) / 1024))
     return ob, arm, L, FG
 
