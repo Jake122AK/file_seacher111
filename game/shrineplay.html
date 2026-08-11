@@ -2687,7 +2687,9 @@ const MAT = {
 const PATH_LEN = 520;
 /* scalar forms: the sun occlusion march calls these tens of thousands of
    times a second and must not allocate */
-const pathXAt = t => 7.2 * Math.sin(t * 0.0455) + 3.1 * Math.sin(t * 0.0192 + 1.35) - 0.35 * Math.sin(t * 0.061);
+const pathXAt = t => 7.2 * Math.sin(t * 0.0455) + 3.1 * Math.sin(t * 0.0192 + 1.35)
+  - 0.35 * Math.sin(t * 0.061)
+  + 9.5 * Math.exp(-t * t / 1450);   // 入口は本殿の右手
 const _grade = t => (t < 95 ? 0.030 : t < 150 ? 0.048 : t < 215 ? 0.018 :
                      t < 330 ? 0.225 : t < 385 ? 0.010 : 0.115);
 const _YTAB = (() => {
