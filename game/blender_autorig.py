@@ -484,20 +484,17 @@ def skin(ob, arm, P, IDX):
 
 # ---------------------------------------------------------------- 歩行
 def local_axis(pb, world_axis):
-    """世界軸に一番近いボーンのローカル軸を、ローカル座標のベクトルで返す。
+    """世界軸をこのボーンのローカル座標に持ち込む。
 
     ローカル軸は骨の向きとロールで決まるので、腿と上腕と指では「前後に振る
-    軸」が別々の番号になる。番号を決め打ちすると、腕を振ったつもりが捻れる。
+    軸」が別々になる。番号を決め打ちすると、腕を振ったつもりが捻れる。
+
+    最初は「一番近いローカル軸に丸める」実装だった。これは間違いで、実測で
+    出た：腕の軸が世界 Z から数十度ずれていたせいで、振るたびに前へ流れ、
+    歩行中ずっと手が体の前 +0.12〜+0.33 m にあった（左右にも肩より 0.18 m
+    外へ張り出していた）。丸めずに、そのまま座標変換する。
     """
-    m = pb.bone.matrix_local.to_3x3()
-    best, bv = 0, -1.0
-    for i in range(3):
-        d = abs(m.col[i].dot(world_axis))
-        if d > bv:
-            bv, best = d, i
-    v = Vector((0.0, 0.0, 0.0))
-    v[best] = 1.0 if m.col[best].dot(world_axis) > 0 else -1.0
-    return v
+    return (pb.bone.matrix_local.to_3x3().inverted() @ world_axis).normalized()
 
 
 def two_bone_ik(l1, l2, df, dz):
@@ -566,12 +563,12 @@ class Rig:
         self.add(po, 'foot' + k, self.X, -(-(th + sh) + foot_ang))
         return th
 
-    def arms(self, po, k, sgn, swing, elbow_extra=0.0, lift=0.0):
+    def arms(self, po, k, sgn, swing, elbow=math.radians(26), lift=0.0):
         """腕。真横を向いた休めの姿勢では、前後に振る軸は鉛直の Z。
         世界 X まわりに回しても腕が捻れるだけで前へ出ない。"""
         self.add(po, 'upArm' + k, self.Y, sgn * (self.drop + lift))
         self.add(po, 'upArm' + k, self.Z, sgn * swing)
-        self.add(po, 'loArm' + k, self.Z, -sgn * (math.radians(18) + elbow_extra))
+        self.add(po, 'loArm' + k, self.Z, -sgn * elbow)
 
     def hands(self, po, k, sgn, grip):
         for n, f in enumerate(self.rows[sgn]):
@@ -598,7 +595,7 @@ def foot_roll(p, st):
 
 
 def gait(R, ph, stride, cadence_lift, st, hip_drop, bob, arm_gain, lean,
-         base=0.55, grip=0.30, airborne=0.0):
+         base=0.55, grip=0.30, airborne=0.0, elbow=math.radians(28)):
     """歩きと走りに共通の1歩ぶんの姿勢。ph は 0..1。"""
     D = math.radians
     po = R.new_pose()
@@ -623,7 +620,8 @@ def gait(R, ph, stride, cadence_lift, st, hip_drop, bob, arm_gain, lean,
         thighs[k] = R.leg_ik(po, k, ax, af, au, hz, fa)
     for k, sgn in (('L', -1), ('R', 1)):
         th = thighs[k]
-        R.arms(po, k, sgn, -th * arm_gain, max(0.0, -th) * 0.8)
+        # 肘は腕が前に出るときだけ深くなる
+        R.arms(po, k, sgn, -th * arm_gain, elbow * (1.0 + max(0.0, -th) * 0.8))
         R.hands(po, k, sgn, grip)
     # 骨盤 : 遊脚側が下がる（トレンデレンブルグ）。左右への体重移動も。
     sw = math.sin(2 * math.pi * ph)
@@ -645,14 +643,14 @@ def gait(R, ph, stride, cadence_lift, st, hip_drop, bob, arm_gain, lean,
 def clip_walk(R, ph):
     return gait(R, ph, stride=R.leg * 0.54, cadence_lift=R.leg * 0.13, st=0.62,
                 hip_drop=R.leg * 0.044, bob=R.leg * 0.026, arm_gain=0.95,
-                lean=math.radians(3), grip=0.30)
+                lean=math.radians(3), grip=0.30, elbow=math.radians(30))
 
 
 def clip_run(R, ph):
     return gait(R, ph, stride=R.leg * 0.92, cadence_lift=R.leg * 0.30, st=0.38,
                 hip_drop=R.leg * 0.075, bob=R.leg * 0.050, arm_gain=1.35,
                 lean=math.radians(11), base=0.35, grip=0.62,
-                airborne=R.leg * 0.055)
+                airborne=R.leg * 0.055, elbow=math.radians(84))
 
 
 def clip_idle(R, ph):
@@ -665,7 +663,7 @@ def clip_idle(R, ph):
     for k, sgn in (('L', -1), ('R', 1)):
         ax = R.legX * (-1 if k == 'L' else 1) * 0.62
         th = R.leg_ik(po, k, ax, sw * R.leg * 0.012 * sgn, R.ankle0, hz, 0.0)
-        R.arms(po, k, sgn, -sw * D(2) * sgn, D(4), D(3))
+        R.arms(po, k, sgn, -sw * D(2) * sgn, D(14), D(3))
         R.hands(po, k, sgn, 0.26)
     R.add(po, 'hips', R.Y, -sw * D(3))
     R.add(po, 'chest', R.X, br * D(2))
@@ -704,7 +702,7 @@ def clip_jump(R, ph):
         au = R.ankle0 + tuck
         fa = D(24) * (tuck / max(1e-6, R.leg * 0.30)) if tuck else 0.0
         R.leg_ik(po, k, ax, tuck * 0.35, au, hz, fa)
-        R.arms(po, k, sgn, arm, D(26) + abs(arm) * 0.35, D(6))
+        R.arms(po, k, sgn, arm, D(40) + abs(arm) * 0.45, D(6))
         R.hands(po, k, sgn, 0.42 if ph < TO else 0.20)
     R.add(po, 'spine', R.X, -min(0.0, h) / R.leg * D(56) - max(0.0, h) / R.leg * D(10))
     R.add(po, 'chest', R.X, -min(0.0, h) / R.leg * D(30))
