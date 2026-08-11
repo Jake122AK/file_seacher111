@@ -41,10 +41,11 @@ uniform int uSkin;
 uniform float uBlink;
 uniform sampler2D uBones;
 /* 4テクセルで1つのボーン行列（列ベクトル4本） */
-mat4 boneAt(float f){
+/* 行がインスタンス。1回の描画で、全員べつべつの姿勢を取れる。 */
+mat4 boneAt(float f, int row){
   int k = int(f)*4;
-  return mat4(texelFetch(uBones, ivec2(k,   0), 0), texelFetch(uBones, ivec2(k+1, 0), 0),
-              texelFetch(uBones, ivec2(k+2, 0), 0), texelFetch(uBones, ivec2(k+3, 0), 0));
+  return mat4(texelFetch(uBones, ivec2(k,   row), 0), texelFetch(uBones, ivec2(k+1, row), 0),
+              texelFetch(uBones, ivec2(k+2, row), 0), texelFetch(uBones, ivec2(k+3, row), 0));
 }
 '''
 SKIN_BODY = '''  vec3 sPos = aPos; vec3 sNrm = aNrm;
@@ -53,8 +54,9 @@ SKIN_BODY = '''  vec3 sPos = aPos; vec3 sNrm = aNrm;
      まばたきのたびに頂点バッファを丸ごと上げ直すことになる。 */
   if(uBlink > 0.0) sPos += aBlink*uBlink;
   if(uSkin==1){
-    mat4 S = boneAt(aBI.x)*aBW.x + boneAt(aBI.y)*aBW.y
-           + boneAt(aBI.z)*aBW.z + boneAt(aBI.w)*aBW.w;
+    int row = uInstanced==1 ? gl_InstanceID : 0;
+    mat4 S = boneAt(aBI.x,row)*aBW.x + boneAt(aBI.y,row)*aBW.y
+           + boneAt(aBI.z,row)*aBW.z + boneAt(aBI.w,row)*aBW.w;
     sPos = (S*vec4(aPos,1.0)).xyz;
     sNrm = mat3(S)*aNrm;
   }
@@ -93,6 +95,14 @@ rep("""  CAM.pitch = clamp(CAM.pitch, -1.25, 1.25);
   M4.copy(CAM.prevViewProj, CAM.viewProj);""")
 
 rep("    updateKyonshi(dt);", "    updateKyonshi(dt);\n    updatePlayer(dt);")
+
+# 参道を伸ばす（210m -> 520m、標高差 +28m）。鳥居・灯籠・木立・下草はすべて
+# PATH_LEN を見て並ぶので、ここ1行で全部が伸びる。描画は CAM.t±78 で間引かれる。
+rep('const PATH_LEN = 210;', 'const PATH_LEN = 520;')
+
+# 観光地なので、キョンシーは出さない
+rep('  const spots = [[34, -0.9], [52, 1.0], [70, -0.6], [88, 0.8], [106, -1.0], [124, 0.7], [142, -0.5]];',
+    '  const spots = [];        // 参拝客だけの世界にする')
 
 # 移動の計算は**プレイヤーの位置**に対して行う。三人称でカメラを後ろへ
 # 引いたあと、その位置をそのまま次のフレームの入力にしてはいけない。
@@ -145,8 +155,10 @@ PLAYER = r'''
    ========================================================================= */
 
 /* テクスチャの無いモデルなので、粘土に近い色で置く。
-   素の MAT.SKIN のままだと周囲より明るく浮いて、白いシルエットに見える。 */
-const PLAY_TINT = [0.80, 0.74, 0.70, 0.30];
+   MAT.SKIN は本編のキャラクター用で、影がほとんど落ちないアニメ調の陰影が
+   掛かる。参道に立たせると周囲から浮いて白いシルエットになったので、
+   普通の PBR で塗られる MAT.LINEN にした。 */
+const PLAY_TINT = [0.62, 0.58, 0.55, 0.30];
 const GLB_CT = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array,
                  5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
 const GLB_NC = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
@@ -286,7 +298,7 @@ function loadGLB(buf, status) {
   for (let i = 0; i < NV; i++)
     g.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2],
            nrm ? nrm[i * 3] : 0, nrm ? nrm[i * 3 + 1] : 1, nrm ? nrm[i * 3 + 2] : 0,
-           0.5, 0.5, MAT.SKIN);
+           0.5, 0.5, MAT.LINEN);
   for (let t = 0; t < idx.length; t += 3) g.tri(idx[t], idx[t + 1], idx[t + 2]);
   const mesh = new Mesh(g, { dynamic: true });
   mesh.setInstances([{ m: M4.create(), tint: PLAY_TINT }]);
@@ -328,9 +340,10 @@ function loadGLB(buf, status) {
   const ibm = skin.inverseBindMatrices !== undefined ? glbAcc(G, skin.inverseBindMatrices) : null;
   const joints = skin.joints;
   const NB = joints.length;
+  const ROWS = 1 + CROWD_N;                 // 0 行目が自分、あとは参拝客
   const boneTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, boneTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, NB * 4, 1, 0, gl.RGBA, gl.FLOAT, null);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, NB * 4, ROWS, 0, gl.RGBA, gl.FLOAT, null);
   for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER])
     gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
   for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T])
@@ -381,7 +394,8 @@ function loadGLB(buf, status) {
 
   Object.assign(PLAY, {
     snap: nodes.map(n => ({ t: n.trs.t.slice(), r: n.trs.r.slice(), s: n.trs.s.slice() })),
-    ready: true, mesh, boneTex, boneData: new Float32Array(NB * 16),
+    ready: true, mesh, boneTex, rows: ROWS, NB,
+    boneData: new Float32Array(NB * 16 * ROWS),
     nodes, roots, joints, ibm, clips, morph, NV, foot: ylo, top: yhi,
     scale: 1.0, names: Object.keys(clips)
   });
@@ -391,6 +405,7 @@ function loadGLB(buf, status) {
   R.scene.shadowDraws.push(dr);
   R.baseDraws && R.baseDraws.push(dr);
   R.shadowBase && R.shadowBase.push(dr);
+  initCrowd();
   status('');
   return true;
 }
@@ -442,7 +457,7 @@ function poseBlended(dt) {
   }
 }
 
-function solveSkeleton() {
+function solveSkeleton(row) {
   const tmp = PLAY.tmp;
   const walk = (ni, parent) => {
     const nd = PLAY.nodes[ni];
@@ -452,14 +467,77 @@ function solveSkeleton() {
   };
   for (const r of PLAY.roots) walk(r, null);
   const bd = PLAY.boneData, ib = PLAY.ibm, m = M4.create();
+  const base = (row || 0) * PLAY.NB * 16;
   for (let i = 0; i < PLAY.joints.length; i++) {
     const w = PLAY.nodes[PLAY.joints[i]].world;
     if (ib) { m.set(ib.subarray(i * 16, i * 16 + 16)); M4.mul(m, w, m); }
     else M4.copy(m, w);
-    bd.set(m, i * 16);
+    bd.set(m, base + i * 16);
   }
+}
+
+function uploadBones() {
   gl.bindTexture(gl.TEXTURE_2D, PLAY.boneTex);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, PLAY.joints.length * 4, 1, gl.RGBA, gl.FLOAT, bd);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, PLAY.NB * 4, PLAY.rows, gl.RGBA, gl.FLOAT, PLAY.boneData);
+}
+
+/* ---------------- 参拝客 ----------------
+   同じメッシュ・同じ骨で、行だけ変えて全員ぶんの姿勢を持つ。描画は1回。
+   骨を解く相手は近い順に絞る — 見えないところで解いても仕方がない。 */
+const CROWD_N = 44;
+const CROWD = { list: [], inst: [] };
+
+function initCrowd() {
+  const rn = mulberry32(20260811);
+  CROWD.list.length = 0;
+  for (let i = 0; i < CROWD_N; i++) {
+    const up = rn() < 0.55;
+    CROWD.list.push({
+      t: 6 + rn() * (PATH_LEN - 12),
+      side: (rn() < 0.5 ? -1 : 1) * (0.5 + rn() * 1.5),
+      spd: (up ? 1 : -1) * (0.75 + rn() * 0.85),
+      ph: rn() * 4, scale: 0.93 + rn() * 0.13,
+      tint: [0.52 + rn() * 0.22, 0.48 + rn() * 0.20, 0.46 + rn() * 0.20, 0.3],
+      pause: rn() * 14, d2: 0, moving: true, m: M4.create(), yaw: 0
+    });
+  }
+}
+
+function updateCrowd(dt) {
+  const order = [];
+  for (let i = 0; i < CROWD.list.length; i++) {
+    const c = CROWD.list[i];
+    c.pause -= dt;                       // ときどき立ち止まって鳥居を見る
+    const moving = c.pause < 0 || c.pause > 3.0;
+    if (moving) {
+      c.t += c.spd * dt;
+      if (c.t > PATH_LEN - 4) { c.t = PATH_LEN - 4; c.spd = -Math.abs(c.spd); }
+      if (c.t < 4) { c.t = 4; c.spd = Math.abs(c.spd); }
+    }
+    if (c.pause < -6) c.pause = 6 + Math.random() * 16;
+    const P = pathPos(c.t), Rt = pathRight(c.t), T = pathTan(c.t);
+    const x = P[0] + Rt[0] * c.side, z = P[2] + Rt[2] * c.side;
+    const gy = WORLD.groundAt(x, z).y;
+    const sg = c.spd < 0 ? -1 : 1;
+    c.yaw = Math.atan2(T[0] * sg, T[2] * sg);
+    M4.compose(c.m, [x, gy, z], c.yaw, [c.scale, c.scale, c.scale]);
+    c.moving = moving;
+    c.d2 = (x - PLAY.pos[0]) * (x - PLAY.pos[0]) + (z - PLAY.pos[2]) * (z - PLAY.pos[2]);
+    order.push(i);
+  }
+  order.sort((a, b) => CROWD.list[a].d2 - CROWD.list[b].d2);
+  const budget = Math.min(order.length, 10);
+  for (let k = 0; k < budget; k++) {
+    const i = order[k], c = CROWD.list[i];
+    if (c.d2 > 70 * 70) continue;
+    c.ph += dt * (c.moving ? Math.abs(c.spd) / CFG.walkSpeed * 1.7 : 0.7);
+    sampleClip(c.moving ? 'walk' : 'idle', c.ph);
+    solveSkeleton(1 + i);
+  }
+  CROWD.inst.length = 0;
+  CROWD.inst.push({ m: PLAY.m, tint: PLAY_TINT });
+  for (const c of CROWD.list) CROWD.inst.push({ m: c.m, tint: c.tint });
+  PLAY.mesh.updateInstances(CROWD.inst);
 }
 
 /* 表情を混ぜて、影響する範囲だけ頂点バッファに書き戻す */
@@ -543,13 +621,14 @@ function updatePlayer(dt) {
   }
 
   poseBlended(dt);
-  solveSkeleton();
+  solveSkeleton(0);
   applyMorph();
 
   const g = WORLD.groundAt(PLAY.pos[0], PLAY.pos[2]);
   M4.compose(PLAY.m, [PLAY.pos[0], PLAY.pos[1] - PLAY.foot + PLAY.jumpY, PLAY.pos[2]],
              PLAY.yaw, [1, 1, 1]);
-  PLAY.mesh.updateInstances([{ m: PLAY.m, tint: PLAY_TINT }]);
+  updateCrowd(dt);
+  uploadBones();
   void g;
 }
 
