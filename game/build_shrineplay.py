@@ -494,8 +494,12 @@ function uploadBones() {
    同じメッシュ・同じ骨で、行だけ変えて全員ぶんの姿勢を持つ。描画は1回。
    骨を解く相手は近い順に絞る — 見えないところで解いても仕方がない。 */
 const CROWD_N = 44;         // 参道に散っている人数
-const CROWD_DRAW = 12;      // そのうち実際に描く人数（近い順）
-const CROWD_FAR = 46;       // これより遠い人は描かない（m）
+const CROWD_DRAW = 14;      // そのうち実際に描く人数（近い順）
+/* 打ち切りは霧の見通し（1/fogDensity ≒ 80m）と鳥居の間引き（±78m）に
+   合わせる。46m で切っていたときは、まだはっきり見えている人が忽然と
+   消えていた。境界の手前 9m は縮めて消すので、消える瞬間は見えない。 */
+const CROWD_FAR = 80;
+const CROWD_FADE = 9;
 const CROWD = { list: [], inst: [], drawn: 0 };
 
 function initCrowd() {
@@ -531,7 +535,10 @@ function updateCrowd(dt) {
     const gy = WORLD.groundAt(x, z).y;
     const sg = c.spd < 0 ? -1 : 1;
     c.yaw = Math.atan2(T[0] * sg, T[2] * sg);
-    M4.compose(c.m, [x, gy, z], c.yaw, [c.scale, c.scale, c.scale]);
+    const dist = Math.sqrt((x - PLAY.pos[0]) * (x - PLAY.pos[0]) +
+                           (z - PLAY.pos[2]) * (z - PLAY.pos[2]));
+    const f = c.scale * smoothstep(0, 1, clamp((CROWD_FAR - dist) / CROWD_FADE, 0, 1));
+    M4.compose(c.m, [x, gy, z], c.yaw, [f, f, f]);
     c.moving = moving;
     c.d2 = (x - PLAY.pos[0]) * (x - PLAY.pos[0]) + (z - PLAY.pos[2]) * (z - PLAY.pos[2]);
     order.push(i);
