@@ -129,6 +129,16 @@ function viewClearAt(s, t) {
   return (1 - smoothstep(half * 0.62, half, d)) * smoothstep(1.5, 5.0, s);
 }
 
+/* 四ツ辻の展望台。実物は参道が広がった平場で、崖側に黒い金属の手すりが
+   立っている。斜面を落としただけでは「道の脇が切れている」だけなので、
+   立ち止まって眺める場所として平場を作る。 */
+const LOOK = { t: 352, tflat: 7.5, trim: 12.0, s0: 7.6, s1: 9.6, y: 0.06 };
+function lookoutAt(s, t) {
+  if (s < 0.8) return 0;
+  return (1 - smoothstep(LOOK.tflat, LOOK.trim, Math.abs(t - LOOK.t)))
+       * (1 - smoothstep(LOOK.s0, LOOK.s1, s));
+}
+
 /* 地形に掘るもの一式。bankHeight() の素の高さ h を受けて、掘ったあとの高さを
    返す。掘るだけで盛らない（min を取る）ので、既存の地形とは必ず繋がる。 */
 function terrainCarve(s, t, h) {
@@ -163,6 +173,9 @@ function terrainCarve(s, t, h) {
       if (fall < h) h += (fall - h) * w;
     }
   }
+  // 展望台の平場。落としたあとに持ち上げるので、掘る順序の最後に置く
+  const lw = lookoutAt(s, t);
+  if (lw > 0.001) h += (LOOK.y - h) * lw;
   return h;
 }
 
@@ -183,6 +196,24 @@ function buildOtsuka() {
   g.merge(roundedBox(0.64, 0.065, 0.09, 0.02, 2, { mat: MAT.GRANITE }), m);
   M4.compose(m, [0, 0.34, -0.34], 0, [1, 1, 1]);
   g.merge(roundedBox(0.42, 0.68, 0.24, 0.05, 2, { mat: MAT.STONE }), m);
+  return g;
+}
+
+/* 展望台の手すり。黒い金属の柵。柱と横木2本だけの、実物どおりの簡素なもの。 */
+function buildRailPost() {
+  const g = new Geo(), m = M4.create();
+  M4.compose(m, [0, 0.52, 0], 0, [1, 1, 1]);
+  g.merge(roundedBox(0.05, 1.04, 0.05, 0.012, 1, { mat: MAT.BLACK }), m);
+  M4.compose(m, [0, 1.03, 0], 0, [1, 1, 1]);
+  g.merge(roundedBox(0.075, 0.05, 0.075, 0.018, 1, { mat: MAT.BLACK }), m);
+  return g;
+}
+function buildRailSpan() {
+  const g = new Geo(), m = M4.create();
+  for (const y of [0.98, 0.62]) {
+    M4.compose(m, [0, y, 0], 0, [1, 1, 1]);
+    g.merge(roundedBox(0.042, 0.042, 1.42, 0.010, 1, { mat: MAT.BLACK }), m);
+  }
   return g;
 }
 
@@ -374,6 +405,32 @@ function buildZones() {
   rock.setInstances(ri);
   S.draws.push({ mesh: rock, name: 'stream_rocks' });
   S.shadowDraws.push({ mesh: rock });
+
+  /* 展望台の手すり。平場の崖側の縁に沿って立てる。 */
+  {
+    const post = new Mesh(buildRailPost()), span = new Mesh(buildRailSpan());
+    const pi = [], si = [];
+    const edge = LOOK.s0 - 0.45;
+    for (let t = LOOK.t - LOOK.tflat - 1.5; t <= LOOK.t + LOOK.tflat + 1.5; t += 1.30) {
+      const P = pathPos(t), Rt = pathRight(t), T = pathTan(t);
+      const x = P[0] + Rt[0] * edge, z = P[2] + Rt[2] * edge;
+      const gy = WORLD.groundAt(x, z).y;
+      const ry = Math.atan2(T[0], T[2]);
+      const m = M4.create();
+      M4.compose(m, [x, gy - 0.04, z], ry, [1, 1, 1]);
+      pi.push({ m, tint: [0.92 + rn() * 0.14, 0.92 + rn() * 0.12, 0.94 + rn() * 0.12, rn()], t });
+      const P2 = pathPos(t + 0.65), R2 = pathRight(t + 0.65);
+      const x2 = P2[0] + R2[0] * edge, z2 = P2[2] + R2[2] * edge;
+      const m2 = M4.create();
+      M4.compose(m2, [x2, WORLD.groundAt(x2, z2).y - 0.04, z2],
+                 Math.atan2(pathTan(t + 0.65)[0], pathTan(t + 0.65)[2]), [1, 1, 1]);
+      si.push({ m: m2, tint: [0.92, 0.92, 0.94, rn()], t });
+    }
+    post.setInstances(pi); span.setInstances(si);
+    S.draws.push({ mesh: post, name: 'rail' });
+    S.draws.push({ mesh: span, name: 'rail' });
+    S.shadowDraws.push({ mesh: post });
+  }
 
   /* 見晴らしの裾。土手のメッシュと同じくインスタンスを付けずに置く
      （付けると色の扱いが変わって、そこだけ質感が浮く）。 */
