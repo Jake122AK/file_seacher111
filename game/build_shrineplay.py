@@ -254,6 +254,16 @@ rep("  const farL = buildGroundStrip(-46.0, -12.6, MAT.MOSS, 7, 4.0, -0.02, 0.16
 
 
 
+# 基本の移動は走り。Shift を押している間だけ歩く（もとは逆だった）。
+# 参道は 520m あるので、既定が歩き（4.2 m/s）だと端から端まで2分かかる。
+rep("    const run = KEYS['shift'] ? 1 : 0;\n"
+    "    const want = (run ? CFG.runSpeed : CFG.walkSpeed) * (fz < 0 ? 0.72 : 1.0);",
+    "    const run = KEYS['shift'] ? 0 : 1;      // 既定が走り、Shift で歩き\n"
+    "    const want = (run ? CFG.runSpeed : CFG.walkSpeed) * (fz < 0 ? 0.72 : 1.0);")
+
+# 走りは 9.5 m/s（36km/h）だと速すぎて参道が短く感じる。人が本気で走る速さに。
+rep("  runSpeed: 9.50,", "  runSpeed: 6.60,")
+
 # ---------------------------------------------------------------------------
 # 2. 三人称カメラのフック
 # ---------------------------------------------------------------------------
@@ -492,7 +502,8 @@ rep('#joy{position:fixed;width:110px;height:110px;border-radius:50%;border:1.5px
 ZONES_JS = ("/* 観光地版ではキョンシーを出さないので、屍蝋(9)を水に転用する。\n"
             "   16 以上はキャラクター用でトゥーンに切り替わるため、水は 16 未満に置く。 */\n"
             "MAT.WATER = MAT.CORPSE;\n"
-            + io.open(os.path.join(HERE, 'zones.js'), encoding='utf-8').read())
+            + io.open(os.path.join(HERE, 'zones.js'), encoding='utf-8').read()
+            + io.open(os.path.join(HERE, 'dress.js'), encoding='utf-8').read())
 
 PLAYER = ZONES_JS + r'''
 /* ==== g_glb.js ==== */
@@ -721,19 +732,35 @@ function loadGLB(buf, status) {
     const d = glbAcc(G, prim.targets[ci].POSITION);
     for (let i = 0; i < NV * 3; i++) pos[i] += d[i] * w;
   }
+  /* 材質が入っていないモデルなので、形から着せる（dress.js）。
+     元の頂点は消さず、髪の房の三角形だけを落として、ボブと袴を足す。
+     こうしておくと表情モーフの頂点番号がそのまま生きる。 */
+  const jointNames = skin.joints.map(n => (J.nodes[n] || {}).name || '');
+  const DR = dressCharacter(pos, nrm, idx, ji, jw, NV, jointNames);
+  const NX = DR.ex.pos.length / 3;
+
   const g = new Geo();
   for (let i = 0; i < NV; i++)
     g.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2],
            nrm ? nrm[i * 3] : 0, nrm ? nrm[i * 3 + 1] : 1, nrm ? nrm[i * 3 + 2] : 0,
-           0.5, 0.5, MAT.LINEN);
-  for (let t = 0; t < idx.length; t += 3) g.tri(idx[t], idx[t + 1], idx[t + 2]);
+           0.5, 0.5, DR.mat[i]);
+  for (let i = 0; i < NX; i++)
+    g.push(DR.ex.pos[i * 3], DR.ex.pos[i * 3 + 1], DR.ex.pos[i * 3 + 2],
+           DR.ex.nrm[i * 3], DR.ex.nrm[i * 3 + 1], DR.ex.nrm[i * 3 + 2],
+           0.5, 0.5, DR.ex.mat[i]);
+  for (let t = 0; t < idx.length / 3; t++)
+    if (DR.keepTri[t]) g.tri(idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]);
+  for (let t = 0; t < DR.ex.idx.length; t += 3)
+    g.tri(DR.ex.idx[t], DR.ex.idx[t + 1], DR.ex.idx[t + 2]);
   const mesh = new Mesh(g, { dynamic: true });
   mesh.setInstances([{ m: M4.create(), tint: PLAY_TINT }]);
 
-  const bi = new Float32Array(NV * 4), bw = new Float32Array(NV * 4);
+  const NVA = NV + NX;
+  const bi = new Float32Array(NVA * 4), bw = new Float32Array(NVA * 4);
   for (let i = 0; i < NV * 4; i++) { bi[i] = ji[i]; bw[i] = jw[i]; }
+  for (let i = 0; i < NX * 4; i++) { bi[NV * 4 + i] = DR.ex.bi[i]; bw[NV * 4 + i] = DR.ex.bw[i]; }
   // まばたきの差分を頂点属性で持たせる（見つからなければゼロ）
-  const bl = new Float32Array(NV * 3);
+  const bl = new Float32Array(NVA * 3);
   {
     const k = tnames.indexOf('blink');
     if (k >= 0 && prim.targets && prim.targets[k]) bl.set(glbAcc(G, prim.targets[k].POSITION));
@@ -756,7 +783,7 @@ function loadGLB(buf, status) {
   gl.bindVertexArray(null);
 
   // --- 遠くの人のための間引きメッシュ ---
-  const L = buildCrowdLOD(pos, nrm, idx, bi, bw, NV, CROWD_LOD_CELLS);
+  const L = buildCrowdLOD(g.p, g.n, g.idx, bi, bw, NVA, CROWD_LOD_CELLS);
   const lodMesh = new Mesh(L.geo);
   lodMesh.setInstances([{ m: M4.create(), tint: PLAY_TINT }]);
   gl.bindVertexArray(lodMesh.vao);
@@ -849,6 +876,11 @@ function loadGLB(buf, status) {
     nodes, roots, joints, ibm, clips, morph, NV, foot: ylo, top: yhi,
     scale: 1.0, names: Object.keys(clips)
   });
+  /* 既定の表情。全部 0 だと能面なので、うっすら笑わせて眉を上げておく。
+     参拝客も同じ姿勢テクスチャを共有するので、全員に同じ表情が乗る。 */
+  setMorph('smile', 0.26);
+  setMorph('brow_up', 0.08);
+
   const dr = { mesh, name: 'player', skin: boneTex, blink: 0 };
   PLAY.draw = dr;
   R.scene.draws.push(dr);
