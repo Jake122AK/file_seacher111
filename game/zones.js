@@ -16,7 +16,7 @@ function zoneAt(t) {
   return ZONES[ZONES.length - 1];
 }
 function toriiSkip(t) {
-  if (t > 152 && t < 210) return Math.sin(t * 0.83) > -0.15;   // 池のほとりは疎
+  if (t > 152 && t < 246) return Math.sin(t * 0.83) > -0.15;   // 池と沢のほとりは疎
   if (t > 334 && t < 381) return true;                          // 四ツ辻は開ける
   if (t > 392) return Math.sin(t * 1.31) > -0.35;               // お塚の区間はまばら
   return false;
@@ -69,22 +69,27 @@ const POND = {
   far0: 19.0, far1: 36.0,       // 対岸。ここから山へ戻す
 };
 /* 沢は t=242 で止める。そこから先（248〜）は見晴らしのために斜面を落として
-   あるので、溝を伸ばすと川床のほうが下流より低くなり、水が坂を登る。 */
-const STREAM = { t0: 193, t1: 242, half: 1.55, depth: 1.20, lip: 4.6 };
+   あるので、溝を伸ばすと川床のほうが下流より低くなり、水が坂を登る。
 
-/* 沢の中心線（参道からの横距離）。
-   最初は横 12〜20m に置いていたが、そこは地形メッシュが 4.8m 刻みの区域で、
-   幅 3m の溝が**ポリゴン1枚の中に消える**。当たり判定には溝があるのに絵には
-   出ず、水面は地面の内側に埋まっていた。しかも参道からは鳥居の列が壁になって
-   横が見えない。細かい帯（横 13m まで、0.73m 刻み）の内側に寄せて、歩きながら
-   目に入る位置にした。 */
+   水面の高さは**路面からの相対**で決める（-0.35m）。参道自体が下っていくので
+   これだけで下流方向へ必ず下がる。溝を地形に彫って水を張る方式だと、土手の
+   上（目線より 4m 高いところ）に水面が来て、手前の縁に隠れて見えなかった。 */
+const STREAM = {
+  t0: 193, t1: 242, half: 1.10, lip: 4.6,
+  waterRel: -0.35, bedRel: -0.62,   // 路面から見た水面と川床
+  shore0: 1.9, shoreY: 0.45,        // 路肩からの落とし始め
+  far: 5.0,                         // 対岸が山へ戻るまで
+};
+
+/* 沢の中心線（参道からの横距離）。下流（池側）で外へ開き、上流では参道の
+   すぐ脇を流れる。歩いていて目に入る位置に置くのが狙い。 */
 function streamSAt(t) {
   const u = (t - STREAM.t0) / (STREAM.t1 - STREAM.t0);
-  return 8.0 + 2.5 * u + 0.8 * Math.sin(t * 0.115) + 0.35 * Math.sin(t * 0.31);
+  return 8.0 - 3.4 * u + 0.55 * Math.sin(t * 0.115) + 0.25 * Math.sin(t * 0.31);
 }
 function nearStream(s, t) {
   if (t < STREAM.t0 - 3 || t > STREAM.t1 + 3) return false;
-  return Math.abs(s - streamSAt(t)) < STREAM.half + 1.2;
+  return Math.abs(s - streamSAt(t)) < STREAM.half + 2.2;
 }
 
 /* 水の上。樹冠を抜く範囲はこれより広く取る（幹より梢のほうが張り出す）。
@@ -93,7 +98,7 @@ function nearStream(s, t) {
    残った。対岸に木があることが、水面の向こうの奥行きになる。 */
 function overWater(s, t) {
   if (s < 3.0) return false;
-  if (t >= STREAM.t0 - 4 && t <= STREAM.t1 + 4 && Math.abs(s - streamSAt(t)) < 6.0) return true;
+  if (t >= STREAM.t0 - 4 && t <= STREAM.t1 + 4 && Math.abs(s - streamSAt(t)) < 5.0) return true;
   return Math.abs(t - POND.z) < 11.0 && s > 5.5 && s < POND.s + POND.r * 0.9;
 }
 
@@ -137,14 +142,16 @@ function terrainCarve(s, t, h) {
       if (target < h) h += (target - h) * w;
     }
   }
-  // 沢の溝
-  if (t > STREAM.t0 - STREAM.lip && t < STREAM.t1 + STREAM.lip) {
-    const d = Math.abs(s - streamSAt(t));
-    if (d < STREAM.half + 3.2) {
-      const w = 1 - smoothstep(STREAM.half, STREAM.half + 3.2, d);
-      const ends = smoothstep(STREAM.t0 - STREAM.lip, STREAM.t0 + 2, t)
-                 * (1 - smoothstep(STREAM.t1 - 2, STREAM.t1 + STREAM.lip, t));
-      h -= STREAM.depth * w * ends;
+  // 沢。路肩から水際へ落として、対岸で山へ戻す
+  if (s > 0 && t > STREAM.t0 - STREAM.lip && t < STREAM.t1 + STREAM.lip) {
+    const ends = smoothstep(STREAM.t0 - STREAM.lip, STREAM.t0 + 1.5, t)
+               * (1 - smoothstep(STREAM.t1 - 1.5, STREAM.t1 + STREAM.lip, t));
+    if (ends > 0.001) {
+      const sc = streamSAt(t);
+      const target = s <= sc
+        ? lerp(STREAM.shoreY, STREAM.bedRel, smoothstep(STREAM.shore0, sc, s))
+        : lerp(STREAM.bedRel, h, smoothstep(sc, sc + STREAM.far, s));
+      if (target < h) h += (target - h) * ends;
     }
   }
   // 四ツ辻の見晴らし。街のある側（+X）だけ落とす
@@ -218,71 +225,29 @@ function buildBranchPath() {
    単調に下がるように締める（1箇所でも上を向くと水が坂を登って見える）。 */
 function buildStreamWater() {
   const g = new Geo();
-  const pondY = pathYAt(POND.z) + POND.waterRel;
   const rows = [];
-  let prevY = Infinity;
-  for (let t = STREAM.t1; t >= STREAM.t0 - 2.0; t -= 1.0) {
+  for (let t = STREAM.t1; t >= STREAM.t0 - 1.5; t -= 0.8) {
     const sc = streamSAt(t);
     const P = pathPos(t), Rt = pathRight(t), T = pathTan(t);
-    const cx = P[0] + Rt[0] * sc, cz = P[2] + Rt[2] * sc;
-    let y = WORLD.groundAt(cx, cz).y + 0.12;
-    y = Math.min(y, prevY - 0.015);
-    if (t < STREAM.t0 + 7) y = Math.max(y, pondY);   // 池に注ぐところで水面を合わせる
-    prevY = y;
-    const u = (t - STREAM.t0) / (STREAM.t1 - STREAM.t0);
-    const hw = 1.35 - 0.45 * u;                       // 下流ほど広い
-    rows.push({ cx, cz, y, hw, rx: Rt[0], rz: Rt[2], tx: T[0], tz: T[2], t });
+    const y = P[1] + STREAM.waterRel;
+    const ends = smoothstep(STREAM.t0 - 1.5, STREAM.t0 + 2.0, t)
+               * (1 - smoothstep(STREAM.t1 - 3.0, STREAM.t1, t));
+    const hw = STREAM.half * (0.55 + 0.45 * ends);
+    rows.push({ cx: P[0] + Rt[0] * sc, cz: P[2] + Rt[2] * sc, y, hw,
+                rx: Rt[0], rz: Rt[2], t });
   }
   const ids = [];
   for (const r of rows) {
     const row = [];
     for (const k of [-1, 0, 1]) {
-      const w = r.hw * k * (k === 0 ? 0 : 1);
-      row.push(g.push(r.cx + r.rx * w, r.y - (k === 0 ? 0.02 : 0), r.cz + r.rz * w,
-                      0, 1, 0, k * 2.0, r.t * 0.5, MAT.STONE));
+      row.push(g.push(r.cx + r.rx * r.hw * k, r.y - (k === 0 ? 0.015 : 0),
+                      r.cz + r.rz * r.hw * k, 0, 1, 0, k * 2.0, r.t * 0.5, MAT.WATER));
     }
     ids.push(row);
   }
   for (let i = 0; i < ids.length - 1; i++)
     for (let k = 0; k < 2; k++)
       g.quad(ids[i][k], ids[i][k + 1], ids[i + 1][k + 1], ids[i + 1][k]);
-  return g;
-}
-
-/* 沢の川床。地形メッシュは横 12.6m から先が 4.8m 刻みなので、幅 3m の溝は
-   **1枚のポリゴンの中に消えてしまう**。当たり判定（bankHeight）には溝がある
-   のに絵には出ず、水面は地面の内側に埋まって見えなかった。溝のまわりだけ
-   1m 刻みの帯を重ねる。粗いほうと喧嘩しないよう 3cm 持ち上げてある。 */
-function buildStreamBed() {
-  const g = new Geo();
-  const rows = [];
-  for (let t = STREAM.t0 - 5; t <= STREAM.t1 + 5; t += 0.9) {
-    const sc = streamSAt(t), P = pathPos(t), Rt = pathRight(t);
-    const row = [];
-    for (let i = 0; i <= 14; i++) {
-      const s = sc - 7 + i;
-      row.push({ x: P[0] + Rt[0] * s, y: P[1] + bankHeight(s, t) + 0.03,
-                 z: P[2] + Rt[2] * s, s, t });
-    }
-    rows.push(row);
-  }
-  const ids = [];
-  for (let r = 0; r < rows.length; r++) {
-    const row = [];
-    for (let i = 0; i < rows[r].length; i++) {
-      const c = rows[r][i];
-      const cL = rows[r][Math.max(i - 1, 0)], cR = rows[r][Math.min(i + 1, rows[r].length - 1)];
-      const cD = rows[Math.max(r - 1, 0)][i], cU = rows[Math.min(r + 1, rows.length - 1)][i];
-      const n = norm(cross([cU.x - cD.x, cU.y - cD.y, cU.z - cD.z],
-                           [cR.x - cL.x, cR.y - cL.y, cR.z - cL.z]));
-      if (n[1] < 0) { n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2]; }
-      row.push(g.push(c.x, c.y, c.z, n[0], n[1], n[2], c.s * 0.30, c.t * 0.30, MAT.MOSS));
-    }
-    ids.push(row);
-  }
-  for (let r = 0; r < ids.length - 1; r++)
-    for (let i = 0; i < ids[r].length - 1; i++)
-      g.quad(ids[r][i], ids[r + 1][i], ids[r + 1][i + 1], ids[r][i + 1]);
   return g;
 }
 
@@ -338,13 +303,13 @@ function buildViewSkirt() {
 
 function buildPondSurface() {
   const g = new Geo(), N = 56;
-  const c = g.push(0, 0, 0, 0, 1, 0, 0.5, 0.5, MAT.STONE);
+  const c = g.push(0, 0, 0, 0, 1, 0, 0.5, 0.5, MAT.WATER);
   const ring = [];
   for (let i = 0; i <= N; i++) {
     const a = i / N * TAU;
     const rr = POND.r * (0.80 + 0.20 * Math.sin(a * 2.3) + 0.06 * Math.sin(a * 5.1));
     ring.push(g.push(Math.cos(a) * rr, 0, Math.sin(a) * rr, 0, 1, 0,
-                     Math.cos(a) * 3, Math.sin(a) * 3, MAT.STONE));
+                     0.5 + Math.cos(a) * 1.6, 0.5 + Math.sin(a) * 1.6, MAT.WATER));
   }
   /* 巻き方向。(中心, ring[i], ring[i+1]) の順だと面法線が -Y を向き、上から
      見ると裏面カリングで消える。頂点法線が +Y を向いていても、カリングは
@@ -378,17 +343,17 @@ function buildZones() {
   const pond = new Mesh(buildPondSurface());
   const pm = M4.create();
   M4.compose(pm, [POND.x, POND.y, pondZ], 0, [1, 1, 1]);
-  pond.setInstances([{ m: pm, tint: [0.30, 0.36, 0.34, 0.2] }]);
+  pond.setInstances([{ m: pm, tint: [1, 1, 1, 0.2] }]);      // w=0.2 : 静水
   S.draws.push({ mesh: pond, name: 'pond' });
 
-  /* 沢。池に注ぐところまで一続き。先に川床（細かい帯）を敷く。 */
-  const bed = new Mesh(buildStreamBed());
-  S.draws.push({ mesh: bed, name: 'stream_bed' });
-  S.shadowDraws.push({ mesh: bed });
+  /* 沢。池に注ぐところまで一続き。
+     （溝を細かい帯で描き足す仕掛けは要らなくなった。断面で掘るようにして
+       中心線を横 4.6〜8m へ寄せたので、土手のメッシュ（横 13m まで 0.73m
+       刻み）がそのまま溝の形を持てる。） */
   const stream = new Mesh(buildStreamWater());
   const sm = M4.create();
   M4.compose(sm, [0, 0, 0], 0, [1, 1, 1]);
-  stream.setInstances([{ m: sm, tint: [0.34, 0.40, 0.38, 0.6] }]);
+  stream.setInstances([{ m: sm, tint: [1, 1, 1, 0.6] }]);    // w=0.6 : 流水
   S.draws.push({ mesh: stream, name: 'stream' });
 
   const rock = new Mesh(buildStreamStone());

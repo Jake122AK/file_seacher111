@@ -170,6 +170,80 @@ rep("  tex(p_l, 'uSky', 10, R.skyCube.tex, gl.TEXTURE_CUBE_MAP);",
     "  }")
 
 # ---------------------------------------------------------------------------
+# 1.6 水のマテリアル
+#
+# 池も沢も STONE に暗いティントを掛けていただけなので、平らな灰色の面にしか
+# 見えなかった。材質スロットは 0〜15 が世界、16 以上はキャラクター（照明が
+# トゥーンに切り替わる境目）なので、新しい番号を足すと境目に触る。
+# 観光地版ではキョンシーを出さないので **9 番（屍蝋）が丸ごと空いている**。
+# ここを水に転用する。番号は 16 未満なので、照明は今までどおり PBR を通る。
+#
+# ベイクしたテクスチャは使わない（法線も粗さも下で作る）ので、焼き直しは不要。
+# tint の w で池（0.2）と沢（0.6）を見分け、沢は流れる向きに波を送る。
+# ---------------------------------------------------------------------------
+rep("  // per-instance colour variation & large-scale world breakup\n"
+    "  albedo *= vTint.rgb;\n"
+    "  float bigN = fbm3(vWPos*0.16+vec3(vTint.w*13.0), 3);\n"
+    "  float bigN2 = fbm3(vWPos*0.9+vec3(3.0), 2);\n"
+    "  // none of the world's weathering belongs on a character\n"
+    "  if(layer < 16){",
+    "  // per-instance colour variation & large-scale world breakup\n"
+    "  albedo *= vTint.rgb;\n"
+    "  float bigN = fbm3(vWPos*0.16+vec3(vTint.w*13.0), 3);\n"
+    "  float bigN2 = fbm3(vWPos*0.9+vec3(3.0), 2);\n"
+    "  // none of the world's weathering belongs on a character — nor on water\n"
+    "  if(layer < 16 && layer != 9){")
+
+rep("""  } else if(layer==3){
+    // wet moss and leaf litter: darker, only slightly glossier
+    albedo = mix(albedo, albedo*vec3(0.52,0.56,0.54), wet*0.85);
+    rough = mix(rough, 0.46, wet*0.55);""",
+"""  } else if(layer==9){
+    /* ---- 水面 ----
+       水は「色」ではなく「映り込み」で見える。粗さを落として SSR と鏡面に
+       仕事をさせ、法線だけを時間で揺らす。頂点は動かさない（波立たせると
+       岸との継ぎ目が割れる）。 */
+    float flow = step(0.4, vTint.w);            // 0 = 池、1 = 沢
+    vec2 p = vWPos.xz;
+    vec2 d1 = mix(vec2(0.86,0.51), vec2(0.05,1.00), flow);
+    vec2 d2 = mix(vec2(-0.42,0.91), vec2(0.28,0.96), flow);
+    float sp = mix(0.22, 1.30, flow);           // 流れの速さ
+    float w1 = sin(dot(p, d1)*3.10 + uTime*(0.9 + 2.2*flow));
+    float w2 = sin(dot(p, d2)*5.70 - uTime*(0.7 + 2.8*flow));
+    float n1 = vnoise(p*2.30 + d1*uTime*sp*2.0) - 0.5;
+    float n2 = vnoise(p*6.10 - d2*uTime*sp*1.4) - 0.5;
+    float amp = mix(0.016, 0.042, flow);
+    vec2 rip = (d1*w1*0.50 + d2*w2*0.34 + vec2(n1, n2)*1.70) * amp;
+    N = normalize(vec3(rip.x, 1.0, rip.y));
+    /* 濁りは水深で決まる。岸に近いほど底が透けて明るく、緑に寄る。 */
+    float shallow = flow > 0.5 ? smoothstep(1.9, 0.8, abs(vUV.x))
+                               : smoothstep(2.6, 1.2, length(vUV - 0.5));
+    albedo = mix(vec3(0.016,0.026,0.028), vec3(0.052,0.070,0.056), shallow);
+    albedo *= 0.92 + 0.16*(w1*0.5+0.5);
+    rough = 0.028 + 0.040*flow;
+    ao = 1.0;
+    if(flow > 0.5){
+      // 岸ぎわの白波。石に当たるところが白く立つ
+      float edge = smoothstep(1.30, 1.92, abs(vUV.x));
+      float f = edge * (0.30 + 0.70*vnoise(vec2(vUV.y*7.0 - uTime*2.4, vUV.x*3.0)));
+      albedo = mix(albedo, vec3(0.62,0.65,0.63), f*0.65);
+      rough = mix(rough, 0.50, f*0.85);
+    }
+  } else if(layer==3){
+    // wet moss and leaf litter: darker, only slightly glossier
+    albedo = mix(albedo, albedo*vec3(0.52,0.56,0.54), wet*0.85);
+    rough = mix(rough, 0.46, wet*0.55);""")
+
+# 遠景の地面が 4.8m 刻みで、陽が当たると一枚の平らな明るい面になる。
+# 分割を上げると groundNoise の起伏が出て、面が割れる。
+rep("  const farL = buildGroundStrip(-46.0, -12.6, MAT.MOSS, 7, 4.0, -0.02, 0.16);\n"
+    "  const farR = buildGroundStrip(12.6, 46.0, MAT.MOSS, 7, 4.0, -0.02, 0.16);",
+    "  const farL = buildGroundStrip(-46.0, -12.6, MAT.MOSS, 18, 2.0, -0.02, 0.16);\n"
+    "  const farR = buildGroundStrip(12.6, 46.0, MAT.MOSS, 18, 2.0, -0.02, 0.16);")
+
+
+
+# ---------------------------------------------------------------------------
 # 2. 三人称カメラのフック
 # ---------------------------------------------------------------------------
 rep("""  CAM.pitch = clamp(CAM.pitch, -1.25, 1.25);
@@ -265,6 +339,20 @@ rep("""    const tt = -16 + rnd() * (PATH_LEN + 40);
 # ものを見るように変えると、上がる側では今までどおり、下がる側では浮かない。
 rep("    const hgt = base + 5.0 + rnd() * 9.0 + Math.abs(s) * 0.32;",
     "    const hgt = base + 5.0 + rnd() * 9.0 + Math.max(0, base - P[1]) * 0.35;")
+
+# 木立の届く範囲を広げる。もとは中心線から 24m までで、その外は裸の苔だった。
+# 谷が閉じているうちは見えなかったが、池の窪地や見晴らしで斜面を露出させると、
+# 陽の当たった苔の面が一枚の明るい壁として立つ。木が生えていれば、それが
+# 影と輪郭を作って壁でなくなる。刻みも詰めて、手前の密度は保つ。
+rep("      const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);",
+    "      const s = sgn * (2.15 + Math.pow(rnd(), 0.85) * 31.0);")
+rep("  for (let tt = CORRIDOR_T0 + 1.0; tt < PATH_LEN + 30; tt += 1.05) {",
+    "  for (let tt = CORRIDOR_T0 + 1.0; tt < PATH_LEN + 30; tt += 0.78) {")
+rep("    const s = (rnd() - 0.5) * 40.0;", "    const s = (rnd() - 0.5) * 56.0;")
+rep("  const canopyCount = quality >= 2 ? 1150 : 480;",
+    "  const canopyCount = quality >= 2 ? 1620 : 660;")
+rep("    const s = sgn * (1.95 + Math.pow(rnd(), 0.7) * 10.0);",
+    "    const s = sgn * (1.95 + Math.pow(rnd(), 0.75) * 15.0);")
 
 # 千本鳥居は本殿の正面からではなく**右手**から始まる。入口を右へずらし、
 # 70m ほどかけて元の稜線に戻す（ガウスで減衰させるので折れ目が出ない）。
@@ -390,7 +478,10 @@ rep('#joy{position:fixed;width:110px;height:110px;border-radius:50%;border:1.5px
 # ---------------------------------------------------------------------------
 # 4. 本体
 # ---------------------------------------------------------------------------
-ZONES_JS = io.open(os.path.join(HERE, 'zones.js'), encoding='utf-8').read()
+ZONES_JS = ("/* 観光地版ではキョンシーを出さないので、屍蝋(9)を水に転用する。\n"
+            "   16 以上はキャラクター用でトゥーンに切り替わるため、水は 16 未満に置く。 */\n"
+            "MAT.WATER = MAT.CORPSE;\n"
+            + io.open(os.path.join(HERE, 'zones.js'), encoding='utf-8').read())
 
 PLAYER = ZONES_JS + r'''
 /* ==== g_glb.js ==== */
