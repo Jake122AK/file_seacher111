@@ -240,8 +240,10 @@ rep("""      if (rnd() > 0.72) continue;
     """      if (rnd() > 0.72) continue;
       const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);
       if (nearStream(s, tt) || overWater(s, tt)) continue;
-      // 見晴らしの扇は伐り開ける。斜面を落としても、木が立っていれば見えない
-      if (rnd() < viewClearAt(s, tt) * 0.97) continue;""")
+      /* 見晴らしの扇は伐り開ける。斜面を落としても、木が立っていれば見えない。
+         幹と樹冠は別々に散らしているので、間引く率を揃えても対にはならない。
+         幹をほぼ全部抜く（0.995）ことで、樹冠だけ消えた「電柱」が残らない。 */
+      if (rnd() < viewClearAt(s, tt) * 0.995) continue;""")
 rep("""    const s = sgn * (1.95 + Math.pow(rnd(), 0.7) * 10.0);
     const P = pathPos(tt), R = pathRight(tt);""",
     """    const s = sgn * (1.95 + Math.pow(rnd(), 0.7) * 10.0);

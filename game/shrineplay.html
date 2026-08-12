@@ -3219,8 +3219,10 @@ function buildScene(quality) {
       if (rnd() > 0.72) continue;
       const s = sgn * (2.15 + Math.pow(rnd(), 0.8) * 22.0);
       if (nearStream(s, tt) || overWater(s, tt)) continue;
-      // 見晴らしの扇は伐り開ける。斜面を落としても、木が立っていれば見えない
-      if (rnd() < viewClearAt(s, tt) * 0.97) continue;
+      /* 見晴らしの扇は伐り開ける。斜面を落としても、木が立っていれば見えない。
+         幹と樹冠は別々に散らしているので、間引く率を揃えても対にはならない。
+         幹をほぼ全部抜く（0.995）ことで、樹冠だけ消えた「電柱」が残らない。 */
+      if (rnd() < viewClearAt(s, tt) * 0.995) continue;
       const P = pathPos(tt + (rnd() - .5) * 2.2), R = pathRight(tt);
       const m = M4.create();
       const sc = 0.7 + rnd() * 0.75;
@@ -7706,31 +7708,42 @@ function branchTan(t) {
    の壁が残る。池は見えないままになる。
    掘るのは断面で決める: 路肩から水際へ向かってなだらかに落ちる形を、t の窓
    （新池の区間）で掛ける。参道そのものは、素の地面のほうが低いので掘れない。 */
+/* 池を大きく取ると対岸が遠くなる。木の散らしは中心線から 24m までしか
+   届かないので、それを越えたところに斜面を露出させると、陽の当たった苔の
+   面がのっぺりした壁として立つ（実際そうなった）。対岸は木立の中に収める。 */
 const POND = {
-  x: 0, z: 182, r: 8.6, y: 0, s: 16.0, bedRel: -1.35, waterRel: -0.75,
+  x: 0, z: 182, r: 7.5, y: 0, s: 13.5, bedRel: -1.35, waterRel: -0.75,
   tflat: 11.0, trim: 26.0,      // 参道に沿った池の長さ
-  shoreY: 0.55, shore0: 1.6, shore1: 9.5,   // 路肩から水際までの落とし方
-  far0: 22.0, far1: 42.0,       // 対岸。ここから山へ戻す
+  shoreY: 0.55, shore0: 1.6, shore1: 9.0,   // 路肩から水際までの落とし方
+  far0: 19.0, far1: 36.0,       // 対岸。ここから山へ戻す
 };
 /* 沢は t=242 で止める。そこから先（248〜）は見晴らしのために斜面を落として
    あるので、溝を伸ばすと川床のほうが下流より低くなり、水が坂を登る。 */
 const STREAM = { t0: 193, t1: 242, half: 1.55, depth: 1.20, lip: 4.6 };
 
-/* 沢の中心線（参道からの横距離）。上流ほど参道から離れる。 */
+/* 沢の中心線（参道からの横距離）。
+   最初は横 12〜20m に置いていたが、そこは地形メッシュが 4.8m 刻みの区域で、
+   幅 3m の溝が**ポリゴン1枚の中に消える**。当たり判定には溝があるのに絵には
+   出ず、水面は地面の内側に埋まっていた。しかも参道からは鳥居の列が壁になって
+   横が見えない。細かい帯（横 13m まで、0.73m 刻み）の内側に寄せて、歩きながら
+   目に入る位置にした。 */
 function streamSAt(t) {
   const u = (t - STREAM.t0) / (STREAM.t1 - STREAM.t0);
-  return 14.5 + 7.0 * u + 1.5 * Math.sin(t * 0.115) + 0.7 * Math.sin(t * 0.31);
+  return 8.0 + 2.5 * u + 0.8 * Math.sin(t * 0.115) + 0.35 * Math.sin(t * 0.31);
 }
 function nearStream(s, t) {
   if (t < STREAM.t0 - 3 || t > STREAM.t1 + 3) return false;
   return Math.abs(s - streamSAt(t)) < STREAM.half + 1.2;
 }
 
-/* 水の上。樹冠を抜く範囲はこれより広く取る（幹より梢のほうが張り出す）。 */
+/* 水の上。樹冠を抜く範囲はこれより広く取る（幹より梢のほうが張り出す）。
+   ただし**水面のぶんだけ**にすること。窪地ぜんぶ（far1=42m まで）を抜いた
+   ときは対岸の木も消えて、陽の当たった苔の斜面がのっぺりした明るい壁として
+   残った。対岸に木があることが、水面の向こうの奥行きになる。 */
 function overWater(s, t) {
   if (s < 3.0) return false;
-  if (t >= STREAM.t0 - 4 && t <= STREAM.t1 + 4 && Math.abs(s - streamSAt(t)) < 6.5) return true;
-  return Math.abs(t - POND.z) < POND.trim * 0.8 && s > 6.0 && s < POND.far1;
+  if (t >= STREAM.t0 - 4 && t <= STREAM.t1 + 4 && Math.abs(s - streamSAt(t)) < 6.0) return true;
+  return Math.abs(t - POND.z) < 11.0 && s > 5.5 && s < POND.s + POND.r * 0.9;
 }
 
 /* ---------------------------------------------------------------------------
@@ -7885,6 +7898,43 @@ function buildStreamWater() {
   return g;
 }
 
+/* 沢の川床。地形メッシュは横 12.6m から先が 4.8m 刻みなので、幅 3m の溝は
+   **1枚のポリゴンの中に消えてしまう**。当たり判定（bankHeight）には溝がある
+   のに絵には出ず、水面は地面の内側に埋まって見えなかった。溝のまわりだけ
+   1m 刻みの帯を重ねる。粗いほうと喧嘩しないよう 3cm 持ち上げてある。 */
+function buildStreamBed() {
+  const g = new Geo();
+  const rows = [];
+  for (let t = STREAM.t0 - 5; t <= STREAM.t1 + 5; t += 0.9) {
+    const sc = streamSAt(t), P = pathPos(t), Rt = pathRight(t);
+    const row = [];
+    for (let i = 0; i <= 14; i++) {
+      const s = sc - 7 + i;
+      row.push({ x: P[0] + Rt[0] * s, y: P[1] + bankHeight(s, t) + 0.03,
+                 z: P[2] + Rt[2] * s, s, t });
+    }
+    rows.push(row);
+  }
+  const ids = [];
+  for (let r = 0; r < rows.length; r++) {
+    const row = [];
+    for (let i = 0; i < rows[r].length; i++) {
+      const c = rows[r][i];
+      const cL = rows[r][Math.max(i - 1, 0)], cR = rows[r][Math.min(i + 1, rows[r].length - 1)];
+      const cD = rows[Math.max(r - 1, 0)][i], cU = rows[Math.min(r + 1, rows.length - 1)][i];
+      const n = norm(cross([cU.x - cD.x, cU.y - cD.y, cU.z - cD.z],
+                           [cR.x - cL.x, cR.y - cL.y, cR.z - cL.z]));
+      if (n[1] < 0) { n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2]; }
+      row.push(g.push(c.x, c.y, c.z, n[0], n[1], n[2], c.s * 0.30, c.t * 0.30, MAT.MOSS));
+    }
+    ids.push(row);
+  }
+  for (let r = 0; r < ids.length - 1; r++)
+    for (let i = 0; i < ids[r].length - 1; i++)
+      g.quad(ids[r][i], ids[r + 1][i], ids[r + 1][i + 1], ids[r][i + 1]);
+  return g;
+}
+
 /* 沢べりの石。水際の継ぎ目はここで隠れる。 */
 function buildStreamStone() {
   return roundedBox(0.62, 0.42, 0.55, 0.13, 2, { mat: MAT.GRANITE, uScale: 1.6 });
@@ -7980,7 +8030,10 @@ function buildZones() {
   pond.setInstances([{ m: pm, tint: [0.30, 0.36, 0.34, 0.2] }]);
   S.draws.push({ mesh: pond, name: 'pond' });
 
-  /* 沢。池に注ぐところまで一続き。 */
+  /* 沢。池に注ぐところまで一続き。先に川床（細かい帯）を敷く。 */
+  const bed = new Mesh(buildStreamBed());
+  S.draws.push({ mesh: bed, name: 'stream_bed' });
+  S.shadowDraws.push({ mesh: bed });
   const stream = new Mesh(buildStreamWater());
   const sm = M4.create();
   M4.compose(sm, [0, 0, 0], 0, [1, 1, 1]);
