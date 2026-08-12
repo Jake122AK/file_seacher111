@@ -8805,15 +8805,39 @@ function loadGLB(buf, status) {
   let meshIdx = -1;
   for (const nd of J.nodes) if (nd.skin !== undefined && nd.mesh !== undefined) meshIdx = nd.mesh;
   if (meshIdx < 0) meshIdx = 0;
-  const prim = J.meshes[meshIdx].primitives[0];
+  /* プリミティブは**全部**読む。1本目だけ読んでいたので、材質ごとに分けて
+     書き出されたモデル（glTF は材質がプリミティブ単位）は、1材質ぶんの
+     面しか出ず、体がばらばらに見えていた。
+     属性アクセサが同じなら頂点は共有のまま index だけ繋ぎ、違うならずらして
+     連結する。 */
+  const prims = J.meshes[meshIdx].primitives;
+  const prim = prims[0];
   const A = prim.attributes;
-  const pos = glbAcc(G, A.POSITION);
-  const nrm = A.NORMAL !== undefined ? glbAcc(G, A.NORMAL) : null;
-  const ji = glbAcc(G, A.JOINTS_0);
-  const jwRaw = glbAcc(G, A.WEIGHTS_0);
-  const jw = glbNorm(jwRaw, J.accessors[A.WEIGHTS_0].componentType);
-  const idx = glbAcc(G, prim.indices);
-  const NV = pos.length / 3;
+  const pos = glbAcc(G, A.POSITION).slice();
+  const nrm = A.NORMAL !== undefined ? glbAcc(G, A.NORMAL).slice() : null;
+  const ji = Array.from(glbAcc(G, A.JOINTS_0));
+  const jw = Array.from(glbNorm(glbAcc(G, A.WEIGHTS_0),
+                                J.accessors[A.WEIGHTS_0].componentType));
+  const idx = Array.from(glbAcc(G, prim.indices));
+  let NV = pos.length / 3;
+  for (let k = 1; k < prims.length; k++) {
+    const p2 = prims[k], A2 = p2.attributes;
+    const same = A2.POSITION === A.POSITION;
+    const base = same ? 0 : NV;
+    if (!same) {
+      const p = glbAcc(G, A2.POSITION), n = A2.NORMAL !== undefined ? glbAcc(G, A2.NORMAL) : null;
+      const j = glbAcc(G, A2.JOINTS_0);
+      const w = glbNorm(glbAcc(G, A2.WEIGHTS_0), J.accessors[A2.WEIGHTS_0].componentType);
+      for (let i = 0; i < p.length; i++) pos.push(p[i]);
+      if (nrm) for (let i = 0; i < p.length; i++) nrm.push(n ? n[i] : (i % 3 === 1 ? 1 : 0));
+      for (let i = 0; i < j.length; i++) { ji.push(j[i]); jw.push(w[i]); }
+      NV += p.length / 3;
+    }
+    const ii = glbAcc(G, p2.indices);
+    for (let i = 0; i < ii.length; i++) idx.push(ii[i] + base);
+  }
+  if (prims.length > 1)
+    status('プリミティブ ' + prims.length + ' 本を結合（' + NV.toLocaleString() + ' 頂点）');
   status('メッシュを構築中…（' + NV.toLocaleString() + ' 頂点）');
 
   /* cute は表情ではなく顔の寄せ＝静的な設定なので、読み込み時に一度だけ
