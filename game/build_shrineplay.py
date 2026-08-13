@@ -260,6 +260,39 @@ rep("  const farL = buildGroundStrip(-46.0, -12.6, MAT.MOSS, 7, 4.0, -0.02, 0.16
 
 
 
+# 進行方向へカメラが自動で追従する。
+#
+# 移動はカメラ相対（W はカメラの前）なので、カメラを速度の向きへ回すと
+# 「左を押す → カメラが左を向く → 左がさらに左へ回る」で回り続ける。
+# だから**前進成分があるときだけ**効かせ、真横・後退では効かせない。
+# 手で見回した直後は 1.4 秒黙る（振り向いた先を見ていたいのに引き戻される
+# のがいちばん邪魔になる）。
+rep("""    CAM.pos[0] += CAM.vel[0] * dt;
+    CAM.pos[2] += CAM.vel[2] * dt;""",
+"""    /* 進行方向へ向き直る */
+    const mv = Math.hypot(CAM.vel[0], CAM.vel[2]);
+    if (!CFG.fly && mv > 0.7 && fz > 0.15 && (R.time - (CAM.lookT || -9)) > 1.4) {
+      const wantYaw = Math.atan2(CAM.vel[0], -CAM.vel[2]);
+      let dy = wantYaw - CAM.yaw;
+      while (dy > PI) dy -= TAU;
+      while (dy < -PI) dy += TAU;
+      /* 前を向いているほど強く、横成分があるほど弱く。移動はカメラ相対
+         なので、斜め入力のままだと「回す→斜めも回る」で円を描き続ける。
+         横成分で効きを落として、円をうんと大きくする。速度でも重み付けし、
+         歩き出しでいきなり首を振らないようにする。 */
+      const k = fz * (1 - Math.abs(fx) * 0.85) * clamp(mv / CFG.runSpeed, 0.25, 1.0) * 2.6;
+      CAM.yaw += dy * Math.min(1, dt * k);
+    }
+    CAM.pos[0] += CAM.vel[0] * dt;
+    CAM.pos[2] += CAM.vel[2] * dt;""")
+
+# 手で見回したら、しばらく自動追従を止める
+rep("""    const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
+    CAM.yaw += dx * 0.0032;""",
+    """    const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
+    if (Math.abs(dx) > 0.5) CAM.lookT = R.time;   // 自動追従を一時停止
+    CAM.yaw += dx * 0.0032;""")
+
 # 基本の移動は走り。Shift を押している間だけ歩く（もとは逆だった）。
 # 参道は 520m あるので、既定が歩き（4.2 m/s）だと端から端まで2分かかる。
 rep("    const run = KEYS['shift'] ? 1 : 0;\n"
