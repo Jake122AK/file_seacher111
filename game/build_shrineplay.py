@@ -37,6 +37,11 @@ def rep(a, b, n=1):
 SKIN_DECL = '''layout(location=9) in vec4 aBI;
 layout(location=10) in vec4 aBW;
 layout(location=11) in vec3 aBlink;
+/* 材質を持ったモデル（材質が13色に分かれているものなど）は、色を頂点に
+   載せて渡す。世界のメッシュは 12 番を有効にしないので、汎用頂点属性の
+   既定値 (1,1,1) がそのまま流れて何も変わらない。 */
+layout(location=12) in vec3 aVCol;
+out vec3 vVCol;
 uniform int uSkin;
 uniform int uRowBase;
 uniform float uBlink;
@@ -49,7 +54,8 @@ mat4 boneAt(float f, int row){
               texelFetch(uBones, ivec2(k+2, row), 0), texelFetch(uBones, ivec2(k+3, row), 0));
 }
 '''
-SKIN_BODY = '''  vec3 sPos = aPos; vec3 sNrm = aNrm;
+SKIN_BODY = '''  vVCol = aVCol;
+  vec3 sPos = aPos; vec3 sNrm = aNrm;
   /* まばたきだけは頂点属性で持つ。これを CPU 側のモーフでやると、影響
      頂点の**番号**がメッシュ全体に散っているせいで（35,069/44,838）、
      まばたきのたびに頂点バッファを丸ごと上げ直すことになる。 */
@@ -263,6 +269,23 @@ rep("    const run = KEYS['shift'] ? 1 : 0;\n"
 
 # 走りは 9.5 m/s（36km/h）だと速すぎて参道が短く感じる。人が本気で走る速さに。
 rep("  runSpeed: 9.50,", "  runSpeed: 6.60,")
+
+# 頂点色。材質を持つモデルはその色で描く（世界の材質パレットでは出せない）。
+# uVColMode=1 のときだけ albedo を置き換え、風化や汚しは掛けない。
+rep("in vec3 vWPos; in float vLocalY; in vec3 vNrm; in vec2 vUV; in float vMat; in vec4 vTint;",
+    "in vec3 vWPos; in float vLocalY; in vec3 vNrm; in vec2 vUV; in float vMat; in vec4 vTint;\n"
+    "in vec3 vVCol;\nuniform int uVColMode;")
+rep("  if(layer < 16 && layer != 9){",
+    "  /* 材質を持つモデルは、その色で描く。世界の風化や汚しは掛けない */\n"
+    "  if(uVColMode==1) albedo = vVCol*vTint.rgb;\n"
+    "  if(uVColMode==0 && layer < 16 && layer != 9){")
+rep("    u1i(prog, 'uRowBase', d.rowBase || 0);\n",
+    "    u1i(prog, 'uRowBase', d.rowBase || 0);\n"
+    "    u1i(prog, 'uVColMode', d.vcol ? 1 : 0);\n")
+# 12番の既定値を白に。無効な属性の汎用値はコンテキストの状態なので一度でよい
+rep("  gl.enable(gl.CULL_FACE);\n  gl.cullFace(gl.BACK);",
+    "  gl.enable(gl.CULL_FACE);\n  gl.cullFace(gl.BACK);\n"
+    "  gl.vertexAttrib4f(12, 1, 1, 1, 1);   // 12番の既定は白（世界のメッシュ用）")
 
 # ---------------------------------------------------------------------------
 # 2. 三人称カメラのフック
@@ -519,6 +542,7 @@ PLAYER = ZONES_JS + r'''
    掛かる。参道に立たせると周囲から浮いて白いシルエットになったので、
    普通の PBR で塗られる MAT.LINEN にした。 */
 const PLAY_TINT = [0.62, 0.58, 0.55, 0.30];
+const PLAY_TINT_COL = [1.0, 1.0, 1.0, 0.30];   // 色を持つモデル用
 const GLB_CT = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array,
                  5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
 const GLB_NC = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
@@ -688,7 +712,7 @@ function buildCrowdLOD(pos, nrm, idx, bi, bw, NV, cells) {
     const s0 = src[i];
     for (let k = 0; k < 4; k++) { lbi[i * 4 + k] = bi[s0 * 4 + k]; lbw[i * 4 + k] = bw[s0 * 4 + k]; }
   }
-  return { geo: g, bi: lbi, bw: lbw, verts: M, tris };
+  return { geo: g, bi: lbi, bw: lbw, verts: M, tris, src };
 }
 
 const PLAY = {
@@ -716,6 +740,11 @@ function loadGLB(buf, status) {
      属性アクセサが同じなら頂点は共有のまま index だけ繋ぎ、違うならずらして
      連結する。 */
   const prims = J.meshes[meshIdx].primitives;
+  /* 材質を持っているモデルかどうか。持っているなら、その色をそのまま使い、
+     形から着せる処理（dress.js）は掛けない —— すでに着ているので。 */
+  const hasMats = (J.materials || []).length > 1;
+  const vcol = [];                       // 頂点色（材質を持つときだけ）
+  const primMat = [];                    // 面ごとの世界側の材質（粗さ用）
   const prim = prims[0];
   const A = prim.attributes;
   const pos = glbAcc(G, A.POSITION).slice();
@@ -741,6 +770,32 @@ function loadGLB(buf, status) {
     const ii = glbAcc(G, p2.indices);
     for (let i = 0; i < ii.length; i++) idx.push(ii[i] + base);
   }
+  if (hasMats) {
+    /* glTF の材質は面（プリミティブ）ごと。頂点色に落とすので、同じ頂点を
+       複数の材質が共有していると後勝ちになる。このモデルは材質ごとに面が
+       分かれているので実害は無い（境目の1列だけ）。 */
+    for (let i = 0; i < NV * 3; i++) vcol.push(1);
+    let ofs = 0;
+    for (let k = 0; k < prims.length; k++) {
+      const p2 = prims[k];
+      const mt = (J.materials || [])[p2.material || 0] || {};
+      const pb = mt.pbrMetallicRoughness || {};
+      const bc = pb.baseColorFactor || [1, 1, 1, 1];
+      const ii2 = glbAcc(G, p2.indices);
+      const bs = (k === 0 || p2.attributes.POSITION === A.POSITION) ? 0 : ofs;
+      for (let i = 0; i < ii2.length; i++) {
+        const v = ii2[i] + bs;
+        vcol[v * 3] = bc[0]; vcol[v * 3 + 1] = bc[1]; vcol[v * 3 + 2] = bc[2];
+      }
+      /* 粗さと法線の細かさは世界側の材質から借りる。名前ではなく色で選ぶ。 */
+      const lum = 0.3 * bc[0] + 0.6 * bc[1] + 0.1 * bc[2];
+      const sat = Math.max(bc[0], bc[1], bc[2]) - Math.min(bc[0], bc[1], bc[2]);
+      primMat.push((pb.roughnessFactor !== undefined && pb.roughnessFactor < 0.55)
+        ? MAT.BRONZE : (lum < 0.12 ? MAT.BLACK : (sat > 0.35 ? MAT.SILK : MAT.LINEN)));
+      if (p2.attributes.POSITION !== A.POSITION && k > 0)
+        ofs += glbAcc(G, p2.attributes.POSITION).length / 3;
+    }
+  }
   if (prims.length > 1)
     status('プリミティブ ' + prims.length + ' 本を結合（' + NV.toLocaleString() + ' 頂点）');
   status('メッシュを構築中…（' + NV.toLocaleString() + ' 頂点）');
@@ -760,7 +815,12 @@ function loadGLB(buf, status) {
      元の頂点は消さず、髪の房の三角形だけを落として、ボブと袴を足す。
      こうしておくと表情モーフの頂点番号がそのまま生きる。 */
   const jointNames = skin.joints.map(n => (J.nodes[n] || {}).name || '');
-  const DR = dressCharacter(pos, nrm, idx, ji, jw, NV, jointNames);
+  const DR = hasMats
+    ? { mat: new Uint8Array(NV).fill(MAT.LINEN),
+        keepTri: new Uint8Array(idx.length / 3).fill(1),
+        ex: { pos: [], nrm: [], mat: [], bi: [], bw: [], idx: [] } }
+    : dressCharacter(pos, nrm, idx, ji, jw, NV, jointNames);
+  if (hasMats) status('材質 ' + J.materials.length + ' 種をそのまま使う');
   const NX = DR.ex.pos.length / 3;
 
   const g = new Geo();
@@ -777,7 +837,7 @@ function loadGLB(buf, status) {
   for (let t = 0; t < DR.ex.idx.length; t += 3)
     g.tri(DR.ex.idx[t], DR.ex.idx[t + 1], DR.ex.idx[t + 2]);
   const mesh = new Mesh(g, { dynamic: true });
-  mesh.setInstances([{ m: M4.create(), tint: PLAY_TINT }]);
+  mesh.setInstances([{ m: M4.create(), tint: hasMats ? PLAY_TINT_COL : PLAY_TINT }]);
 
   const NVA = NV + NX;
   const bi = new Float32Array(NVA * 4), bw = new Float32Array(NVA * 4);
@@ -804,12 +864,22 @@ function loadGLB(buf, status) {
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 16, 0);
   }
+  let vcolArr = null;
+  if (hasMats) {
+    vcolArr = new Float32Array(NVA * 3).fill(1);
+    for (let i = 0; i < Math.min(vcol.length, NVA * 3); i++) vcolArr[i] = vcol[i];
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, vcolArr, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(12);
+    gl.vertexAttribPointer(12, 3, gl.FLOAT, false, 12, 0);
+  }
   gl.bindVertexArray(null);
 
   // --- 遠くの人のための間引きメッシュ ---
   const L = buildCrowdLOD(g.p, g.n, g.idx, bi, bw, NVA, CROWD_LOD_CELLS);
   const lodMesh = new Mesh(L.geo);
-  lodMesh.setInstances([{ m: M4.create(), tint: PLAY_TINT }]);
+  lodMesh.setInstances([{ m: M4.create(), tint: hasMats ? PLAY_TINT_COL : PLAY_TINT }]);
   gl.bindVertexArray(lodMesh.vao);
   {
     const b = gl.createBuffer();          // まばたきは遠くでは要らない
@@ -817,6 +887,19 @@ function loadGLB(buf, status) {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(L.verts * 3), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(11);
     gl.vertexAttribPointer(11, 3, gl.FLOAT, false, 12, 0);
+  }
+  if (vcolArr) {
+    const lc = new Float32Array(L.verts * 3);
+    for (let i = 0; i < L.verts; i++) {
+      const sIdx = L.src ? L.src[i] : i;
+      lc[i * 3] = vcolArr[sIdx * 3]; lc[i * 3 + 1] = vcolArr[sIdx * 3 + 1];
+      lc[i * 3 + 2] = vcolArr[sIdx * 3 + 2];
+    }
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, lc, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(12);
+    gl.vertexAttribPointer(12, 3, gl.FLOAT, false, 12, 0);
   }
   for (const [loc, data] of [[9, L.bi], [10, L.bw]]) {
     const b = gl.createBuffer();
@@ -895,7 +978,7 @@ function loadGLB(buf, status) {
 
   Object.assign(PLAY, {
     snap: nodes.map(n => ({ t: n.trs.t.slice(), r: n.trs.r.slice(), s: n.trs.s.slice() })),
-    ready: true, mesh, lod: lodMesh, lodTris: L.tris, boneTex, rows: ROWS, NB,
+    ready: true, mesh, lod: lodMesh, lodTris: L.tris, boneTex, rows: ROWS, NB, vcol: hasMats,
     boneData: new Float32Array(NB * 16 * ROWS),
     nodes, roots, joints, ibm, clips, morph, NV, foot: ylo, top: yhi,
     scale: 1.0, names: Object.keys(clips)
@@ -905,7 +988,7 @@ function loadGLB(buf, status) {
   setMorph('smile', 0.26);
   setMorph('brow_up', 0.08);
 
-  const dr = { mesh, name: 'player', skin: boneTex, blink: 0 };
+  const dr = { mesh, name: 'player', skin: boneTex, blink: 0, vcol: hasMats };
   PLAY.draw = dr;
   R.scene.draws.push(dr);
   R.scene.shadowDraws.push(dr);
@@ -913,7 +996,7 @@ function loadGLB(buf, status) {
   R.shadowBase && R.shadowBase.push(dr);
   /* 遠くの人。ボーンテクスチャは同じで、読む行だけずらす。 */
   const drLod = { mesh: lodMesh, name: 'crowd_lod', skin: boneTex, blink: 0,
-                  rowBase: 1 + CROWD_NEAR };
+                  rowBase: 1 + CROWD_NEAR, vcol: hasMats };
   PLAY.lodDraw = drLod;
   R.scene.draws.push(drLod);
   R.scene.shadowDraws.push(drLod);
@@ -1022,7 +1105,8 @@ function initCrowd() {
       lane: rn() < 0.45 ? 1 : 0,        // 分岐区間でどちらの道を通るか
       spd: (up ? 1 : -1) * (0.75 + rn() * 0.85),
       ph: rn() * 4, scale: 0.93 + rn() * 0.13,
-      tint: [0.52 + rn() * 0.22, 0.48 + rn() * 0.20, 0.46 + rn() * 0.20, 0.3],
+      tint: PLAY.vcol ? [0.90 + rn() * 0.16, 0.90 + rn() * 0.14, 0.90 + rn() * 0.14, 0.3]
+                      : [0.52 + rn() * 0.22, 0.48 + rn() * 0.20, 0.46 + rn() * 0.20, 0.3],
       pause: rn() * 14, d2: 0, moving: true, m: M4.create(), yaw: 0
     });
   }
@@ -1064,7 +1148,7 @@ function updateCrowd(dt) {
   order.sort((a, b) => CROWD.list[a].d2 - CROWD.list[b].d2);
   CROWD.inst.length = 0;
   CROWD.lodInst.length = 0;
-  CROWD.inst.push({ m: PLAY.m, tint: PLAY_TINT });
+  CROWD.inst.push({ m: PLAY.m, tint: PLAY.vcol ? PLAY_TINT_COL : PLAY_TINT });
   /* 手前の CROWD_NEAR 人だけ本メッシュ。そこから先は間引きメッシュに回す。
      ボーンテクスチャの行は 0=自分 / 1..CROWD_NEAR=手前 / その先=遠く、と
      詰めて使い、遠くの描画は uRowBase で頭出しする。 */
