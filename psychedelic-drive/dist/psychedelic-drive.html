@@ -269,28 +269,28 @@ const PAT = {
    ------------------------------------------------------------------ */
 const SECTIONS = [
   { name: 'INTRO',      bar: 0,   energy: .10, pattern: 'intro',     style: 'still',    amp: .18 },
-  { name: 'VERSE 1',    bar: 8,   energy: .28, pattern: 'basic',     style: 'straight', amp: .34 },
-  { name: 'VERSE 2',    bar: 16,  energy: .38, pattern: 'basic',     style: 'straight', amp: .44 },
-  { name: 'WRONG 1',    bar: 22,  energy: .44, pattern: 'skankA',    style: 'sway',     amp: .52 },
-  { name: 'WRONG 2',    bar: 32,  energy: .50, pattern: 'skankA',    style: 'skank',    amp: .58 },
-  { name: 'TRIP 1',     bar: 42,  energy: .58, pattern: 'dub',       style: 'sway',     amp: .62, dub: 1 },
-  { name: 'TRIP 2',     bar: 52,  energy: .64, pattern: 'dub',       style: 'long',     amp: .70, dub: 1 },
-  { name: 'BUILD',      bar: 62,  energy: .78, pattern: 'build',     style: 'wave',     amp: .76 },
-  { name: 'TUNNEL',     bar: 72,  energy: .12, pattern: 'tunnel',    style: 'still',    amp: .10 },
-  { name: 'PARADISE',   bar: 76,  energy: .92, pattern: 'tropicalA', style: 'skank',    amp: .82 },
-  { name: 'PARADISE 2', bar: 88,  energy: .88, pattern: 'tropicalA', style: 'wave',     amp: .82 },
-  { name: 'PARADISE 3', bar: 100, energy: .94, pattern: 'tropicalB', style: 'sway',     amp: .86 },
-  { name: 'COSMOS',     bar: 106, energy: .80, pattern: 'dub',       style: 'long',     amp: .82, dub: 1 },
-  { name: 'MEGACITY',   bar: 118, energy: .86, pattern: 'cityA',     style: 'scratch',  amp: .86 },
-  { name: 'JUNGLE',     bar: 128, energy: .82, pattern: 'jungleA',   style: 'wave',     amp: .84 },
-  { name: 'ABYSS',      bar: 138, energy: .74, pattern: 'dubDeep',   style: 'long',     amp: .82, dub: 1 },
-  { name: 'PSYCHE 1',   bar: 148, energy: .92, pattern: 'psychA',    style: 'wild',     amp: .90 },
-  { name: 'PSYCHE 2',   bar: 160, energy: .96, pattern: 'psychA',    style: 'scratch',  amp: .94 },
-  { name: 'PSYCHE 3',   bar: 172, energy: 1.0, pattern: 'psychB',    style: 'wave',     amp: .98 },
-  { name: 'ASCEND',     bar: 182, energy: 1.0, pattern: 'build',     style: 'climax',   amp: 1.0 },
-  { name: 'CLIMAX',     bar: 190, energy: 1.0, pattern: 'climaxA',   style: 'climax',   amp: 1.0 },
-  { name: 'COMEDOWN',   bar: 202, energy: .22, pattern: 'outro',     style: 'still',    amp: .16 },
-  { name: 'SILENCE',    bar: 208, energy: 0,   pattern: 'silence',   style: 'still',    amp: .05, bars: 6 }
+  { name: 'VERSE 1',    bar: 4,   energy: .28, pattern: 'basic',     style: 'straight', amp: .34 },
+  { name: 'VERSE 2',    bar: 8,   energy: .38, pattern: 'basic',     style: 'straight', amp: .44 },
+  { name: 'WRONG 1',    bar: 12,  energy: .44, pattern: 'skankA',    style: 'sway',     amp: .52 },
+  { name: 'WRONG 2',    bar: 17,  energy: .50, pattern: 'skankA',    style: 'skank',    amp: .58 },
+  { name: 'TRIP 1',     bar: 21,  energy: .58, pattern: 'dub',       style: 'sway',     amp: .62, dub: 1 },
+  { name: 'TRIP 2',     bar: 26,  energy: .64, pattern: 'dub',       style: 'long',     amp: .70, dub: 1 },
+  { name: 'BUILD',      bar: 30,  energy: .78, pattern: 'build',     style: 'wave',     amp: .76 },
+  { name: 'TUNNEL',     bar: 34,  energy: .12, pattern: 'tunnel',    style: 'still',    amp: .10 },
+  { name: 'PARADISE',   bar: 36,  energy: .92, pattern: 'tropicalA', style: 'skank',    amp: .82 },
+  { name: 'PARADISE 2', bar: 42,  energy: .88, pattern: 'tropicalA', style: 'wave',     amp: .82 },
+  { name: 'PARADISE 3', bar: 47,  energy: .94, pattern: 'tropicalB', style: 'sway',     amp: .86 },
+  { name: 'COSMOS',     bar: 51,  energy: .80, pattern: 'dub',       style: 'long',     amp: .82, dub: 1 },
+  { name: 'MEGACITY',   bar: 58,  energy: .86, pattern: 'cityA',     style: 'scratch',  amp: .86 },
+  { name: 'JUNGLE',     bar: 64,  energy: .82, pattern: 'jungleA',   style: 'wave',     amp: .84 },
+  { name: 'ABYSS',      bar: 68,  energy: .74, pattern: 'dubDeep',   style: 'long',     amp: .82, dub: 1 },
+  { name: 'PSYCHE 1',   bar: 70,  energy: .92, pattern: 'psychA',    style: 'wild',     amp: .90 },
+  { name: 'PSYCHE 2',   bar: 76,  energy: .96, pattern: 'psychA',    style: 'scratch',  amp: .94 },
+  { name: 'PSYCHE 3',   bar: 81,  energy: 1.0, pattern: 'psychB',    style: 'wave',     amp: .98 },
+  { name: 'ASCEND',     bar: 85,  energy: 1.0, pattern: 'build',     style: 'climax',   amp: 1.0 },
+  { name: 'CLIMAX',     bar: 88,  energy: 1.0, pattern: 'climaxA',   style: 'climax',   amp: 1.0 },
+  { name: 'COMEDOWN',   bar: 94,  energy: .22, pattern: 'outro',     style: 'still',    amp: .16 },
+  { name: 'SILENCE',    bar: 97,  energy: 0,   pattern: 'silence',   style: 'still',    amp: .05, bars: 6 }
 ];
 
 window.PX = window.PX || {};
@@ -320,6 +320,10 @@ window.PX.TRACKS.default = {
    エンジンはこのデータを時間で補間するだけ。ここを書き換えれば
    Stage 2, Stage 3 が無限に作れる（engine 側のコード変更は不要）。
 
+   ★ 全体を約4分40秒に凝縮。密度を上げ、間延びを無くしてある。
+     data/track_default.js の sections[].bar と 1:1 で対応させること
+     （1小節 = 60/84*4 = 2.857秒）。
+
    keys[] の各要素:
      t        : 秒
      level    : トリップレベル 0..10（世界の理解がどこまで壊れているか）
@@ -327,7 +331,7 @@ window.PX.TRACKS.default = {
      deep     : グルーヴが高いときに寄っていく“深い版”の世界重み
                 → 上手いほど深い世界が見える。この作品固有の分岐。
      warp     : 道路の変形
-     fx       : ポストエフェクト強度
+     fx       : ポストエフェクト強度（0..1。実振幅は game.js の FX_MAX が決める）
      v        : その他の変数（月の大きさ・雲の顔・標識の語彙など）
 
    events[] は一度きりのトリガ。
@@ -346,184 +350,184 @@ const SIGNS = {
 
 /* keys ------------------------------------------------------------- */
 const K = [
-/* ============ PHASE 1 : NORMAL (0:00-1:00) — 完全に普通 ============ */
+/* ============ PHASE 1 : NORMAL (0:00-0:35) — 完全に普通 ============ */
 { t: 0,   level: 0,   worlds: { suburb: 1 },
   warp: { widen: 1 }, fx: {}, v: { speed: 28, signSet: 'normal', horizon: .44 } },
 
-{ t: 20,  level: 0,   worlds: { suburb: 1 },
+{ t: 12,  level: 0,   worlds: { suburb: 1 },
   warp: {}, fx: {}, v: { speed: 29, signSet: 'normal' } },
 
-/* 30秒: ごく小さな異常。信号が一瞬紫。電柱が1px呼吸する。 */
-{ t: 30,  level: 0.35, worlds: { suburb: 1 },
-  warp: {}, fx: { hue: .004 }, v: { speed: 30, signSet: 'normal' } },
+/* 0:16 — ごく小さな異常。信号が一瞬紫。電柱が1px呼吸する。 */
+{ t: 16,  level: 0.35, worlds: { suburb: 1 },
+  warp: {}, fx: { hue: .05 }, v: { speed: 30, signSet: 'normal' } },
 
-{ t: 48,  level: 0.7, worlds: { suburb: .94, weird: .06 },
-  warp: { snake: .04 }, fx: { hue: .008, sat: .04 },
+{ t: 28,  level: 0.7, worlds: { suburb: .94, weird: .06 },
+  warp: { snake: .04 }, fx: { hue: .10, sat: .05 },
   v: { speed: 30, signSet: 'odd', moonSize: .06 } },
 
-/* ============ PHASE 2 : SOMETHING IS WRONG (1:00-2:00) ============ */
-{ t: 60,  level: 1.5, worlds: { suburb: .86, weird: .14 },
-  warp: { snake: .10, breathe: .1 }, fx: { hue: .012, sat: .10 },
+/* ============ PHASE 2 : SOMETHING IS WRONG (0:35-1:00) ============ */
+{ t: 35,  level: 1.5, worlds: { suburb: .86, weird: .14 },
+  warp: { snake: .10, breathe: .1 }, fx: { hue: .16, sat: .12 },
   v: { speed: 31, signSet: 'odd', moonSize: .10, starBoost: .05 } },
 
-{ t: 78,  level: 2.2, worlds: { suburb: .7, weird: .3, night: .05 },
-  warp: { snake: .16, breathe: .2, glow: .12 }, fx: { hue: .02, sat: .16, rgb: .05 },
+{ t: 46,  level: 2.2, worlds: { suburb: .7, weird: .3, night: .05 },
+  warp: { snake: .16, breathe: .2, glow: .12 }, fx: { hue: .26, sat: .18, rgb: .06 },
   v: { speed: 32, signSet: 'weird', moonSize: .14, starBoost: .12 } },
 
-{ t: 100, level: 2.8, worlds: { suburb: .5, weird: .5 },
+{ t: 58,  level: 2.8, worlds: { suburb: .5, weird: .5 },
   warp: { snake: .22, breathe: .32, glow: .2, wave: .06 },
-  fx: { hue: .03, sat: .22, rgb: .1, wave: .06 },
+  fx: { hue: .38, sat: .24, rgb: .12, wave: .07 },
   v: { speed: 33, signSet: 'weird', moonSize: .2, starBoost: .2, cloudFace: .1 } },
 
-/* ============ PHASE 3 : TRIP START (2:00-3:30) ==================== */
-{ t: 120, level: 3.4, worlds: { suburb: .34, weird: .66 },
+/* ============ PHASE 3 : TRIP START (1:00-1:37) ==================== */
+{ t: 68,  level: 3.4, worlds: { suburb: .34, weird: .66 },
   deep:  { suburb: .2, weird: .6, tropical: .2 },
   warp: { snake: .3, breathe: .45, glow: .35, wave: .12, rainbow: .14 },
-  fx: { hue: .05, sat: .3, rgb: .16, wave: .12, ripple: .05, trails: .08 },
+  fx: { hue: .5, sat: .32, rgb: .18, wave: .13, ripple: .06, trails: .10 },
   v: { speed: 34, signSet: 'trip', moonSize: .26, starBoost: .3, cloudFace: .45, moonFace: 1 } },
 
-{ t: 150, level: 4.2, worlds: { suburb: .2, weird: .8 },
+{ t: 80,  level: 4.2, worlds: { suburb: .2, weird: .8 },
   deep:  { weird: .7, tropical: .3 },
   warp: { snake: .38, breathe: .6, glow: .5, wave: .22, rainbow: .3 },
-  fx: { hue: .08, sat: .4, rgb: .24, wave: .2, ripple: .1, trails: .16, posterize: .1 },
+  fx: { hue: .62, sat: .42, rgb: .26, wave: .22, ripple: .12, trails: .18, posterize: .1 },
   v: { speed: 35, signSet: 'trip', moonSize: .34, starBoost: .4, cloudFace: .8, moonFace: 1 } },
 
-{ t: 185, level: 5.0, worlds: { weird: 1 },
+{ t: 92,  level: 5.0, worlds: { weird: 1 },
   deep:  { weird: .74, tropical: .26 },
   warp: { snake: .45, breathe: .8, glow: .7, wave: .35, rainbow: .48 },
-  fx: { hue: .11, sat: .5, rgb: .3, wave: .28, ripple: .16, trails: .24, posterize: .16 },
+  fx: { hue: .74, sat: .5, rgb: .32, wave: .3, ripple: .18, trails: .26, posterize: .16 },
   v: { speed: 36, signSet: 'trip', moonSize: .4, starBoost: .5, cloudFace: 1, moonFace: 1 } },
 
-/* ============ トンネル (3:30-3:40) ================================ */
-{ t: 208, level: 5.0, worlds: { weird: 1 },
+/* ============ トンネル (1:37-1:43) ================================ */
+{ t: 97,  level: 5.0, worlds: { weird: 1 },
   warp: { snake: .3, rainbow: .3, glow: .5 },
-  fx: { hue: .1, sat: .3, rgb: .2, trails: .3, vignette: .3 },
+  fx: { hue: .7, sat: .3, rgb: .2, trails: .3, vignette: .3 },
   v: { speed: 37, signSet: 'trip' } },
 
-{ t: 212, level: 4.6, worlds: { weird: .4, night: .6 },
+{ t: 100, level: 4.6, worlds: { weird: .4, night: .6 },
   warp: { widen: .86, rainbow: .06, glow: .9 },
   fx: { vignette: 1.4, trails: .5, rgb: .1, bright: .55, tunnel: .35 },
   v: { speed: 40, signSet: 'none', tunnelDark: 1 } },
 
-{ t: 216, level: 4.6, worlds: { night: 1 },
+{ t: 102.5, level: 4.6, worlds: { night: 1 },
   warp: { widen: .8, glow: 1 },
   fx: { vignette: 1.7, trails: .6, bright: .34, tunnel: .55 },
   v: { speed: 42, tunnelDark: 1 } },
 
-/* ============ 急激な南国化 (3:40-5:00) ============================ */
-{ t: 219, level: 6.0, worlds: { tropical: 1 },
+/* ============ 急激な南国化 (1:43-2:25) ============================ */
+{ t: 105, level: 6.0, worlds: { tropical: 1 },
   deep:  { tropical: .8, abstract: .2 },
   warp: { rainbow: .35, glow: .8, wave: .2, widen: 1.05 },
-  fx: { sat: .55, hue: .04, rgb: .16, trails: .12, flash: .6 },
+  fx: { sat: .55, hue: .3, rgb: .18, trails: .14, flash: .6 },
   v: { speed: 38, signSet: 'trip', sunGlasses: 1, cloudFace: .5 } },
 
-{ t: 235, level: 6.3, worlds: { tropical: 1 },
+{ t: 118, level: 6.3, worlds: { tropical: 1 },
   deep:  { tropical: .78, space: .22 },
   warp: { rainbow: .4, glow: .7, wave: .28, snake: .3 },
-  fx: { sat: .5, hue: .05, rgb: .2, wave: .22, trails: .2, ripple: .12 },
+  fx: { sat: .5, hue: .36, rgb: .22, wave: .24, trails: .22, ripple: .14 },
   v: { speed: 38, sunGlasses: 1, cloudFace: .7, crowd: 1 } },
 
-{ t: 265, level: 6.8, worlds: { tropical: 1 },
+{ t: 134, level: 6.8, worlds: { tropical: 1 },
   deep:  { tropical: .7, space: .3 },
   warp: { rainbow: .5, glow: .8, wave: .38, snake: .34, liquid: .2 },
-  fx: { sat: .55, hue: .07, rgb: .26, wave: .3, trails: .26, ripple: .18, kaleido: .06 },
+  fx: { sat: .55, hue: .44, rgb: .28, wave: .32, trails: .28, ripple: .2, kaleido: .06 },
   v: { speed: 39, sunGlasses: 1, cloudFace: .9, crowd: 1 } },
 
-/* ============ 世界崩壊 (5:00-7:00) ================================ */
-{ t: 300, level: 7.0, worlds: { tropical: .55, space: .45 },
+/* ============ 世界崩壊 (2:25-3:20) ================================ */
+{ t: 146, level: 7.0, worlds: { tropical: .55, space: .45 },
   deep:  { tropical: .35, space: .65 },
   warp: { rainbow: .55, glow: .9, wave: .4, sky: .12, liquid: .25 },
-  fx: { sat: .55, hue: .1, rgb: .3, wave: .32, trails: .34, ripple: .2, kaleido: .1 },
+  fx: { sat: .55, hue: .5, rgb: .32, wave: .34, trails: .34, ripple: .22, kaleido: .1 },
   v: { speed: 40, signSet: 'deep', starBoost: .6 } },
 
-{ t: 325, level: 7.3, worlds: { space: 1 },
+{ t: 158, level: 7.3, worlds: { space: 1 },
   deep:  { space: .75, abstract: .25 },
   warp: { rainbow: .5, glow: 1, wave: .3, sky: .3, spiral: .12, liquid: .2 },
-  fx: { sat: .5, hue: .13, rgb: .32, wave: .3, trails: .4, ripple: .18, kaleido: .14, tunnel: .12 },
+  fx: { sat: .5, hue: .56, rgb: .34, wave: .32, trails: .4, ripple: .2, kaleido: .14, tunnel: .12 },
   v: { speed: 41, starBoost: 1 } },
 
-{ t: 355, level: 7.5, worlds: { space: .45, city: .55 },
+{ t: 170, level: 7.5, worlds: { space: .45, city: .55 },
   deep:  { space: .3, city: .5, abstract: .2 },
   warp: { rainbow: .5, glow: .9, snake: .4, spiral: .1, keys: .1 },
-  fx: { sat: .5, hue: .16, rgb: .34, wave: .26, trails: .36, ripple: .16, kaleido: .12 },
+  fx: { sat: .5, hue: .62, rgb: .36, wave: .28, trails: .36, ripple: .18, kaleido: .12 },
   v: { speed: 42, starBoost: .7 } },
 
-{ t: 380, level: 7.8, worlds: { city: 1 },
+{ t: 180, level: 7.8, worlds: { city: 1 },
   deep:  { city: .7, abstract: .3 },
   warp: { rainbow: .55, glow: 1, snake: .45, wave: .3, keys: .18 },
-  fx: { sat: .55, hue: .2, rgb: .38, wave: .3, trails: .4, ripple: .2, kaleido: .16, melt: .1 },
+  fx: { sat: .55, hue: .68, rgb: .4, wave: .32, trails: .4, ripple: .22, kaleido: .16, melt: .1 },
   v: { speed: 42 } },
 
-{ t: 400, level: 8.0, worlds: { city: .4, jungle: .6 },
+{ t: 190, level: 8.0, worlds: { city: .4, jungle: .6 },
   deep:  { city: .25, jungle: .5, abstract: .25 },
   warp: { rainbow: .55, glow: .9, snake: .5, wave: .38, breathe: 1 },
-  fx: { sat: .55, hue: .24, rgb: .36, wave: .34, trails: .4, ripple: .24, kaleido: .16, melt: .16 },
+  fx: { sat: .55, hue: .74, rgb: .38, wave: .36, trails: .4, ripple: .26, kaleido: .16, melt: .16 },
   v: { speed: 42 } },
 
-{ t: 420, level: 8.2, worlds: { jungle: .45, ocean: .55 },
+{ t: 198, level: 8.2, worlds: { jungle: .45, ocean: .55 },
   deep:  { jungle: .3, ocean: .45, abstract: .25 },
   warp: { rainbow: .6, glow: 1, wave: .5, liquid: .5, snake: .4 },
-  fx: { sat: .6, hue: .28, rgb: .38, wave: .42, trails: .46, ripple: .3, kaleido: .18, melt: .12 },
+  fx: { sat: .6, hue: .8, rgb: .4, wave: .44, trails: .46, ripple: .32, kaleido: .18, melt: .12 },
   v: { speed: 41 } },
 
-/* ============ 完全サイケデリックゾーン (7:00-9:00) ================= */
-{ t: 440, level: 8.6, worlds: { ocean: .4, abstract: .6 },
+/* ============ 完全サイケデリックゾーン (3:20-4:11) ================= */
+{ t: 208, level: 8.6, worlds: { ocean: .4, abstract: .6 },
   deep:  { ocean: .2, abstract: .8 },
-  warp: { rainbow: .75, glow: 1, spiral: .3, loop: .3, wave: .5, liquid: .5, keys: .2 },
-  fx: { sat: .65, hue: .34, rgb: .44, wave: .46, trails: .5, ripple: .32, kaleido: .3, tunnel: .2, melt: .1 },
+  warp: { rainbow: .75, glow: 1, spiral: .16, loop: .18, wave: .5, liquid: .5, keys: .16 },
+  fx: { sat: .65, hue: .86, rgb: .46, wave: .48, trails: .5, ripple: .34, kaleido: .3, tunnel: .2, melt: .1 },
   v: { speed: 42, signSet: 'deep' } },
 
-{ t: 465, level: 9.0, worlds: { abstract: 1 },
+{ t: 220, level: 9.0, worlds: { abstract: 1 },
   deep:  { abstract: .8, climax: .2 },
-  warp: { rainbow: .85, glow: 1, spiral: .5, loop: .5, wave: .55, liquid: .7, keys: .35, sky: .2 },
-  fx: { sat: .7, hue: .42, rgb: .5, wave: .5, trails: .55, ripple: .38, kaleido: .42, tunnel: .3, melt: .18, posterize: .2 },
+  warp: { rainbow: .85, glow: 1, spiral: .22, loop: .28, wave: .55, liquid: .7, keys: .22, sky: .2 },
+  fx: { sat: .7, hue: .92, rgb: .52, wave: .52, trails: .55, ripple: .4, kaleido: .42, tunnel: .3, melt: .18, posterize: .2 },
   v: { speed: 43 } },
 
-{ t: 495, level: 9.3, worlds: { abstract: .8, space: .2 },
+{ t: 234, level: 9.3, worlds: { abstract: .8, space: .2 },
   deep:  { abstract: .65, space: .15, climax: .2 },
-  warp: { rainbow: .9, glow: 1, spiral: .7, loop: .7, wave: .6, liquid: .8, keys: .5, sky: .35 },
-  fx: { sat: .75, hue: .5, rgb: .55, wave: .55, trails: .6, ripple: .42, kaleido: .55, tunnel: .4, melt: .22, posterize: .25, invert: .05 },
+  warp: { rainbow: .9, glow: 1, spiral: .30, loop: .35, wave: .6, liquid: .8, keys: .28, sky: .35 },
+  fx: { sat: .75, hue: .96, rgb: .56, wave: .56, trails: .6, ripple: .44, kaleido: .55, tunnel: .4, melt: .22, posterize: .25, invert: .05 },
   v: { speed: 44 } },
 
-{ t: 522, level: 9.6, worlds: { abstract: .6, climax: .4 },
+{ t: 244, level: 9.6, worlds: { abstract: .6, climax: .4 },
   deep:  { abstract: .4, climax: .6 },
-  warp: { rainbow: .95, glow: 1, spiral: .8, loop: .85, wave: .65, liquid: .9, keys: .6, sky: .5, tongue: .4 },
-  fx: { sat: .8, hue: .6, rgb: .6, wave: .6, trails: .65, ripple: .48, kaleido: .65, tunnel: .5, melt: .26, posterize: .3, invert: .07 },
+  warp: { rainbow: .95, glow: 1, spiral: .34, loop: .40, wave: .65, liquid: .9, keys: .32, sky: .5, tongue: .4 },
+  fx: { sat: .8, hue: 1, rgb: .6, wave: .6, trails: .65, ripple: .48, kaleido: .65, tunnel: .5, melt: .26, posterize: .3, invert: .07 },
   v: { speed: 45 } },
 
-/* ============ 最大のクライマックス (9:00-9:40) ===================== */
-{ t: 540, level: 10, worlds: { climax: .5, abstract: .16, tropical: .12, space: .1, city: .06, jungle: .04, ocean: .02 },
+/* ============ 最大のクライマックス (4:11-4:33) ===================== */
+{ t: 251, level: 10, worlds: { climax: .5, abstract: .16, tropical: .12, space: .1, city: .06, jungle: .04, ocean: .02 },
   deep:  { climax: .62, abstract: .12, tropical: .1, space: .08, city: .04, jungle: .03, ocean: .01 },
-  warp: { rainbow: 1, glow: 1, spiral: .9, loop: 1, wave: .7, liquid: 1, keys: .5, sky: .6, widen: 1.0 },
-  fx: { sat: .9, hue: .7, rgb: .7, wave: .68, trails: .72, ripple: .55, kaleido: .8, tunnel: .6, melt: .3, posterize: .35 },
+  warp: { rainbow: 1, glow: 1, spiral: .38, loop: .45, wave: .7, liquid: 1, keys: .30, sky: .6, widen: 1.0 },
+  fx: { sat: .9, hue: 1, rgb: .7, wave: .68, trails: .58, ripple: .55, kaleido: .8, tunnel: .6, melt: .16, posterize: .35 },
   v: { speed: 46, starBoost: 1, cloudFace: 1, sunGlasses: 1, moonFace: 1 } },
 
-{ t: 562, level: 10, worlds: { climax: .58, abstract: .14, tropical: .1, space: .1, city: .04, jungle: .03, ocean: .01 },
-  warp: { rainbow: 1, glow: 1, spiral: 1, loop: 1, wave: .8, liquid: 1, keys: .4, sky: 1.0, widen: 1.04 },
-  fx: { sat: 1, hue: .85, rgb: .85, wave: .8, trails: .8, ripple: .65, kaleido: 1, tunnel: .75, melt: .35, posterize: .4, invert: .06 },
+{ t: 262, level: 10, worlds: { climax: .58, abstract: .14, tropical: .1, space: .1, city: .04, jungle: .03, ocean: .01 },
+  warp: { rainbow: 1, glow: 1, spiral: .42, loop: .5, wave: .8, liquid: 1, keys: .26, sky: 1.0, widen: 1.04 },
+  fx: { sat: 1, hue: 1, rgb: .85, wave: .8, trails: .62, ripple: .65, kaleido: 1, tunnel: .75, melt: .18, posterize: .4, invert: .06 },
   v: { speed: 48, starBoost: 1 } },
 
 /* 車が空へ向かって走る */
-{ t: 574, level: 10, worlds: { climax: .6, space: .25, abstract: .15 },
-  warp: { rainbow: 1, glow: 1, spiral: 1, loop: 1, wave: .6, liquid: 1, sky: 1.6, widen: 1.0 },
-  fx: { sat: 1, hue: 1, rgb: .9, wave: .7, trails: .85, ripple: .6, kaleido: 1, tunnel: .9, melt: .3 },
+{ t: 268, level: 10, worlds: { climax: .6, space: .25, abstract: .15 },
+  warp: { rainbow: 1, glow: 1, spiral: .40, loop: .45, wave: .6, liquid: 1, sky: 1.6, widen: 1.0 },
+  fx: { sat: 1, hue: 1, rgb: .9, wave: .7, trails: .62, ripple: .6, kaleido: 1, tunnel: .9, melt: .16 },
   v: { speed: 50, starBoost: 1 } },
 
-/* ============ 帰還 (9:40-10:00) =================================== */
-{ t: 580, level: 10, worlds: { white: 1 },
+/* ============ 帰還 (4:33-4:40) ==================================== */
+{ t: 272, level: 10, worlds: { white: 1 },
   warp: { rainbow: .3, glow: 1, sky: .3, widen: 1 },
   fx: { bright: 2.6, sat: -.5, trails: .3, flash: .9 },
   v: { speed: 40 } },
 
-{ t: 584, level: 2, worlds: { night: 1 },
+{ t: 275, level: 2, worlds: { night: 1 },
   warp: {}, fx: { bright: 1.1, trails: .1, vignette: .2 },
   v: { speed: 32, signSet: 'none' } },
 
-{ t: 588, level: 0, worlds: { night: 1 },
+{ t: 278, level: 0, worlds: { night: 1 },
   warp: {}, fx: { vignette: .25 },
   v: { speed: 28, signSet: 'none' } },
 
-{ t: 600, level: 0, worlds: { night: 1 },
+{ t: 290, level: 0, worlds: { night: 1 },
   warp: {}, fx: { vignette: .25 },
   v: { speed: 22, signSet: 'none' } }
 ];
@@ -531,32 +535,30 @@ const K = [
 /* events ----------------------------------------------------------- */
 const EVENTS = [
   /* 同じ猫が3回現れる（プレイヤーは「気のせいか？」で済ませる） */
-  { t: 33,  type: 'cat' },
-  { t: 41,  type: 'cat' },
-  { t: 49,  type: 'cat' },
+  { t: 15,  type: 'cat' },
+  { t: 21,  type: 'cat' },
+  { t: 27,  type: 'cat' },
   /* 信号が一瞬だけ紫 */
-  { t: 36,  type: 'hueBlip', amount: .12, dur: .18 },
-  { t: 57,  type: 'hueBlip', amount: .16, dur: .22 },
-  { t: 88,  type: 'hueBlip', amount: .25, dur: .3 },
+  { t: 18,  type: 'hueBlip', amount: .12 },
+  { t: 31,  type: 'hueBlip', amount: .16 },
+  { t: 50,  type: 'hueBlip', amount: .25 },
 
-  { t: 120, type: 'shimmer' },
-  { t: 208, type: 'whoosh' },
-  { t: 211.5, type: 'tunnelIn' },
-  { t: 218.6, type: 'tunnelOut' },
+  { t: 68,  type: 'shimmer' },
+  { t: 97,  type: 'whoosh' },
+  { t: 99.5, type: 'tunnelIn' },
+  { t: 104.4, type: 'tunnelOut' },
 
-  { t: 250, type: 'thirdPerson', dur: 3.2 },
-  { t: 300, type: 'whoosh' },
-  { t: 352, type: 'thirdPerson', dur: 2.4 },
-  { t: 400, type: 'whoosh' },
-  { t: 438, type: 'mirrorWorld', dur: 6 },
-  { t: 465, type: 'shimmer' },
-  { t: 505, type: 'thirdPerson', dur: 2.8 },
-  { t: 520, type: 'mirrorWorld', dur: 8 },
-  { t: 540, type: 'shimmer' },
-  { t: 560, type: 'fireworks' },
-  { t: 574, type: 'whoosh' },
-  { t: 579.4, type: 'whiteout' },
-  { t: 584, type: 'musicOut' }
+  { t: 126, type: 'closeUp', dur: 3.0 },
+  { t: 146, type: 'whoosh' },
+  { t: 174, type: 'closeUp', dur: 2.4 },
+  { t: 190, type: 'whoosh' },
+  { t: 214, type: 'shimmer' },
+  { t: 232, type: 'closeUp', dur: 2.8 },
+  { t: 251, type: 'shimmer' },
+  { t: 260, type: 'fireworks' },
+  { t: 268, type: 'whoosh' },
+  { t: 271.5, type: 'whiteout' },
+  { t: 275, type: 'musicOut' }
 ];
 
 window.PX = window.PX || {};
@@ -565,7 +567,7 @@ window.PX.STAGES.stage1 = {
   id: 'stage1',
   title: 'STAGE 1 — MIDNIGHT MUSHROOM DRIVE',
   track: 'default',
-  driveEnd: 592,        // ここでドライブ終了 → 帰宅シーンへ
+  driveEnd: 281,        // ここでドライブ終了 → 帰宅シーンへ
   signSets: SIGNS,
   keys: K,
   events: EVENTS
@@ -921,10 +923,12 @@ class Pixel {
     h = M.clamp(h, 240, 480);
     if (w !== this.w || h !== this.h) this._mk(w, h);
 
-    // 内部バッファが整数倍で収まる最大スケールを選ぶ（ドットが崩れない）
+    /* ドットが均一になる整数倍を優先する。ただし内部解像度を落としたときに
+       整数倍だと画面が大きく余ってしまうので、余りが 12% を超える場合は
+       ぴったり収まる倍率を使う（ニアレストのままなので滲まない）。 */
     const maxScale = Math.min(vw / w, vh / h);
-    let scale = Math.max(1, Math.floor(maxScale * dpr)) / dpr;
-    // 端末が小さすぎて1倍未満になる場合のみ非整数を許容
+    const intScale = Math.max(1, Math.floor(maxScale * dpr)) / dpr;
+    let scale = (intScale / maxScale >= .88) ? intScale : maxScale;
     if (maxScale < 1) scale = maxScale;
     const cssW = w * scale, cssH = h * scale;
     this.view.width = Math.round(cssW * dpr);
@@ -1201,6 +1205,38 @@ class Pixel {
       const usePolar = kalE > .11 || tunE > .09;
       const useAffine = usePolar || Math.abs(rotE) > .0015 || Math.abs(zoomE - 1) > .003;
       const rc = useAffine ? Math.cos(rotE) : 1, rs = useAffine ? Math.sin(rotE) : 0;
+      /* 極座標変形(万華鏡/トンネル)は重いので S px おきに計算して補間する。
+         この解像度では見た目の差は出ず、負荷だけが 1/S になる。 */
+      let pdx = null, pdy = null, PS = 2, pn = 0;
+      if (usePolar) {
+        PS = 3;
+        pn = Math.ceil(w / PS) + 2;
+        pdx = this._pdx || (this._pdx = new Float32Array(160));
+        pdy = this._pdy || (this._pdy = new Float32Array(160));
+        for (let i = 0; i < pn; i++) {
+          const sxp = Math.min(w - 1, i * PS);
+          let dx = sxp - cx, dy = y - cy;
+          const odx = dx, ody = dy;
+          if (zoomE !== 1) { dx /= zoomE; dy /= zoomE; }
+          if (rotE) { const nx = dx * rc - dy * rs; dy = dx * rs + dy * rc; dx = nx; }
+          if (tunE > .09) {
+            const rr0 = Math.sqrt(dx * dx + dy * dy) + .001;
+            const ang = Math.atan2(dy, dx) + tunE * (1.6 - rr0 / maxR * 1.4) * 1.1;
+            const rr = rr0 * (1 - tunE * .18 * Math.sin(rr0 * .06 - t * 2.2));
+            dx = Math.cos(ang) * rr; dy = Math.sin(ang) * rr;
+          }
+          if (kalE > .11) {
+            const rr = Math.sqrt(dx * dx + dy * dy);
+            let fa = M.mod(Math.atan2(dy, dx) + fx.kaleidoRot, segA);
+            if (fa > segA * .5) fa = segA - fa;
+            const ka = fa - segA * .5 + 1.5707963;
+            dx += (Math.cos(ka) * rr - dx) * kalE;
+            dy += (Math.sin(ka) * rr - dy) * kalE;
+          }
+          pdx[i] = dx - odx;   // 変形による移動量だけを保持
+          pdy[i] = dy - ody;
+        }
+      }
       const yOffRow = colOff.length ? 0 : 0;
       const scanMul = (scan > .01 && (y & 1)) ? (1 - scan * .30) : 1;
       const dyv = y - cy, dyv2 = dyv * dyv;
@@ -1999,6 +2035,14 @@ function makeHues(spr, n) {
 }
 PX.mkSprite = mkSprite;
 
+/* パレットだけ差し替えて別キャラにする（服・髪・肌の色替え） */
+function recolor(art, map) {
+  const pal = {};
+  for (const k in art.pal) pal[k] = map[k] || art.pal[k];
+  return { pal, rows: art.rows };
+}
+PX.recolorArt = recolor;
+
 const A = PX.ART = {};
 
 /* ------- 猫（最初と最後に出る、この物語のしるし） --------------------- */
@@ -2229,6 +2273,49 @@ A.moonFace = {
   ]
 };
 
+/* ------- キャラのバリエーション（使い回し感を消す） ----------------- */
+A.walk1b = recolor(A.walk1, { c: '#c85a6a', p: '#3a2a3a', h: '#4a2a18' });
+A.walk2b = recolor(A.walk2, { c: '#c85a6a', p: '#3a2a3a', h: '#4a2a18' });
+A.walk1c = recolor(A.walk1, { c: '#4aa870', p: '#24303a', h: '#161018', s: '#c08858' });
+A.walk2c = recolor(A.walk2, { c: '#4aa870', p: '#24303a', h: '#161018', s: '#c08858' });
+A.hula1b = recolor(A.hula1, { l: '#50d0e0', g: '#ff8a4a', y: '#e06a2a', h: '#4a2a10', s: '#c88858' });
+A.hula2b = recolor(A.hula2, { l: '#50d0e0', g: '#ff8a4a', y: '#e06a2a', h: '#4a2a10', s: '#c88858' });
+A.hula1c = recolor(A.hula1, { l: '#b070ff', g: '#70e0a0', y: '#3aa870', h: '#181018', s: '#f0c090' });
+A.hula2c = recolor(A.hula2, { l: '#b070ff', g: '#70e0a0', y: '#3aa870', h: '#181018', s: '#f0c090' });
+
+/* 子ども（小さい） */
+A.kid = {
+  pal: { h: '#3a2418', s: '#f0c098', c: '#f0d055', p: '#5a4a8a', k: '#201820' },
+  rows: ['.hhh.', 'hsssh', '.sss.', 'ccccc', '.ccc.', '.ppp.', '.p.p.', 'k...k']
+};
+/* ローブの人物（クライマックスの群衆） */
+A.robed = {
+  pal: { r: '#6a3ac0', d: '#4a2490', l: '#c0a0ff', s: '#f0d0b0', k: '#1a1028' },
+  rows: [
+    '...lll...', '..lsssl..', '..lsssl..', '..lllll..',
+    '.rrrrrrr.', 'rrrrrrrrr', 'rrrdrdrrr', 'rrrrrrrrr',
+    '.rrrrrrr.', '.rrrrrrr.', '.rrrrrrr.', '.dd...dd.'
+  ]
+};
+/* 宇宙人（抽象/宇宙ゾーン） */
+A.alien = {
+  pal: { g: '#8ae06a', d: '#4a9040', k: '#101810', w: '#ffffff', c: '#40d0ff' },
+  rows: [
+    '..ggggg..', '.ggggggg.', 'gkgggggkg', 'gkgggggkg', '.ggggggg.',
+    '..ggggg..', '...ggg...', '..ggggg..', '.gg.g.gg.', '.dd...dd.',
+    '..d.....d', '..d.....d'
+  ]
+};
+/* 二足歩行の猫（サイケゾーンの住人） */
+A.catStand = {
+  pal: { f: '#e0b070', d: '#b0803a', k: '#241a20', y: '#ffe070', p: '#ff8aa0' },
+  rows: [
+    '.f.....f.', 'ff.....ff', 'fffffffff', 'fyffffffy', 'ffffpffff',
+    '.fffffff.', '..fffff..', '.fffffff.', '.ff...ff.', '.dd...dd.',
+    '..d...d..', '.dd...dd.'
+  ]
+};
+
 /* 生成 */
 const SPR = PX.SPR = {};
 PX.buildArt = function () {
@@ -2312,6 +2399,321 @@ P.tree = function (p, x, base, hgt, m, sway, col, colB, alpha, hue) {
     const r = hgt * .18 * star;
     P.star(p, topX, topY - r * .4, r, C.css([255, 255, 240]), a * star);
     p.circle(topX, topY - r * .4, r * .35, '#ffffff', a * star);
+  }
+  ctx.globalAlpha = 1;
+};
+
+/*
+  carRear — 後方から見た自車。三人称の主役なので手を入れてある。
+  halfW: 画面上の半車幅(px)。すべての寸法をこれ基準にするので
+  遠近で拡大縮小しても比率が崩れない。
+  o: {bank, bounce, brake, beat, body, glass, hue}
+*/
+P.carRear = function (p, x, base, halfW, o) {
+  o = o || {};
+  const ctx = p.ctx;
+  const u = halfW / 9;                       // 基本単位
+  if (u < .18) return;
+  const W = Math.round(halfW * 2);
+  const bank = o.bank || 0;
+  const bounce = Math.round((o.bounce || 0) * u * .9);
+  const body = o.body || [190, 60, 90];
+  const dark = C.scale(body, .55);
+  const dark2 = C.scale(body, .34);
+  const hi = C.scale(body, 1.28);
+  const glass = o.glass || [70, 92, 130];
+  const x0 = Math.round(x - halfW);
+  const y = Math.round(base) + bounce;
+  const R = (dx, dy, w2, h2, c, a) => {
+    if (a === undefined) p.rect(x0 + dx * u, y + dy * u, Math.max(1, w2 * u), Math.max(1, h2 * u), c);
+    else p.rectA(x0 + dx * u, y + dy * u, Math.max(1, w2 * u), Math.max(1, h2 * u), c, a);
+  };
+
+  /* 影（接地感） */
+  ctx.globalAlpha = .38;
+  ctx.fillStyle = '#000';
+  for (let i = 0; i < Math.max(1, Math.round(u * 1.6)); i++) {
+    const k = i / Math.max(1, u * 1.6);
+    const ww = W * (1.06 - k * .3);
+    ctx.fillRect(Math.round(x - ww / 2), y - i, Math.round(ww), 1);
+  }
+  ctx.globalAlpha = 1;
+
+  /* タイヤ */
+  R(-0.4, -3.2, 2.6, 3.2, [22, 20, 28]);
+  R(15.8, -3.2, 2.6, 3.2, [22, 20, 28]);
+  R(-0.2, -2.6, 2.2, 1.1, [58, 56, 70]);
+  R(16.0, -2.6, 2.2, 1.1, [58, 56, 70]);
+
+  /* 車体下部 → 上部 */
+  R(0.6, -4.2, 16.8, 1.2, dark2);                    // バンパー下
+  R(0.2, -7.0, 17.6, 2.9, dark);                     // バンパー
+  R(0.8, -10.4, 16.4, 3.5, body);                    // ボディ
+  R(0.8, -10.4, 16.4, .8, hi);                       // ハイライト
+  R(1.0, -7.6, 16.0, .6, C.scale(body, .8));         // プレスライン
+
+  /* キャビン（バンクでわずかにずれる = 車が傾いて見える） */
+  const bx = bank * 1.1;
+  R(3.2 + bx, -15.6, 11.6, 5.4, C.mix(body, dark, .28));
+  R(3.2 + bx, -15.6, 11.6, .7, C.scale(body, 1.12));
+  R(4.2 + bx, -14.8, 9.6, 3.7, glass);               // リアガラス
+  R(4.2 + bx, -14.8, 9.6, .8, C.mix(glass, [255, 255, 255], .35));
+  R(8.6 + bx, -14.8, .7, 3.7, C.mix(body, dark, .5)); // ガラスの桟
+  // ルーフ
+  R(3.6 + bx, -16.4, 10.8, .9, C.scale(body, .92));
+  // スポイラー
+  R(2.2, -11.2, 13.6, .9, dark);
+  R(2.2, -11.9, 1.4, .9, dark);
+  R(14.4, -11.9, 1.4, .9, dark);
+
+  /* テールランプ（ビートで光る） */
+  const glow = M.sat(.45 + (o.beat || 0) * .8 + (o.brake || 0));
+  const lamp = C.mix([210, 40, 50], [255, 170, 150], glow * .55);
+  R(1.4, -9.6, 3.4, 1.9, lamp);
+  R(13.2, -9.6, 3.4, 1.9, lamp);
+  if (glow > .5 && u > .5) {
+    p.circle(x0 + 3.1 * u, y - 8.6 * u, u * 2.4, C.cssa(lamp, .16 * glow));
+    p.circle(x0 + 14.9 * u, y - 8.6 * u, u * 2.4, C.cssa(lamp, .16 * glow));
+  }
+  // ナンバー灯
+  R(7.6, -6.4, 2.8, 1.3, C.mix([230, 226, 210], body, .25));
+  // 排気
+  R(2.0, -4.6, 1.6, .8, [40, 38, 48]);
+  R(13.8, -4.6, 1.6, .8, [40, 38, 48]);
+};
+
+
+/* =====================================================================
+   遠近のある建物 / 立体感のある樹木
+   ここが「オブジェクトが荒い・遠近法が働いていない」への回答。
+   ===================================================================== */
+
+/*
+  building2 — 正面 + 側面（消失点へ後退する面）+ 屋根で立体に見せる。
+  x は「道路側の内側エッジ」の位置。建物は必ず外側へ伸びるので、
+  どれだけ巨大化しても道路にはみ出さない。
+  o: {vx, vy, k, w, h, tall, seed, alpha, melt, breathe, win, winOff, body, roof, beatWin, blink, dir}
+     dir : +1 = 画面右側にある（左面が見える） / -1 = 左側（右面が見える）
+     k   : 側面の後退量 0..1（奥行き / (距離+奥行き)）
+*/
+P.building2 = function (p, x, base, o) {
+  const ctx = p.ctx;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  if (a <= .01) return;
+  const w = Math.max(3, Math.round(o.w));
+  const h = Math.max(4, Math.round(o.h * (1 + (o.breathe || 0) * .04)));
+  const dir = o.dir >= 0 ? 1 : -1;
+  const k = M.clamp(o.k === undefined ? .3 : o.k, .04, .78);
+  const vx = o.vx, vy = o.vy;
+  const tall = M.sat(o.tall || 0);
+  const melt = M.sat(o.melt || 0);
+  const body = o.body || [60, 54, 82];
+  const side = C.scale(body, .62);
+  const roofC = o.roof || C.scale(body, .8);
+  const winOn = o.win || [255, 214, 140];
+  const winOff = o.winOff || C.scale(body, .55);
+  const seed = o.seed || 1;
+
+  // 正面の矩形（内側エッジ x から外側 dir 方向へ）
+  const xIn = Math.round(x);
+  const xOut = Math.round(x + dir * w);
+  const fx0 = Math.min(xIn, xOut), fx1 = Math.max(xIn, xOut);
+  const yTop = Math.round(base - h), yBase = Math.round(base);
+  ctx.globalAlpha = a;
+
+  /* --- 側面（内側エッジから消失点へ後退） --- */
+  const xf = xIn + (vx - xIn) * k;
+  const yTopF = yTop + (vy - yTop) * k;
+  const yBaseF = yBase + (vy - yBase) * k;
+  const step = xf >= xIn ? 1 : -1;
+  const nCols = Math.abs(Math.round(xf - xIn));
+  if (nCols > 0) {
+    for (let i = 0; i <= nCols; i++) {
+      const t = i / nCols;
+      const cx2 = xIn + step * i;
+      const ty = Math.round(M.lerp(yTop, yTopF, t));
+      const by = Math.round(M.lerp(yBase, yBaseF, t));
+      if (by <= ty) continue;
+      ctx.fillStyle = C.css(C.mix(side, C.scale(side, .72), t));
+      ctx.fillRect(cx2, ty, 1, by - ty);
+    }
+    // 側面の窓（奥行きが伝わる）
+    const sc2 = Math.max(2, Math.round(h / 9));
+    for (let i = 2; i < nCols - 1; i += Math.max(3, Math.round(nCols / 3))) {
+      const t = i / nCols;
+      for (let r = 0; r < Math.max(1, Math.floor(h / (sc2 * 2))); r++) {
+        const ty = M.lerp(yTop, yTopF, t) + sc2 * (1 + r * 2);
+        if (ty > M.lerp(yBase, yBaseF, t) - 2) break;
+        const on = M.hash2(i * 1.7 + seed, r * 2.3) > .45;
+        ctx.fillStyle = C.css(C.mix(on ? winOn : winOff, side, .45));
+        ctx.fillRect(xIn + step * i, Math.round(ty), Math.max(1, Math.round(sc2 * .7)), Math.max(1, Math.round(sc2 * .8)));
+      }
+    }
+  }
+
+  /* --- 屋根 --- */
+  if (tall < .65) {
+    const rh = Math.max(2, Math.round(h * .26 * (1 - tall)));
+    ctx.fillStyle = C.css(roofC);
+    for (let i = 0; i < rh; i++) {
+      const t = i / Math.max(1, rh - 1);
+      const ww = Math.round(w * (.12 + .88 * t)) + 2;
+      const rx = dir > 0 ? xIn - 1 : xIn + 1 - ww;
+      ctx.fillStyle = C.css(C.mix(C.scale(roofC, 1.18), roofC, t));
+      ctx.fillRect(rx, yTop - rh + i, ww, 1);
+    }
+    // 屋根の側面
+    if (nCols > 0) {
+      ctx.fillStyle = C.css(C.scale(roofC, .68));
+      for (let i = 0; i <= nCols; i++) {
+        const t = i / nCols;
+        const ty = Math.round(M.lerp(yTop - rh, yTopF - rh * (1 - t * .5), t));
+        ctx.fillRect(xIn + step * i, ty, 1, Math.max(1, Math.round(rh * (1 - t * .5))));
+      }
+    }
+  } else {
+    // 屋上（上面が見える）
+    ctx.fillStyle = C.css(C.scale(body, 1.2));
+    ctx.fillRect(fx0, yTop - 2, w, 2);
+    if (nCols > 0) {
+      for (let i = 0; i <= nCols; i++) {
+        const t = i / nCols;
+        ctx.fillStyle = C.css(C.mix(C.scale(body, 1.1), C.scale(body, .8), t));
+        ctx.fillRect(xIn + step * i, Math.round(M.lerp(yTop - 2, yTopF - 2, t)), 1, 2);
+      }
+    }
+    ctx.fillStyle = C.css(o.antenna || [255, 70, 100]);
+    ctx.fillRect(Math.round((fx0 + fx1) / 2), yTop - 8, 1, 7);
+    if (o.blink) ctx.fillRect(Math.round((fx0 + fx1) / 2) - 1, yTop - 9, 3, 2);
+  }
+
+  /* --- 正面 --- */
+  ctx.fillStyle = C.css(body);
+  ctx.fillRect(fx0, yTop, w, h);
+  ctx.fillStyle = C.css(C.scale(body, 1.14));
+  ctx.fillRect(fx0, yTop, w, 1);
+  ctx.fillStyle = C.css(C.scale(body, .78));
+  ctx.fillRect(dir > 0 ? fx1 - 1 : fx0, yTop, 1, h);
+
+  /* --- 正面の窓 --- */
+  const ws = Math.max(2, Math.round(Math.min(w / 3.2, h / 6)));
+  const cols = Math.max(1, Math.floor((w - 2) / (ws + 2)));
+  const rowsN = Math.max(1, Math.floor((h - 2) / (ws + 3)));
+  for (let r = 0; r < rowsN; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wx = fx0 + 2 + c * (ws + 2);
+      const wy = yTop + 3 + r * (ws + 3);
+      if (wy + ws > yBase - 1 || wx + ws > fx1 - 1) continue;
+      const hsh = M.hash2(c + seed * 7.3, r + seed * 2.1);
+      if (melt > .3 && hsh > .55) {
+        P.star(p, wx + ws / 2, wy + ws / 2, 1 + melt * 2, '#ffffff', a * M.sat((melt - .3) / .5));
+        continue;
+      }
+      let on = hsh > .38;
+      if (o.beatWin !== undefined) on = hsh > .38 - o.beatWin * .35;
+      const blink = o.blink && M.hash2(c * 3.1 + seed, r * 1.7) < o.blink;
+      ctx.fillStyle = C.css(on ? winOn : winOff);
+      if (blink) ctx.fillRect(wx, wy + Math.floor(ws / 2), ws, 1);
+      else {
+        ctx.fillRect(wx, wy, ws, ws);
+        if (on && ws >= 3) {
+          ctx.fillStyle = C.css(C.mix(winOn, [255, 255, 255], .4));
+          ctx.fillRect(wx, wy, ws, 1);
+        }
+      }
+    }
+  }
+  // 1階のドア（低層のみ）
+  if (tall < .5 && h > 10) {
+    const dw = Math.max(2, Math.round(ws * 1.1)), dh = Math.max(3, Math.round(ws * 1.8));
+    const dx = Math.round((fx0 + fx1) / 2 - dw / 2);
+    ctx.fillStyle = C.css(C.scale(body, .5));
+    ctx.fillRect(dx, yBase - dh, dw, dh);
+    ctx.fillStyle = C.css(C.mix(winOn, body, .4));
+    ctx.fillRect(dx + dw - 1, yBase - Math.round(dh * .55), 1, 1);
+  }
+  ctx.globalAlpha = 1;
+};
+
+/*
+  tree2 — 立体感のある樹木。species で見た目を変える。
+  0: 広葉樹（丸） / 1: 針葉樹（円錐） / 2: 細長い樹（ポプラ）
+  m: 0=通常樹 1=ヤシ 2=星化（従来の tree と同じモーフ軸）
+*/
+P.tree2 = function (p, x, base, h, o) {
+  const m = o.m || 0;
+  const palm = M.sat(m), star = M.sat(m - 1);
+  if (palm > .35 || star > .01) { P.tree(p, x, base, h, m, o.sway || 0, o.colA, o.colB, o.alpha); return; }
+  const ctx = p.ctx;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  const sp = o.species | 0;
+  const sway = o.sway || 0;
+  const colA = o.colA || [92, 162, 78];        // 明部
+  const colB = o.colB || [52, 110, 58];        // 暗部
+  const rim = C.mix(colA, [255, 255, 230], .28);
+  const trunk = o.trunk || [78, 56, 42];
+  ctx.globalAlpha = a;
+
+  // 幹
+  const th = h * (sp === 1 ? .22 : sp === 2 ? .30 : .40);
+  const tw = Math.max(1, Math.round(h * .075));
+  for (let i = 0; i < th; i++) {
+    const t = i / th;
+    const ww = Math.max(1, Math.round(tw * (1 - t * .35)));
+    const bx = x + sway * t * t * .5;
+    ctx.fillStyle = C.css(C.mix(trunk, C.scale(trunk, 1.3), t * .4));
+    ctx.fillRect(Math.round(bx - ww / 2), Math.round(base - i), ww, 1);
+    ctx.fillStyle = C.css(C.scale(trunk, .7));
+    ctx.fillRect(Math.round(bx - ww / 2), Math.round(base - i), 1, 1);
+  }
+  const topX = x + sway * .5, topY = base - th;
+
+  if (sp === 1) {
+    // 針葉樹: 段重ねの三角
+    const tiers = 3;
+    for (let s2 = 0; s2 < tiers; s2++) {
+      const ft = s2 / tiers;
+      const cy = topY - h * (.10 + ft * .52);
+      const rw = h * (.34 - ft * .10);
+      const hh = h * .30;
+      for (let i = 0; i < hh; i++) {
+        const t = i / hh;
+        const ww = rw * (1 - t);
+        const off = sway * (ft + t * .3) * .6;
+        ctx.fillStyle = C.css(C.mix(colB, colA, t * .5 + .18));
+        ctx.fillRect(Math.round(topX - ww + off), Math.round(cy - i), Math.max(1, Math.round(ww * 2)), 1);
+      }
+      ctx.fillStyle = C.css(rim);
+      ctx.fillRect(Math.round(topX - rw * .5 + sway * ft * .6), Math.round(cy - hh * .55), Math.max(1, Math.round(rw * .5)), 1);
+    }
+  } else {
+    // 広葉樹 / ポプラ: 塊を重ねて陰影をつける
+    const rx = h * (sp === 2 ? .17 : .30);
+    const ry = h * (sp === 2 ? .40 : .28);
+    const cy = topY - ry * .72;
+    const blobs = sp === 2
+      ? [[0, 0, 1], [0, -.5, .8], [0, .45, .85]]
+      : [[0, 0, 1], [-.62, .22, .66], [.64, .16, .62], [-.2, -.6, .6], [.3, -.52, .56]];
+    // 暗部を先に置く
+    for (const bl of blobs) {
+      const bx = topX + bl[0] * rx + sway * .8, by = cy + bl[1] * ry;
+      p.circle(bx, by + ry * .16, rx * bl[2], C.css(colB), a);
+    }
+    // 明部
+    for (const bl of blobs) {
+      const bx = topX + bl[0] * rx + sway * .8, by = cy + bl[1] * ry;
+      p.circle(bx - rx * .1, by - ry * .12, rx * bl[2] * .82, C.css(colA), a);
+    }
+    // 左上のリムライト
+    p.circle(topX - rx * .42 + sway * .8, cy - ry * .5, rx * .34, C.css(rim), a * .85);
+    // 葉のディザ（輪郭を柔らかく）
+    ctx.fillStyle = C.css(colA);
+    for (let i = 0; i < 10; i++) {
+      const ang = M.hash(i * 3.1 + h) * 6.28;
+      const rr = rx * (.85 + M.hash(i * 7.7) * .3);
+      ctx.fillRect(Math.round(topX + Math.cos(ang) * rr + sway * .8),
+                   Math.round(cy + Math.sin(ang) * rr * (ry / rx)), 1, 1);
+    }
   }
   ctx.globalAlpha = 1;
 };
@@ -2558,7 +2960,7 @@ P.island = function (p, x, y, w, colTop, colRock, alpha) {
 'use strict';
 const M = PX.M, C = PX.C, D = PX.draw;
 
-const MAX_DRAW = 200;   // 1フレームに描く路肩オブジェクトの上限
+const MAX_DRAW = 150;   // 1フレームに描く路肩オブジェクトの上限
 
 const WORLDS = ['suburb', 'night', 'weird', 'tropical', 'space', 'city', 'jungle', 'ocean', 'abstract', 'climax', 'white'];
 
@@ -2677,19 +3079,33 @@ class World {
     };
   }
 
+  /* 種別ごとの「道路の内側エッジからの最小クリアランス」(world units)。
+     建物のように幅のあるものは外側へ伸ばすので、ここで road にはみ出さない。 */
+  _clearance(kind) {
+    switch (kind) {
+      case 'house':                return 1.30;
+      case 'island':               return 2.20;
+      case 'monolith': case 'rock': return 1.45;
+      case 'crystal': case 'coral': return 1.35;
+      case 'flora':                return 1.32;
+      case 'figure':               return 1.24;
+      default:                     return 1.20;   // pole / light / sign
+    }
+  }
+
   _spawnAt(z) {
     // 両サイド
     for (let s = -1; s <= 1; s += 2) {
-      if (this.rng() > .92) continue;
+      if (this.rng() > .90) continue;
       const kind = this._pickKind();
-      const near = 1.05 + this.rng() * 1.35;
+      const near = this._clearance(kind) + this.rng() * .95;
       const o = this._mk(kind, z + this.rng() * 1.5, s * near);
       this.objects.push(o);
       // 群衆: figure は密度に応じて横一列に増える（10人→100人）
       if (kind === 'figure') {
         const extra = Math.floor(M.lerp(0, 5, M.sat((this.density - 1) / 2.6)) + this.rng() * 2);
         for (let i = 1; i <= extra; i++) {
-          const o2 = this._mk('figure', z + this.rng() * 2.2, s * (near + i * (.62 + this.rng() * .4)));
+          const o2 = this._mk('figure', z + this.rng() * 2.2, s * (near + i * (.58 + this.rng() * .35)));
           o2.sc *= .96;
           this.objects.push(o2);
         }
@@ -2940,15 +3356,15 @@ class World {
         const yy = hz + 1 + r * 2;
         const sc = 1;
         const a = crowd * (1 - r * .18);
-        const count = Math.floor(p.w / 6) + 3;
+        const count = Math.floor(p.w / 7) + 3;
         const beatOff = (cond.env.kick > .4 ? 1 : 0);
         for (let i = 0; i < count; i++) {
           const x = M.mod(i * 5 - scroll * (.02 + r * .004) + r * 2.5, p.w + 12) - 6;
           const ph = M.hash2(i * 1.7, r * 3.1);
           const f = (Math.floor(cond.beat * 2 + ph * 2) % 2) ? PX.SPR.hula2 : PX.SPR.hula1;
+          // 地平線の群衆は 1px スケール。sway は使わず描画コールを 1 回に抑える
           p.sprite(f, x, yy + 1 - beatOff, {
-            scale: sc, ax: .5, ay: 1, alpha: a * .9,
-            hue: trip.hueSpin + ph * .3, sway: Math.sin(cond.beat * Math.PI + ph * 6) * 1.2
+            scale: sc, ax: .5, ay: 1, alpha: a * .9, hue: trip.hueSpin + ph * .3
           });
         }
       }
@@ -3030,7 +3446,12 @@ class World {
       if (q.sx < -130 || q.sx > p.w + 130) continue;
       const unit = q.sc * p.w * .58;               // 1 world unit あたりのピクセル数
       if (unit < .6) continue;
-      const fade = M.sat((86 - dz) / 26) * M.sat((dz - .6) / 1.2);
+      /* 近距離フェード。大きい物ほど早く消す。
+         これが無いと、巨大化した建物が至近距離で画面を塞ぐ「壁」になる。 */
+      const big = (o.kind === 'house' || o.kind === 'island' || o.kind === 'monolith');
+      const nearFade = big ? M.smooth((dz - 3.1) / 2.4) : M.smooth((dz - 1.3) / 1.3);
+      if (nearFade <= .01) continue;
+      const fade = M.sat((86 - dz) / 26) * nearFade;
       const beat = env.kick, hat = env.hat;
       const ph = o.phase;
       const groove = trip.groove;
@@ -3063,21 +3484,34 @@ class World {
         if (this.w.jungle > .3 && o.seed % 2 < 1) {
           D.fern(p, x, base, h * .8, sway * 2, C.mix(pal.accentA, [30, 120, 60], .5), C.mix(pal.accentC, [20, 90, 50], .5), fade);
         } else {
-          D.tree(p, x, base, h, m, sway * (1 + palm), colA, colB, fade, hue);
+          D.tree2(p, x, base, h, {
+            m, species: Math.floor(o.seed * 1.7) % 3,
+            sway: sway * (1 + palm), colA, colB,
+            trunk: C.mix([78, 56, 42], pal.near, .35),
+            alpha: fade
+          });
         }
         break;
       }
       case 'house': {
-        const tall = M.sat(this.w.city * 1.4 + this.w.climax * .5);
+        const tall = M.sat(this.w.city * 1.4 + this.w.climax * .25);
         const melt = M.sat(this.w.space * 1.2 + this.w.abstract * .9);
-        const w = unit * (.85 + o.sc * .5) * (1 + tall * .1);
-        const h = unit * (1.5 + o.sc * .8) * M.lerp(1, 3.2, tall);
-        D.building(p, x, base, w, h, tall, {
-          alpha: fade, melt,
-          body: C.mix(pal.near, pal.mid, .3),
-          roof: C.mix(pal.accentC, pal.near, .4),
+        // 建物の種類でシルエットを変える（同じ箱の羅列にしない）
+        const type = Math.floor(o.seed) % 3;
+        const wMul = type === 0 ? .95 : type === 1 ? 1.35 : .70;
+        const hMul = type === 0 ? 1.0 : type === 1 ? .78 : 1.45;
+        const w = unit * (.80 + o.sc * .45) * wMul * (1 + tall * .1);
+        const h = unit * (1.45 + o.sc * .75) * hMul * M.lerp(1, 3.2, tall);
+        const bodyTint = C.mix(C.mix(pal.near, pal.mid, .3), pal.accentC, (o.seed % 7) / 7 * .18);
+        D.building2(p, x, base, {
+          w, h, tall, melt, alpha: fade,
+          vx: p.w * .5, vy: this.road.horizonY(p),
+          k: M.sat((w / unit * .85) / (dz + w / unit * .85)),
+          dir: o.side > 0 ? 1 : -1,
+          body: bodyTint,
+          roof: C.mix(pal.accentC, pal.near, .35 + (o.seed % 5) / 5 * .3),
           win: C.mix(pal.lightGlow, pal.accentA, .3),
-          winOff: C.mix(pal.mid, [0, 0, 0], .35),
+          winOff: C.mix(pal.mid, [0, 0, 0], .4),
           seed: o.seed,
           beatWin: env.hat * .7 * M.sat(lvl / 3),
           blink: M.sat((lvl - 2) / 5) * .35,      // 窓が目のようにまばたき
@@ -3109,9 +3543,20 @@ class World {
         // 住宅街では通行人、南国以降はフラダンサー
         const hula = M.sat(this.w.tropical * 1.5 + this.w.climax * 1.2 + this.w.abstract * .6 + this.w.jungle * .4);
         const s = Math.max(1, Math.round(unit * .027));
-        if (hula > .4) {
-          const f = (Math.floor(cond.beat * 2 + o.phase * 2) % 2) ? S.hula2 : S.hula1;
-          p.sprite(f, x, base, {
+        const v = Math.floor(o.seed * 3.1) % 3;          // 個体差（毎フレーム同じ）
+        const odd = M.sat(this.w.abstract + this.w.climax * .8 + this.w.space * .7);
+        const frame = Math.floor(cond.beat * 2 + o.phase * 2) % 2;
+        if (odd > .45 && (o.seed % 5) < 2.2) {
+          // サイケゾーンの住人（ローブ・宇宙人・二足歩行の猫）
+          const spr = (o.seed % 3 < 1) ? S.robed : (o.seed % 3 < 2 ? S.alien : S.catStand);
+          p.sprite(spr, x, base, {
+            scale: s, ax: .5, ay: 1, alpha: fade, hue,
+            sway: dance * s * 1.8,
+            squash: 1 + Math.sin(cond.beat * Math.PI * 2 + o.phase * 6) * .08
+          });
+        } else if (hula > .4) {
+          const set = v === 0 ? [S.hula1, S.hula2] : v === 1 ? [S.hula1b, S.hula2b] : [S.hula1c, S.hula2c];
+          p.sprite(set[frame], x, base, {
             scale: s, ax: .5, ay: 1, alpha: fade, hue,
             sway: dance * s * 1.5,
             squash: 1 + Math.sin(cond.beat * Math.PI * 2 + o.phase * 6) * .07 * (0.4 + trip.groove)
@@ -3121,8 +3566,14 @@ class World {
             p.rect(x + s * 4, base - s * 12, s, s, C.css(pal.accentA));
           }
         } else {
-          const f = (Math.floor(this.time * 4 + o.phase * 3) % 2) ? S.walk2 : S.walk1;
-          p.sprite(f, x, base, { scale: s, ax: .5, ay: 1, alpha: fade, hue: trip.level > 3 ? hue : 0, flip: o.side > 0 });
+          const wf = Math.floor(this.time * 4 + o.phase * 3) % 2;
+          let set;
+          if (o.seed % 11 < 1.4) set = [S.kid, S.kid];
+          else set = v === 0 ? [S.walk1, S.walk2] : v === 1 ? [S.walk1b, S.walk2b] : [S.walk1c, S.walk2c];
+          p.sprite(set[wf], x, base, {
+            scale: s, ax: .5, ay: 1, alpha: fade,
+            hue: trip.level > 3 ? hue : 0, flip: o.side > 0
+          });
         }
         break;
       }
@@ -3399,7 +3850,9 @@ PX.generateChart = function (track) {
 /* ======================================================== Road ===== */
 const SEGLEN = 1.7;        // 縞 1 本の長さ（world units）
 const LANE_AMP = 0.62;     // レーン値 1.0 が何 world unit 横に相当するか
-const CAM_H = 1.20;        // 視点高（高いほど道路の奥行きが見える）
+const CAM_H = 1.62;        // 視点高（三人称。車を見下ろす高さ）
+const CAR_DZ = 2.80;       // カメラから自車までの距離（world units）
+const CAR_W = 0.34;        // 自車の半車幅（world units。道路半幅は0.92）
 const CAM_D = 1.75;
 const ROAD_HALF = 0.92;
 
@@ -3408,7 +3861,12 @@ class Road {
     this.chart = chart;
     this.z = 0;                 // 走行距離
     this.speed = 30;            // world units / sec
-    this.carX = 0;              // 車の横位置 (world units)
+    this.carX = 0;              // 自車の横位置 (world units)
+    this.camX = 0;              // カメラの横位置（自車に遅れて追従する）
+    this.camFollow = .58;       // 追従率。1 未満だと自車が画面内で左右に振れる
+    this.carDz = CAR_DZ;
+    this.camH = CAM_H;
+    this.bank = 0;              // 車のロール（見た目の傾き）
     this.offRoad = 0;           // MISS で外れた量 0..1
     this.horizon = .44;         // 画面比
     this.pitch = 0;             // 上下カメラ
@@ -3427,7 +3885,7 @@ class Road {
       liquid: 0,   // 波形化（音の波として動く）
       widen: 1     // 幅倍率
     };
-    this.N = 150;
+    this.N = 118;
     this.pts = new Array(this.N + 1);
     for (let i = 0; i <= this.N; i++) this.pts[i] = { dz: 0, sx: 0, sy: 0, sw: 0, sc: 0, seg: 0 };
     this.beatsPerUnit = 0;
@@ -3447,8 +3905,12 @@ class Road {
     this.time += dt;
     this.z += this.speed * dt;
     const target = steer * LANE_AMP;
+    const prev = this.carX;
     this.carX = M.approach(this.carX, target + this.offRoad * .55 * (this.offSide || 1), 22, dt);
-    this.offRoad = M.approach(this.offRoad, 0, 1.3, dt);
+    // カメラは自車に遅れて追従 → 自車が画面内で左右に振れて進路が見える
+    this.camX = M.approach(this.camX, this.carX * this.camFollow, 9, dt);
+    const vel = (this.carX - prev) / Math.max(.0001, dt);
+    this.bank = M.approach(this.bank, M.clamp(vel * .55, -1, 1), 8, dt);
   }
 
   kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .8); this.offSide = side; }
@@ -3462,8 +3924,8 @@ class Road {
     const K = p.w * .58;
     const sc = CAM_D / dz;
     const lane = this.laneAtDz(dz);
-    let sx = p.w * .5 + sc * ((lane + (side || 0)) - this.carX) * K;
-    let sy = this.horizonY(p) + sc * CAM_H * K;
+    let sx = p.w * .5 + sc * ((lane + (side || 0)) - this.camX) * K;
+    let sy = this.horizonY(p) + sc * this.camH * K;
     const W = this.warp, t = this.time;
 
     if (W.wave) sy -= Math.sin((this.z + dz) * .13 - t * 2.2) * W.wave * sc * K * .55;
@@ -3494,6 +3956,17 @@ class Road {
     }
     out.sx = sx; out.sy = sy; out.sc = sc;
     out.sw = sc * ROAD_HALF * K * this.warp.widen;
+    return out;
+  }
+
+  /* 自車のスクリーン上の位置と大きさ */
+  carPose(p) {
+    const dz = this.carDz;
+    // side に「自車位置 - その地点の道路中心」を渡すと、
+    // 道路と同じワープが自車にも一貫して掛かる
+    const out = this.project(p, dz, this.carX - this.laneAtDz(dz), {});
+    out.w = out.sc * CAR_W * (p.w * .58);
+    out.dz = dz;
     return out;
   }
 
@@ -3534,6 +4007,8 @@ class Road {
       const depth = M.sat(1 - a.dz / 62);
       const fogT = Math.pow(1 - depth, 2.1);
 
+      // 色は 3 行ごとにだけ作り直す（見た目は変わらず、確保と文字列生成が 1/3 になる）
+      let cG = null, cRum = null, cRd = null, cLine = null, cGt = null, cGd = null, cCache = -99;
       for (let y = y0; y < y1; y++) {
         const t = (y - b.sy) / Math.max(.001, a.sy - b.sy);
         const sx = M.lerp(b.sx, a.sx, t);
@@ -3541,47 +4016,66 @@ class Road {
         sw *= 1 + beatPulse * .05 * (1 + W.breathe * 3);
         if (W.liquid) sw *= 1 + Math.sin(y * .35 - this.time * 7) * .14 * W.liquid;
 
-        // --- 地面（路面より必ず暗く保つ = 道が消えない）
-        let g = segEven ? pal.ground : pal.groundAlt;
-        if (rb > .01) g = C.mix(g, C.rainbow(a.seg * .017 + y * .003 + this.time * .05 + .5, .20), rb * .8);
-        g = C.mix(g, [0, 0, 0], .10 + rb * .14);
-        g = C.mix(g, fog, fogT * .8);
-        ctx.fillStyle = C.css(g);
+        // --- 色の再計算（3行ごと）
+        if (y - cCache >= 3 || cG === null) {
+          cCache = y;
+          let g = segEven ? pal.ground : pal.groundAlt;
+          if (rb > .01) g = C.mix(g, C.rainbow(a.seg * .017 + y * .003 + this.time * .05 + .5, .20), rb * .8);
+          g = C.mix(g, [0, 0, 0], .10 + rb * .14);
+          g = C.mix(g, fog, fogT * .8);
+          cG = C.css(g);
+          cGt = C.css(C.mix(g, pal.accentA, .10 + rb * .18));
+          cGd = C.css(C.mix(g, [0, 0, 0], .30));
+          let rum = segEven ? pal.rumble : pal.rumbleAlt;
+          if (rb > .01) rum = C.mix(rum, C.rainbow(a.seg * .05 + this.time * .5, .68), rb);
+          cRum = C.css(C.mix(rum, fog, fogT * .6));
+          let rd = segEven ? pal.road : pal.roadAlt;
+          if (rb > .01) rd = C.mix(rd, C.rainbow(a.seg * .030 + y * .0055 - this.time * .12, segEven ? .56 : .47), rb);
+          if (W.keys > .01) {
+            const kk = Math.floor(M.mod(a.seg, 7));
+            const black = (kk === 1 || kk === 3 || kk === 5);
+            rd = C.mix(rd, black ? [20, 16, 30] : [242, 240, 235], W.keys);
+          }
+          cRd = C.css(C.mix(rd, fog, fogT * .75));
+          let lc = pal.line;
+          if (W.glow > .01) lc = C.mix(lc, [255, 255, 255], W.glow * .8);
+          if (rb > .01) lc = C.mix(lc, C.rainbow(a.seg * .05 + this.time * .3, .72), rb * .8);
+          cLine = C.css(C.mix(lc, fog, fogT * .55));
+        }
+
+        ctx.fillStyle = cG;
         ctx.fillRect(0, y, p.w, 1);
 
+        // --- 路肩の下草（セグメント単位で流れるので速度感が出る）
+        if (sw > 1.6 && fogT < .85 && (y & 1) === 0) {
+          for (let k = 0; k < 3; k++) {
+            const hh = M.hash2(a.seg * 2.3 + k * 7.1, k * 3.7);
+            const wpx = 1 + (hh > .72 ? 1 : 0);
+            ctx.fillStyle = hh > .5 ? cGt : cGd;
+            ctx.fillRect(Math.round(sx - sw * (1.30 + hh * 3.4)), y, wpx, 1);
+            const hh2 = M.hash2(a.seg * 2.3 + k * 7.1 + 31, k * 3.7);
+            ctx.fillStyle = hh2 > .5 ? cGt : cGd;
+            ctx.fillRect(Math.round(sx + sw * (1.30 + hh2 * 3.4)), y, wpx, 1);
+          }
+        }
+
         // --- ランブル（路肩）
-        let rum = segEven ? pal.rumble : pal.rumbleAlt;
-        if (rb > .01) rum = C.mix(rum, C.rainbow(a.seg * .05 + this.time * .5, .68), rb);
-        rum = C.mix(rum, fog, fogT * .6);
         const rw = Math.max(1, sw * .16);
         // 路肩のさらに外側に暗い縁 → 道路の輪郭が常に立つ
-        ctx.fillStyle = C.css(C.mix(g, [0, 0, 0], .35));
+        ctx.fillStyle = cGd;
         ctx.fillRect(Math.round(sx - sw - rw * 2.1), y, Math.max(1, Math.round(rw * 1.2)), 1);
         ctx.fillRect(Math.round(sx + sw + rw * .9), y, Math.max(1, Math.round(rw * 1.2)), 1);
-        ctx.fillStyle = C.css(rum);
+        ctx.fillStyle = cRum;
         ctx.fillRect(Math.round(sx - sw - rw), y, Math.max(1, Math.round(sw * 2 + rw * 2)), 1);
 
         // --- 路面
-        let rd = segEven ? pal.road : pal.roadAlt;
-        if (rb > .01) rd = C.mix(rd, C.rainbow(a.seg * .030 + y * .0055 - this.time * .12, segEven ? .56 : .47), rb);
-        if (W.keys > .01) {
-          // 鍵盤化: 横方向を白鍵/黒鍵に割る
-          const kk = Math.floor(M.mod(a.seg, 7));
-          const black = (kk === 1 || kk === 3 || kk === 5);
-          rd = C.mix(rd, black ? [20, 16, 30] : [242, 240, 235], W.keys);
-        }
-        rd = C.mix(rd, fog, fogT * .75);
-        ctx.fillStyle = C.css(rd);
+        ctx.fillStyle = cRd;
         const rx0 = Math.round(sx - sw), rww = Math.max(1, Math.round(sw * 2));
         ctx.fillRect(rx0, y, rww, 1);
 
         // --- 白線（センター/サイド）
         if (sw > 1.2) {
-          let lc = pal.line;
-          if (W.glow > .01) lc = C.mix(lc, [255, 255, 255], W.glow * .8);
-          if (rb > .01) lc = C.mix(lc, C.rainbow(a.seg * .05 + this.time * .3, .72), rb * .8);
-          lc = C.mix(lc, fog, fogT * .55);
-          ctx.fillStyle = C.css(lc);
+          ctx.fillStyle = cLine;
           const lw = Math.max(1, Math.round(sw * (.06 + W.glow * .03)));
           // 外側の線
           ctx.fillRect(Math.round(sx - sw + sw * .04), y, lw, 1);
@@ -3624,7 +4118,7 @@ class Road {
   }
 }
 PX.Road = Road;
-PX.ROAD_CONST = { SEGLEN, LANE_AMP, CAM_H, CAM_D, ROAD_HALF };
+PX.ROAD_CONST = { SEGLEN, LANE_AMP, CAM_H, CAM_D, ROAD_HALF, CAR_DZ, CAR_W };
 
 })(window.PX);
 
@@ -4212,7 +4706,7 @@ PX.OutroScene = OutroScene;
 ;
 /* ===== src/game.js ===== */
 /* =====================================================================
-   game.js — ステージ進行 / トリップ管理 / スコア / ダッシュボード / HUD
+   game.js — ステージ進行 / トリップ管理 / スコア / 自車描画 / HUD
    ---------------------------------------------------------------------
    ステージデータ(data/stage1.js)を時間で補間し、
      world(重み) / road(変形) / pixel(ポストFX)
@@ -4312,8 +4806,12 @@ class Game {
     this.particles = [];
     this.judgeText = null;
     this.frame = 0;
-    // 自動品質: 実機が重ければ重いエフェクトから静かに削る
-    this.frameMs = 16.7; this.qual = 1; this.lowRes = false;
+    /* 自動品質。実測では内部解像度が最も効くので、そちらを主レバーにする。
+       エフェクト側(qual)は 0.6 までしか落とさない = 終盤の絵作りを壊さない。 */
+    this.frameMs = 16.7; this.workMs = 8; this.qual = 1;
+    this.resLadder = [192, 176, 160, 144];
+    this.resStep = 0; this.resCool = 3;
+    this.exhaust = [];
 
     window.addEventListener('resize', () => this.p.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.p.resize(), 250));
@@ -4351,8 +4849,7 @@ class Game {
     this.score = 0; this.combo = 0; this.maxCombo = 0;
     this.grooveRaw = .38;
     this.distort = 0; this.hueBlip = 0; this.flash = 0;
-    this.camMode = 'first'; this.camTimer = 0;
-    this.mirrorWorld = 0;
+    this.camTimer = 0; this.camZoom = 0;   // closeUp 演出（カメラが一瞬寄る）
     this.shake = 0;
     this.deepest = 0;
     this.pal = {};
@@ -4382,16 +4879,36 @@ class Game {
       if (dt > .06) dt = .06;
       this.frame++;
       this.frameMs += (Math.min(60, dt * 1000) - this.frameMs) * .05;
-      if (this.frameMs > 23) this.qual = M.clamp(this.qual - dt * .5, .3, 1);
-      else if (this.frameMs < 17.5) this.qual = M.clamp(this.qual + dt * .25, .3, 1);
-      if (!this.lowRes && this.qual < .45 && this.frame > 240) { this.lowRes = true; this.p.setBaseWidth(160); }
-      else if (this.lowRes && this.qual > .92) { this.lowRes = false; this.p.setBaseWidth(192); }
       this.input.update(dt);
+      // 実処理時間を測る。rAF の間隔は vsync で 16.7ms に張り付くので
+      // フレーム間隔では「余裕があるか」が判定できない。
+      const w0 = performance.now();
       this.update(dt);
       this.render();
+      this.workMs += (Math.min(80, performance.now() - w0) - this.workMs) * .06;
+      this.autoQuality(dt);
       requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+  }
+
+  /* 重い端末では解像度を1段ずつ落とし、余裕が戻れば1段ずつ戻す */
+  autoQuality(dt) {
+    const heavy = this.workMs > 14.0;      // 1フレームの予算 16.7ms に対して余裕なし
+    const light = this.workMs < 8.5;       // 余裕あり
+    if (heavy) this.qual = M.clamp(this.qual - dt * .9, .6, 1);
+    else if (light) this.qual = M.clamp(this.qual + dt * .3, .6, 1);
+    this.resCool -= dt;
+    if (this.resCool > 0) return;
+    if (heavy && this.resStep < this.resLadder.length - 1) {
+      this.resStep++;
+      this.p.setBaseWidth(this.resLadder[this.resStep]);
+      this.resCool = 3.0;
+    } else if (this.workMs < 9.0 && this.resStep > 0) {
+      this.resStep--;
+      this.p.setBaseWidth(this.resLadder[this.resStep]);
+      this.resCool = 7.0;
+    }
   }
 
   update(dt) {
@@ -4486,9 +5003,13 @@ class Game {
 
     /* --- イベント ------------------------------------------------ */
     for (const e of this.tl.events(t)) this.onEvent(e);
+    // カメラ: 通常は定位置。closeUp イベント中だけ車に寄って見上げる
     this.camTimer -= dt;
-    if (this.camTimer <= 0 && this.camMode !== 'first') this.camMode = 'first';
-    this.mirrorWorld = M.approach(this.mirrorWorld, this.camMode === 'mirror' ? 1 : 0, 2, dt);
+    this.camZoom = M.approach(this.camZoom, this.camTimer > 0 ? 1 : 0, 2.2, dt);
+    const CD = PX.ROAD_CONST.CAR_DZ, CH = PX.ROAD_CONST.CAM_H;
+    this.road.carDz = M.lerp(CD, CD * .62, this.camZoom);
+    this.road.camH = M.lerp(CH, CH * .72, this.camZoom);
+    this.road.camFollow = M.lerp(.58, .34, this.camZoom);
 
     /* --- エンジン音 ---------------------------------------------- */
     PX.Audio.setEngine(.25 + M.sat(this.road.speed / 50) * .55 + Math.abs(this.input.steer) * .1,
@@ -4569,8 +5090,7 @@ class Game {
         PX.Audio.fadeMusic(1, .25); PX.Audio.sfx('shimmer');
         this.flash = 1; this.burst(this.p.w * .5, this.p.h * .45, 46);
         break;
-      case 'thirdPerson': this.camMode = 'third'; this.camTimer = e.dur; break;
-      case 'mirrorWorld': this.camMode = 'mirror'; this.camTimer = e.dur; break;
+      case 'closeUp': this.camTimer = e.dur; break;
       case 'fireworks':
         for (let i = 0; i < 6; i++) this.burst(this.p.w * (.15 + Math.random() * .7), this.p.h * (.15 + Math.random() * .4), 26);
         break;
@@ -4631,9 +5151,7 @@ class Game {
     const tun = this.tl.out.v.tunnelDark;
     if (tun > .02) this.drawTunnel(tun);
 
-    if (this.camMode === 'third') this.drawThirdPerson();
-    else this.drawDashboard();
-
+    this.drawCar();
     this.drawHUD();
     this.applyFx();
   }
@@ -4644,7 +5162,6 @@ class Game {
     const hz = road.horizonY(p);
     const wall = C.mix(pal.near, [6, 5, 10], .8);
     const q = {};
-    // アーチ状に左右から閉じる
     for (let y = 0; y < p.h; y++) {
       const t = M.sat((y - hz + 24) / (p.h - hz + 24));
       const open = M.lerp(.10, .62, Math.pow(t, .7)) * M.lerp(1.6, 1, a);
@@ -4652,11 +5169,9 @@ class Game {
       const x0 = Math.round(p.w * .5 - half), x1 = Math.round(p.w * .5 + half);
       if (x0 > 0) p.rectA(0, y, x0, 1, wall, a);
       if (x1 < p.w) p.rectA(x1, y, p.w - x1, 1, wall, a);
-      // 壁の縁のハイライト
       if (x0 > 0) p.rectA(x0 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
       if (x1 < p.w) p.rectA(x1 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
     }
-    // 天井灯（近づいてくる）
     for (let i = 0; i < 12; i++) {
       const dz = M.mod(i * 5 - road.z * .55, 60) + 1.2;
       road.project(p, dz, 0, q);
@@ -4667,141 +5182,33 @@ class Game {
     }
   }
 
-  /* ------------------------------------------------ ダッシュボード */
-  drawDashboard() {
-    const p = this.p, pal = this.pal, trip = this.trip, cond = this.cond;
-    const dashH = Math.round(p.h * .195);
-    const y0 = p.h - dashH;
-    // 車内は世界の色に少しだけ染まる程度に留める（常にニュートラルな暗さ）
-    const dark = C.mix(pal.near, [16, 13, 22], .74);
-    const dark2 = C.mix(pal.near, [7, 6, 12], .84);
-    const rimCol = C.mix(dark, [70, 62, 86], .55);
-    const rimHi = C.mix(pal.line, pal.accentA, .25 + trip.level * .045);
-    const ctx = p.ctx;
-
-    /* フロントガラス下端のカーブ + ダッシュ面 */
-    for (let x = 0; x < p.w; x++) {
-      const c = Math.round(Math.cos((x / p.w - .5) * 3.0) * 4);
-      p.rect(x, y0 - c, 1, 2, C.mix(pal.line, dark, .5));
-      p.rect(x, y0 - c + 2, 1, dashH + c, dark);
-    }
-    p.vgrad(0, y0 + 7, p.w, dashH - 7, dark, dark2, true);
-    // ダッシュ上面のステッチ
-    for (let x = 6; x < p.w - 6; x += 6) p.rectA(x, y0 + 6, 3, 1, [255, 255, 255], .06);
-
-    /* Aピラー / ルーフ（視界は狭めない） */
-    p.rect(0, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
-    p.rect(p.w - 2, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
-    p.rect(0, 0, p.w, 2, C.mix(dark2, pal.mid, .18));
-
-    /* サイドミラー（ミラーの中だけ別世界） */
-    const mw = 30, mh = 15, mx = 3, my = y0 - 40;
-    p.rect(mx + 4, my + mh + 1, 4, 5, C.mix(dark2, pal.mid, .3));   // 支柱
-    p.rect(mx - 1, my - 1, mw + 2, mh + 2, C.mix(dark2, pal.mid, .35));
-    this.drawMirror(mx, my, mw, mh);
-
-    /* メーター（速度計 = 進行、回転計 = グルーヴ） */
-    const gy = y0 + 15;
-    this.drawGauge(p.w * .16, gy, 9, M.sat(this.songTime / this.stage.driveEnd), pal, rimHi, cond, 'trip');
-    this.drawGauge(p.w * .84, gy, 9, this.trip.groove, pal, rimHi, cond, 'groove');
-
-    /* ハンドル */
-    const cx = p.w * .5;
-    const cy = y0 + dashH * .96;
-    const R = Math.round(p.w * .40);
-    const rot = this.input.steer * .62 + Math.sin(cond.beat * Math.PI) * .012 * M.sat(trip.level / 6);
-    const glow = .25 + this.trip.groove * .75;
-
-    for (let a = -Math.PI * .99; a <= .03; a += .012) {
-      const aa = a + rot;
-      const x = cx + Math.cos(aa) * R, y = cy + Math.sin(aa) * R * .78;
-      if (y > p.h) continue;
-      const top = Math.sin(a) < -.5;
-      const col = top ? C.mix(rimCol, rimHi, .22 + glow * .35 + cond.env.kick * .12 * glow) : rimCol;
-      p.rect(x - 1, y - 1, 4, 4, col);
-      p.rect(x, y - 2, 2, 1, C.mix(col, [255, 255, 255], .18));
-    }
-    // スポーク（厚みを持たせる）
-    for (let i = 0; i < 3; i++) {
-      const a = (-Math.PI * .5) + (i - 1) * 1.06 + rot;
-      const x1 = cx + Math.cos(a) * R * .93, y1 = cy + Math.sin(a) * R * .72;
-      for (let o = -1; o <= 1; o++) p.line(cx + o, cy, x1 + o, y1, rimCol);
-      p.line(cx, cy - 1, x1, y1 - 1, C.mix(rimCol, [255, 255, 255], .12), .5);
-    }
-    // ハブ
-    p.circle(cx, cy, 9, C.css(C.mix(rimCol, [0, 0, 0], .35)));
-    p.circle(cx, cy, 6, C.css(C.mix(rimCol, rimHi, glow * .5)));
-    p.circle(cx, cy, 3, C.cssa(pal.lightGlow, .3 + cond.env.kick * .55 * glow));
-
-    /* ガラスの映り込み */
-    p.rectA(0, y0 - 1, p.w, 1, pal.lightGlow, .10 + cond.env.hat * .10);
-  }
-
-  /* 円形メーター */
-  drawGauge(cx, cy, r, v, pal, hi, cond, kind) {
-    const p = this.p;
-    const body = C.mix(pal.near, [10, 9, 16], .8);
-    p.circle(cx, cy, r + 1, C.css(C.mix(body, [255, 255, 255], .05)));
-    p.circle(cx, cy, r, C.css(body));
-    const n = 14;
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1);
-      const a = Math.PI * .78 + t * Math.PI * 1.44;
-      const on = t <= v;
-      const col = on ? (kind === 'groove' ? C.rainbow(.34 - t * .34, .58) : C.mix(hi, pal.accentB, t))
-                     : C.mix(body, [255, 255, 255], .10);
-      p.px(cx + Math.cos(a) * (r - 2), cy + Math.sin(a) * (r - 2), C.css(col));
-    }
-    const a = Math.PI * .78 + M.sat(v) * Math.PI * 1.44;
-    p.line(cx, cy, cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4), C.css(hi));
-    p.px(cx, cy, C.css(C.mix(hi, [255, 255, 255], .4)));
-  }
-
-  /* ミラーの中は別世界 */
-  drawMirror(x, y, w, h) {
-    const p = this.p, pal = this.pal, trip = this.trip;
-    const t = performance.now() / 1000;
-    p.rect(x - 1, y - 1, w + 2, h + 2, C.mix(pal.near, [0, 0, 0], .6));
-    // 通常は後方の道、mirrorWorld 中は完全に別の世界
-    const alt = this.mirrorWorld;
-    const top = C.mix(pal.skyTop, C.rainbow(t * .3, .5), alt * .8);
-    const bot = C.mix(pal.road, C.rainbow(t * .3 + .4, .35), alt * .8);
-    p.vgrad(x, y, w, h, top, bot, false);
-    // 後方に流れる線
-    for (let i = 0; i < 5; i++) {
-      const yy = y + M.mod(t * (14 + i * 5) + i * 3, h);
-      p.rectA(x + 2 + i * 4, yy, 2, 1, pal.line, .4 + alt * .4);
-    }
-    if (alt > .3) {
-      for (let i = 0; i < 6; i++) {
-        const px_ = x + M.mod(i * 5 + t * 9, w);
-        const py = y + 2 + M.hash(i * 3.3) * (h - 4);
-        p.rectA(px_, py, 1, 1, C.rainbow(i * .17 + t, .7), alt);
+  /* ------------------------------------------------ 自車（三人称） */
+  drawCar() {
+    const p = this.p, road = this.road, pal = this.pal, cond = this.cond;
+    const pose = road.carPose(p);
+    if (pose.sy < -40 || pose.sy > p.h + 80) return;
+    const beat = cond.env.kick;
+    // 排気煙（速度とビートで吹く）
+    const u = pose.w / 9;
+    if (u > .5) {
+      for (let i = 0; i < 3; i++) {
+        const q = this.exhaust[i] || (this.exhaust[i] = { t: Math.random() });
+        q.t += .02 + beat * .03;
+        if (q.t > 1) q.t -= 1;
+        const a = (1 - q.t) * .22 * (.4 + beat * .6);
+        const r = u * (1.2 + q.t * 3.4);
+        p.circle(pose.sx - pose.w * .74 + (i - 1) * u * .6, pose.sy - u * 4 + q.t * u * 3,
+          r, C.cssa(C.mix(pal.fog, [220, 220, 230], .5), a));
       }
     }
-    p.rectA(x, y, w, 1, [255, 255, 255], .18);
-  }
-
-  /* 一瞬だけ三人称 */
-  drawThirdPerson() {
-    const p = this.p, pal = this.pal;
-    const t = performance.now() / 1000;
-    const x = p.w * .5 + this.input.steer * p.w * .12;
-    const y = p.h * .86;
-    const bob = Math.sin(t * 9) * .8 + this.cond.env.kick * 1.4;
-    // 後ろから見た車
-    const body = C.mix(pal.accentC, [70, 40, 80], .3);
-    p.rectA(x - 20, y + 2, 40, 3, [0, 0, 0], .4);
-    p.rect(x - 19, y - 10 + bob, 38, 10, body);
-    p.rect(x - 14, y - 17 + bob, 28, 8, C.mix(body, [0, 0, 0], .25));
-    p.rect(x - 12, y - 16 + bob, 24, 6, C.mix(pal.accentB, pal.mid, .4));
-    p.rect(x - 17, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
-    p.rect(x + 12, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
-    p.rect(x - 21, y - 4 + bob, 6, 4, [24, 22, 30]);
-    p.rect(x + 15, y - 4 + bob, 6, 4, [24, 22, 30]);
-    // テールランプの光
-    p.circle(x - 15, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
-    p.circle(x + 14, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
+    PX.draw.carRear(p, pose.sx, pose.sy, pose.w, {
+      bank: road.bank,
+      bounce: -beat * 1.1 - cond.env.bass * .5,
+      brake: this.distort * .5,
+      beat,
+      body: C.mix([206, 62, 96], pal.accentC, .30 + M.sat(this.trip.level / 10) * .35),
+      glass: C.mix([64, 88, 128], pal.accentB, .35)
+    });
   }
 
   /* ---------------------------------------------------------- HUD */

@@ -77,10 +77,12 @@ class Pixel {
     h = M.clamp(h, 240, 480);
     if (w !== this.w || h !== this.h) this._mk(w, h);
 
-    // 内部バッファが整数倍で収まる最大スケールを選ぶ（ドットが崩れない）
+    /* ドットが均一になる整数倍を優先する。ただし内部解像度を落としたときに
+       整数倍だと画面が大きく余ってしまうので、余りが 12% を超える場合は
+       ぴったり収まる倍率を使う（ニアレストのままなので滲まない）。 */
     const maxScale = Math.min(vw / w, vh / h);
-    let scale = Math.max(1, Math.floor(maxScale * dpr)) / dpr;
-    // 端末が小さすぎて1倍未満になる場合のみ非整数を許容
+    const intScale = Math.max(1, Math.floor(maxScale * dpr)) / dpr;
+    let scale = (intScale / maxScale >= .88) ? intScale : maxScale;
     if (maxScale < 1) scale = maxScale;
     const cssW = w * scale, cssH = h * scale;
     this.view.width = Math.round(cssW * dpr);
@@ -357,6 +359,38 @@ class Pixel {
       const usePolar = kalE > .11 || tunE > .09;
       const useAffine = usePolar || Math.abs(rotE) > .0015 || Math.abs(zoomE - 1) > .003;
       const rc = useAffine ? Math.cos(rotE) : 1, rs = useAffine ? Math.sin(rotE) : 0;
+      /* 極座標変形(万華鏡/トンネル)は重いので S px おきに計算して補間する。
+         この解像度では見た目の差は出ず、負荷だけが 1/S になる。 */
+      let pdx = null, pdy = null, PS = 2, pn = 0;
+      if (usePolar) {
+        PS = 3;
+        pn = Math.ceil(w / PS) + 2;
+        pdx = this._pdx || (this._pdx = new Float32Array(160));
+        pdy = this._pdy || (this._pdy = new Float32Array(160));
+        for (let i = 0; i < pn; i++) {
+          const sxp = Math.min(w - 1, i * PS);
+          let dx = sxp - cx, dy = y - cy;
+          const odx = dx, ody = dy;
+          if (zoomE !== 1) { dx /= zoomE; dy /= zoomE; }
+          if (rotE) { const nx = dx * rc - dy * rs; dy = dx * rs + dy * rc; dx = nx; }
+          if (tunE > .09) {
+            const rr0 = Math.sqrt(dx * dx + dy * dy) + .001;
+            const ang = Math.atan2(dy, dx) + tunE * (1.6 - rr0 / maxR * 1.4) * 1.1;
+            const rr = rr0 * (1 - tunE * .18 * Math.sin(rr0 * .06 - t * 2.2));
+            dx = Math.cos(ang) * rr; dy = Math.sin(ang) * rr;
+          }
+          if (kalE > .11) {
+            const rr = Math.sqrt(dx * dx + dy * dy);
+            let fa = M.mod(Math.atan2(dy, dx) + fx.kaleidoRot, segA);
+            if (fa > segA * .5) fa = segA - fa;
+            const ka = fa - segA * .5 + 1.5707963;
+            dx += (Math.cos(ka) * rr - dx) * kalE;
+            dy += (Math.sin(ka) * rr - dy) * kalE;
+          }
+          pdx[i] = dx - odx;   // 変形による移動量だけを保持
+          pdy[i] = dy - ody;
+        }
+      }
       const yOffRow = colOff.length ? 0 : 0;
       const scanMul = (scan > .01 && (y & 1)) ? (1 - scan * .30) : 1;
       const dyv = y - cy, dyv2 = dyv * dyv;

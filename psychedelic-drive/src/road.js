@@ -189,7 +189,9 @@ PX.generateChart = function (track) {
 /* ======================================================== Road ===== */
 const SEGLEN = 1.7;        // 縞 1 本の長さ（world units）
 const LANE_AMP = 0.62;     // レーン値 1.0 が何 world unit 横に相当するか
-const CAM_H = 1.20;        // 視点高（高いほど道路の奥行きが見える）
+const CAM_H = 1.62;        // 視点高（三人称。車を見下ろす高さ）
+const CAR_DZ = 2.80;       // カメラから自車までの距離（world units）
+const CAR_W = 0.34;        // 自車の半車幅（world units。道路半幅は0.92）
 const CAM_D = 1.75;
 const ROAD_HALF = 0.92;
 
@@ -198,7 +200,12 @@ class Road {
     this.chart = chart;
     this.z = 0;                 // 走行距離
     this.speed = 30;            // world units / sec
-    this.carX = 0;              // 車の横位置 (world units)
+    this.carX = 0;              // 自車の横位置 (world units)
+    this.camX = 0;              // カメラの横位置（自車に遅れて追従する）
+    this.camFollow = .58;       // 追従率。1 未満だと自車が画面内で左右に振れる
+    this.carDz = CAR_DZ;
+    this.camH = CAM_H;
+    this.bank = 0;              // 車のロール（見た目の傾き）
     this.offRoad = 0;           // MISS で外れた量 0..1
     this.horizon = .44;         // 画面比
     this.pitch = 0;             // 上下カメラ
@@ -217,7 +224,7 @@ class Road {
       liquid: 0,   // 波形化（音の波として動く）
       widen: 1     // 幅倍率
     };
-    this.N = 150;
+    this.N = 118;
     this.pts = new Array(this.N + 1);
     for (let i = 0; i <= this.N; i++) this.pts[i] = { dz: 0, sx: 0, sy: 0, sw: 0, sc: 0, seg: 0 };
     this.beatsPerUnit = 0;
@@ -237,8 +244,12 @@ class Road {
     this.time += dt;
     this.z += this.speed * dt;
     const target = steer * LANE_AMP;
+    const prev = this.carX;
     this.carX = M.approach(this.carX, target + this.offRoad * .55 * (this.offSide || 1), 22, dt);
-    this.offRoad = M.approach(this.offRoad, 0, 1.3, dt);
+    // カメラは自車に遅れて追従 → 自車が画面内で左右に振れて進路が見える
+    this.camX = M.approach(this.camX, this.carX * this.camFollow, 9, dt);
+    const vel = (this.carX - prev) / Math.max(.0001, dt);
+    this.bank = M.approach(this.bank, M.clamp(vel * .55, -1, 1), 8, dt);
   }
 
   kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .8); this.offSide = side; }
@@ -252,8 +263,8 @@ class Road {
     const K = p.w * .58;
     const sc = CAM_D / dz;
     const lane = this.laneAtDz(dz);
-    let sx = p.w * .5 + sc * ((lane + (side || 0)) - this.carX) * K;
-    let sy = this.horizonY(p) + sc * CAM_H * K;
+    let sx = p.w * .5 + sc * ((lane + (side || 0)) - this.camX) * K;
+    let sy = this.horizonY(p) + sc * this.camH * K;
     const W = this.warp, t = this.time;
 
     if (W.wave) sy -= Math.sin((this.z + dz) * .13 - t * 2.2) * W.wave * sc * K * .55;
@@ -284,6 +295,17 @@ class Road {
     }
     out.sx = sx; out.sy = sy; out.sc = sc;
     out.sw = sc * ROAD_HALF * K * this.warp.widen;
+    return out;
+  }
+
+  /* 自車のスクリーン上の位置と大きさ */
+  carPose(p) {
+    const dz = this.carDz;
+    // side に「自車位置 - その地点の道路中心」を渡すと、
+    // 道路と同じワープが自車にも一貫して掛かる
+    const out = this.project(p, dz, this.carX - this.laneAtDz(dz), {});
+    out.w = out.sc * CAR_W * (p.w * .58);
+    out.dz = dz;
     return out;
   }
 
@@ -324,6 +346,8 @@ class Road {
       const depth = M.sat(1 - a.dz / 62);
       const fogT = Math.pow(1 - depth, 2.1);
 
+      // 色は 3 行ごとにだけ作り直す（見た目は変わらず、確保と文字列生成が 1/3 になる）
+      let cG = null, cRum = null, cRd = null, cLine = null, cGt = null, cGd = null, cCache = -99;
       for (let y = y0; y < y1; y++) {
         const t = (y - b.sy) / Math.max(.001, a.sy - b.sy);
         const sx = M.lerp(b.sx, a.sx, t);
@@ -331,47 +355,66 @@ class Road {
         sw *= 1 + beatPulse * .05 * (1 + W.breathe * 3);
         if (W.liquid) sw *= 1 + Math.sin(y * .35 - this.time * 7) * .14 * W.liquid;
 
-        // --- 地面（路面より必ず暗く保つ = 道が消えない）
-        let g = segEven ? pal.ground : pal.groundAlt;
-        if (rb > .01) g = C.mix(g, C.rainbow(a.seg * .017 + y * .003 + this.time * .05 + .5, .20), rb * .8);
-        g = C.mix(g, [0, 0, 0], .10 + rb * .14);
-        g = C.mix(g, fog, fogT * .8);
-        ctx.fillStyle = C.css(g);
+        // --- 色の再計算（3行ごと）
+        if (y - cCache >= 3 || cG === null) {
+          cCache = y;
+          let g = segEven ? pal.ground : pal.groundAlt;
+          if (rb > .01) g = C.mix(g, C.rainbow(a.seg * .017 + y * .003 + this.time * .05 + .5, .20), rb * .8);
+          g = C.mix(g, [0, 0, 0], .10 + rb * .14);
+          g = C.mix(g, fog, fogT * .8);
+          cG = C.css(g);
+          cGt = C.css(C.mix(g, pal.accentA, .10 + rb * .18));
+          cGd = C.css(C.mix(g, [0, 0, 0], .30));
+          let rum = segEven ? pal.rumble : pal.rumbleAlt;
+          if (rb > .01) rum = C.mix(rum, C.rainbow(a.seg * .05 + this.time * .5, .68), rb);
+          cRum = C.css(C.mix(rum, fog, fogT * .6));
+          let rd = segEven ? pal.road : pal.roadAlt;
+          if (rb > .01) rd = C.mix(rd, C.rainbow(a.seg * .030 + y * .0055 - this.time * .12, segEven ? .56 : .47), rb);
+          if (W.keys > .01) {
+            const kk = Math.floor(M.mod(a.seg, 7));
+            const black = (kk === 1 || kk === 3 || kk === 5);
+            rd = C.mix(rd, black ? [20, 16, 30] : [242, 240, 235], W.keys);
+          }
+          cRd = C.css(C.mix(rd, fog, fogT * .75));
+          let lc = pal.line;
+          if (W.glow > .01) lc = C.mix(lc, [255, 255, 255], W.glow * .8);
+          if (rb > .01) lc = C.mix(lc, C.rainbow(a.seg * .05 + this.time * .3, .72), rb * .8);
+          cLine = C.css(C.mix(lc, fog, fogT * .55));
+        }
+
+        ctx.fillStyle = cG;
         ctx.fillRect(0, y, p.w, 1);
 
+        // --- 路肩の下草（セグメント単位で流れるので速度感が出る）
+        if (sw > 1.6 && fogT < .85 && (y & 1) === 0) {
+          for (let k = 0; k < 3; k++) {
+            const hh = M.hash2(a.seg * 2.3 + k * 7.1, k * 3.7);
+            const wpx = 1 + (hh > .72 ? 1 : 0);
+            ctx.fillStyle = hh > .5 ? cGt : cGd;
+            ctx.fillRect(Math.round(sx - sw * (1.30 + hh * 3.4)), y, wpx, 1);
+            const hh2 = M.hash2(a.seg * 2.3 + k * 7.1 + 31, k * 3.7);
+            ctx.fillStyle = hh2 > .5 ? cGt : cGd;
+            ctx.fillRect(Math.round(sx + sw * (1.30 + hh2 * 3.4)), y, wpx, 1);
+          }
+        }
+
         // --- ランブル（路肩）
-        let rum = segEven ? pal.rumble : pal.rumbleAlt;
-        if (rb > .01) rum = C.mix(rum, C.rainbow(a.seg * .05 + this.time * .5, .68), rb);
-        rum = C.mix(rum, fog, fogT * .6);
         const rw = Math.max(1, sw * .16);
         // 路肩のさらに外側に暗い縁 → 道路の輪郭が常に立つ
-        ctx.fillStyle = C.css(C.mix(g, [0, 0, 0], .35));
+        ctx.fillStyle = cGd;
         ctx.fillRect(Math.round(sx - sw - rw * 2.1), y, Math.max(1, Math.round(rw * 1.2)), 1);
         ctx.fillRect(Math.round(sx + sw + rw * .9), y, Math.max(1, Math.round(rw * 1.2)), 1);
-        ctx.fillStyle = C.css(rum);
+        ctx.fillStyle = cRum;
         ctx.fillRect(Math.round(sx - sw - rw), y, Math.max(1, Math.round(sw * 2 + rw * 2)), 1);
 
         // --- 路面
-        let rd = segEven ? pal.road : pal.roadAlt;
-        if (rb > .01) rd = C.mix(rd, C.rainbow(a.seg * .030 + y * .0055 - this.time * .12, segEven ? .56 : .47), rb);
-        if (W.keys > .01) {
-          // 鍵盤化: 横方向を白鍵/黒鍵に割る
-          const kk = Math.floor(M.mod(a.seg, 7));
-          const black = (kk === 1 || kk === 3 || kk === 5);
-          rd = C.mix(rd, black ? [20, 16, 30] : [242, 240, 235], W.keys);
-        }
-        rd = C.mix(rd, fog, fogT * .75);
-        ctx.fillStyle = C.css(rd);
+        ctx.fillStyle = cRd;
         const rx0 = Math.round(sx - sw), rww = Math.max(1, Math.round(sw * 2));
         ctx.fillRect(rx0, y, rww, 1);
 
         // --- 白線（センター/サイド）
         if (sw > 1.2) {
-          let lc = pal.line;
-          if (W.glow > .01) lc = C.mix(lc, [255, 255, 255], W.glow * .8);
-          if (rb > .01) lc = C.mix(lc, C.rainbow(a.seg * .05 + this.time * .3, .72), rb * .8);
-          lc = C.mix(lc, fog, fogT * .55);
-          ctx.fillStyle = C.css(lc);
+          ctx.fillStyle = cLine;
           const lw = Math.max(1, Math.round(sw * (.06 + W.glow * .03)));
           // 外側の線
           ctx.fillRect(Math.round(sx - sw + sw * .04), y, lw, 1);
@@ -414,6 +457,6 @@ class Road {
   }
 }
 PX.Road = Road;
-PX.ROAD_CONST = { SEGLEN, LANE_AMP, CAM_H, CAM_D, ROAD_HALF };
+PX.ROAD_CONST = { SEGLEN, LANE_AMP, CAM_H, CAM_D, ROAD_HALF, CAR_DZ, CAR_W };
 
 })(window.PX);

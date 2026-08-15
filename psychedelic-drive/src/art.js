@@ -59,6 +59,14 @@ function makeHues(spr, n) {
 }
 PX.mkSprite = mkSprite;
 
+/* パレットだけ差し替えて別キャラにする（服・髪・肌の色替え） */
+function recolor(art, map) {
+  const pal = {};
+  for (const k in art.pal) pal[k] = map[k] || art.pal[k];
+  return { pal, rows: art.rows };
+}
+PX.recolorArt = recolor;
+
 const A = PX.ART = {};
 
 /* ------- 猫（最初と最後に出る、この物語のしるし） --------------------- */
@@ -289,6 +297,49 @@ A.moonFace = {
   ]
 };
 
+/* ------- キャラのバリエーション（使い回し感を消す） ----------------- */
+A.walk1b = recolor(A.walk1, { c: '#c85a6a', p: '#3a2a3a', h: '#4a2a18' });
+A.walk2b = recolor(A.walk2, { c: '#c85a6a', p: '#3a2a3a', h: '#4a2a18' });
+A.walk1c = recolor(A.walk1, { c: '#4aa870', p: '#24303a', h: '#161018', s: '#c08858' });
+A.walk2c = recolor(A.walk2, { c: '#4aa870', p: '#24303a', h: '#161018', s: '#c08858' });
+A.hula1b = recolor(A.hula1, { l: '#50d0e0', g: '#ff8a4a', y: '#e06a2a', h: '#4a2a10', s: '#c88858' });
+A.hula2b = recolor(A.hula2, { l: '#50d0e0', g: '#ff8a4a', y: '#e06a2a', h: '#4a2a10', s: '#c88858' });
+A.hula1c = recolor(A.hula1, { l: '#b070ff', g: '#70e0a0', y: '#3aa870', h: '#181018', s: '#f0c090' });
+A.hula2c = recolor(A.hula2, { l: '#b070ff', g: '#70e0a0', y: '#3aa870', h: '#181018', s: '#f0c090' });
+
+/* 子ども（小さい） */
+A.kid = {
+  pal: { h: '#3a2418', s: '#f0c098', c: '#f0d055', p: '#5a4a8a', k: '#201820' },
+  rows: ['.hhh.', 'hsssh', '.sss.', 'ccccc', '.ccc.', '.ppp.', '.p.p.', 'k...k']
+};
+/* ローブの人物（クライマックスの群衆） */
+A.robed = {
+  pal: { r: '#6a3ac0', d: '#4a2490', l: '#c0a0ff', s: '#f0d0b0', k: '#1a1028' },
+  rows: [
+    '...lll...', '..lsssl..', '..lsssl..', '..lllll..',
+    '.rrrrrrr.', 'rrrrrrrrr', 'rrrdrdrrr', 'rrrrrrrrr',
+    '.rrrrrrr.', '.rrrrrrr.', '.rrrrrrr.', '.dd...dd.'
+  ]
+};
+/* 宇宙人（抽象/宇宙ゾーン） */
+A.alien = {
+  pal: { g: '#8ae06a', d: '#4a9040', k: '#101810', w: '#ffffff', c: '#40d0ff' },
+  rows: [
+    '..ggggg..', '.ggggggg.', 'gkgggggkg', 'gkgggggkg', '.ggggggg.',
+    '..ggggg..', '...ggg...', '..ggggg..', '.gg.g.gg.', '.dd...dd.',
+    '..d.....d', '..d.....d'
+  ]
+};
+/* 二足歩行の猫（サイケゾーンの住人） */
+A.catStand = {
+  pal: { f: '#e0b070', d: '#b0803a', k: '#241a20', y: '#ffe070', p: '#ff8aa0' },
+  rows: [
+    '.f.....f.', 'ff.....ff', 'fffffffff', 'fyffffffy', 'ffffpffff',
+    '.fffffff.', '..fffff..', '.fffffff.', '.ff...ff.', '.dd...dd.',
+    '..d...d..', '.dd...dd.'
+  ]
+};
+
 /* 生成 */
 const SPR = PX.SPR = {};
 PX.buildArt = function () {
@@ -372,6 +423,321 @@ P.tree = function (p, x, base, hgt, m, sway, col, colB, alpha, hue) {
     const r = hgt * .18 * star;
     P.star(p, topX, topY - r * .4, r, C.css([255, 255, 240]), a * star);
     p.circle(topX, topY - r * .4, r * .35, '#ffffff', a * star);
+  }
+  ctx.globalAlpha = 1;
+};
+
+/*
+  carRear — 後方から見た自車。三人称の主役なので手を入れてある。
+  halfW: 画面上の半車幅(px)。すべての寸法をこれ基準にするので
+  遠近で拡大縮小しても比率が崩れない。
+  o: {bank, bounce, brake, beat, body, glass, hue}
+*/
+P.carRear = function (p, x, base, halfW, o) {
+  o = o || {};
+  const ctx = p.ctx;
+  const u = halfW / 9;                       // 基本単位
+  if (u < .18) return;
+  const W = Math.round(halfW * 2);
+  const bank = o.bank || 0;
+  const bounce = Math.round((o.bounce || 0) * u * .9);
+  const body = o.body || [190, 60, 90];
+  const dark = C.scale(body, .55);
+  const dark2 = C.scale(body, .34);
+  const hi = C.scale(body, 1.28);
+  const glass = o.glass || [70, 92, 130];
+  const x0 = Math.round(x - halfW);
+  const y = Math.round(base) + bounce;
+  const R = (dx, dy, w2, h2, c, a) => {
+    if (a === undefined) p.rect(x0 + dx * u, y + dy * u, Math.max(1, w2 * u), Math.max(1, h2 * u), c);
+    else p.rectA(x0 + dx * u, y + dy * u, Math.max(1, w2 * u), Math.max(1, h2 * u), c, a);
+  };
+
+  /* 影（接地感） */
+  ctx.globalAlpha = .38;
+  ctx.fillStyle = '#000';
+  for (let i = 0; i < Math.max(1, Math.round(u * 1.6)); i++) {
+    const k = i / Math.max(1, u * 1.6);
+    const ww = W * (1.06 - k * .3);
+    ctx.fillRect(Math.round(x - ww / 2), y - i, Math.round(ww), 1);
+  }
+  ctx.globalAlpha = 1;
+
+  /* タイヤ */
+  R(-0.4, -3.2, 2.6, 3.2, [22, 20, 28]);
+  R(15.8, -3.2, 2.6, 3.2, [22, 20, 28]);
+  R(-0.2, -2.6, 2.2, 1.1, [58, 56, 70]);
+  R(16.0, -2.6, 2.2, 1.1, [58, 56, 70]);
+
+  /* 車体下部 → 上部 */
+  R(0.6, -4.2, 16.8, 1.2, dark2);                    // バンパー下
+  R(0.2, -7.0, 17.6, 2.9, dark);                     // バンパー
+  R(0.8, -10.4, 16.4, 3.5, body);                    // ボディ
+  R(0.8, -10.4, 16.4, .8, hi);                       // ハイライト
+  R(1.0, -7.6, 16.0, .6, C.scale(body, .8));         // プレスライン
+
+  /* キャビン（バンクでわずかにずれる = 車が傾いて見える） */
+  const bx = bank * 1.1;
+  R(3.2 + bx, -15.6, 11.6, 5.4, C.mix(body, dark, .28));
+  R(3.2 + bx, -15.6, 11.6, .7, C.scale(body, 1.12));
+  R(4.2 + bx, -14.8, 9.6, 3.7, glass);               // リアガラス
+  R(4.2 + bx, -14.8, 9.6, .8, C.mix(glass, [255, 255, 255], .35));
+  R(8.6 + bx, -14.8, .7, 3.7, C.mix(body, dark, .5)); // ガラスの桟
+  // ルーフ
+  R(3.6 + bx, -16.4, 10.8, .9, C.scale(body, .92));
+  // スポイラー
+  R(2.2, -11.2, 13.6, .9, dark);
+  R(2.2, -11.9, 1.4, .9, dark);
+  R(14.4, -11.9, 1.4, .9, dark);
+
+  /* テールランプ（ビートで光る） */
+  const glow = M.sat(.45 + (o.beat || 0) * .8 + (o.brake || 0));
+  const lamp = C.mix([210, 40, 50], [255, 170, 150], glow * .55);
+  R(1.4, -9.6, 3.4, 1.9, lamp);
+  R(13.2, -9.6, 3.4, 1.9, lamp);
+  if (glow > .5 && u > .5) {
+    p.circle(x0 + 3.1 * u, y - 8.6 * u, u * 2.4, C.cssa(lamp, .16 * glow));
+    p.circle(x0 + 14.9 * u, y - 8.6 * u, u * 2.4, C.cssa(lamp, .16 * glow));
+  }
+  // ナンバー灯
+  R(7.6, -6.4, 2.8, 1.3, C.mix([230, 226, 210], body, .25));
+  // 排気
+  R(2.0, -4.6, 1.6, .8, [40, 38, 48]);
+  R(13.8, -4.6, 1.6, .8, [40, 38, 48]);
+};
+
+
+/* =====================================================================
+   遠近のある建物 / 立体感のある樹木
+   ここが「オブジェクトが荒い・遠近法が働いていない」への回答。
+   ===================================================================== */
+
+/*
+  building2 — 正面 + 側面（消失点へ後退する面）+ 屋根で立体に見せる。
+  x は「道路側の内側エッジ」の位置。建物は必ず外側へ伸びるので、
+  どれだけ巨大化しても道路にはみ出さない。
+  o: {vx, vy, k, w, h, tall, seed, alpha, melt, breathe, win, winOff, body, roof, beatWin, blink, dir}
+     dir : +1 = 画面右側にある（左面が見える） / -1 = 左側（右面が見える）
+     k   : 側面の後退量 0..1（奥行き / (距離+奥行き)）
+*/
+P.building2 = function (p, x, base, o) {
+  const ctx = p.ctx;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  if (a <= .01) return;
+  const w = Math.max(3, Math.round(o.w));
+  const h = Math.max(4, Math.round(o.h * (1 + (o.breathe || 0) * .04)));
+  const dir = o.dir >= 0 ? 1 : -1;
+  const k = M.clamp(o.k === undefined ? .3 : o.k, .04, .78);
+  const vx = o.vx, vy = o.vy;
+  const tall = M.sat(o.tall || 0);
+  const melt = M.sat(o.melt || 0);
+  const body = o.body || [60, 54, 82];
+  const side = C.scale(body, .62);
+  const roofC = o.roof || C.scale(body, .8);
+  const winOn = o.win || [255, 214, 140];
+  const winOff = o.winOff || C.scale(body, .55);
+  const seed = o.seed || 1;
+
+  // 正面の矩形（内側エッジ x から外側 dir 方向へ）
+  const xIn = Math.round(x);
+  const xOut = Math.round(x + dir * w);
+  const fx0 = Math.min(xIn, xOut), fx1 = Math.max(xIn, xOut);
+  const yTop = Math.round(base - h), yBase = Math.round(base);
+  ctx.globalAlpha = a;
+
+  /* --- 側面（内側エッジから消失点へ後退） --- */
+  const xf = xIn + (vx - xIn) * k;
+  const yTopF = yTop + (vy - yTop) * k;
+  const yBaseF = yBase + (vy - yBase) * k;
+  const step = xf >= xIn ? 1 : -1;
+  const nCols = Math.abs(Math.round(xf - xIn));
+  if (nCols > 0) {
+    for (let i = 0; i <= nCols; i++) {
+      const t = i / nCols;
+      const cx2 = xIn + step * i;
+      const ty = Math.round(M.lerp(yTop, yTopF, t));
+      const by = Math.round(M.lerp(yBase, yBaseF, t));
+      if (by <= ty) continue;
+      ctx.fillStyle = C.css(C.mix(side, C.scale(side, .72), t));
+      ctx.fillRect(cx2, ty, 1, by - ty);
+    }
+    // 側面の窓（奥行きが伝わる）
+    const sc2 = Math.max(2, Math.round(h / 9));
+    for (let i = 2; i < nCols - 1; i += Math.max(3, Math.round(nCols / 3))) {
+      const t = i / nCols;
+      for (let r = 0; r < Math.max(1, Math.floor(h / (sc2 * 2))); r++) {
+        const ty = M.lerp(yTop, yTopF, t) + sc2 * (1 + r * 2);
+        if (ty > M.lerp(yBase, yBaseF, t) - 2) break;
+        const on = M.hash2(i * 1.7 + seed, r * 2.3) > .45;
+        ctx.fillStyle = C.css(C.mix(on ? winOn : winOff, side, .45));
+        ctx.fillRect(xIn + step * i, Math.round(ty), Math.max(1, Math.round(sc2 * .7)), Math.max(1, Math.round(sc2 * .8)));
+      }
+    }
+  }
+
+  /* --- 屋根 --- */
+  if (tall < .65) {
+    const rh = Math.max(2, Math.round(h * .26 * (1 - tall)));
+    ctx.fillStyle = C.css(roofC);
+    for (let i = 0; i < rh; i++) {
+      const t = i / Math.max(1, rh - 1);
+      const ww = Math.round(w * (.12 + .88 * t)) + 2;
+      const rx = dir > 0 ? xIn - 1 : xIn + 1 - ww;
+      ctx.fillStyle = C.css(C.mix(C.scale(roofC, 1.18), roofC, t));
+      ctx.fillRect(rx, yTop - rh + i, ww, 1);
+    }
+    // 屋根の側面
+    if (nCols > 0) {
+      ctx.fillStyle = C.css(C.scale(roofC, .68));
+      for (let i = 0; i <= nCols; i++) {
+        const t = i / nCols;
+        const ty = Math.round(M.lerp(yTop - rh, yTopF - rh * (1 - t * .5), t));
+        ctx.fillRect(xIn + step * i, ty, 1, Math.max(1, Math.round(rh * (1 - t * .5))));
+      }
+    }
+  } else {
+    // 屋上（上面が見える）
+    ctx.fillStyle = C.css(C.scale(body, 1.2));
+    ctx.fillRect(fx0, yTop - 2, w, 2);
+    if (nCols > 0) {
+      for (let i = 0; i <= nCols; i++) {
+        const t = i / nCols;
+        ctx.fillStyle = C.css(C.mix(C.scale(body, 1.1), C.scale(body, .8), t));
+        ctx.fillRect(xIn + step * i, Math.round(M.lerp(yTop - 2, yTopF - 2, t)), 1, 2);
+      }
+    }
+    ctx.fillStyle = C.css(o.antenna || [255, 70, 100]);
+    ctx.fillRect(Math.round((fx0 + fx1) / 2), yTop - 8, 1, 7);
+    if (o.blink) ctx.fillRect(Math.round((fx0 + fx1) / 2) - 1, yTop - 9, 3, 2);
+  }
+
+  /* --- 正面 --- */
+  ctx.fillStyle = C.css(body);
+  ctx.fillRect(fx0, yTop, w, h);
+  ctx.fillStyle = C.css(C.scale(body, 1.14));
+  ctx.fillRect(fx0, yTop, w, 1);
+  ctx.fillStyle = C.css(C.scale(body, .78));
+  ctx.fillRect(dir > 0 ? fx1 - 1 : fx0, yTop, 1, h);
+
+  /* --- 正面の窓 --- */
+  const ws = Math.max(2, Math.round(Math.min(w / 3.2, h / 6)));
+  const cols = Math.max(1, Math.floor((w - 2) / (ws + 2)));
+  const rowsN = Math.max(1, Math.floor((h - 2) / (ws + 3)));
+  for (let r = 0; r < rowsN; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wx = fx0 + 2 + c * (ws + 2);
+      const wy = yTop + 3 + r * (ws + 3);
+      if (wy + ws > yBase - 1 || wx + ws > fx1 - 1) continue;
+      const hsh = M.hash2(c + seed * 7.3, r + seed * 2.1);
+      if (melt > .3 && hsh > .55) {
+        P.star(p, wx + ws / 2, wy + ws / 2, 1 + melt * 2, '#ffffff', a * M.sat((melt - .3) / .5));
+        continue;
+      }
+      let on = hsh > .38;
+      if (o.beatWin !== undefined) on = hsh > .38 - o.beatWin * .35;
+      const blink = o.blink && M.hash2(c * 3.1 + seed, r * 1.7) < o.blink;
+      ctx.fillStyle = C.css(on ? winOn : winOff);
+      if (blink) ctx.fillRect(wx, wy + Math.floor(ws / 2), ws, 1);
+      else {
+        ctx.fillRect(wx, wy, ws, ws);
+        if (on && ws >= 3) {
+          ctx.fillStyle = C.css(C.mix(winOn, [255, 255, 255], .4));
+          ctx.fillRect(wx, wy, ws, 1);
+        }
+      }
+    }
+  }
+  // 1階のドア（低層のみ）
+  if (tall < .5 && h > 10) {
+    const dw = Math.max(2, Math.round(ws * 1.1)), dh = Math.max(3, Math.round(ws * 1.8));
+    const dx = Math.round((fx0 + fx1) / 2 - dw / 2);
+    ctx.fillStyle = C.css(C.scale(body, .5));
+    ctx.fillRect(dx, yBase - dh, dw, dh);
+    ctx.fillStyle = C.css(C.mix(winOn, body, .4));
+    ctx.fillRect(dx + dw - 1, yBase - Math.round(dh * .55), 1, 1);
+  }
+  ctx.globalAlpha = 1;
+};
+
+/*
+  tree2 — 立体感のある樹木。species で見た目を変える。
+  0: 広葉樹（丸） / 1: 針葉樹（円錐） / 2: 細長い樹（ポプラ）
+  m: 0=通常樹 1=ヤシ 2=星化（従来の tree と同じモーフ軸）
+*/
+P.tree2 = function (p, x, base, h, o) {
+  const m = o.m || 0;
+  const palm = M.sat(m), star = M.sat(m - 1);
+  if (palm > .35 || star > .01) { P.tree(p, x, base, h, m, o.sway || 0, o.colA, o.colB, o.alpha); return; }
+  const ctx = p.ctx;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  const sp = o.species | 0;
+  const sway = o.sway || 0;
+  const colA = o.colA || [92, 162, 78];        // 明部
+  const colB = o.colB || [52, 110, 58];        // 暗部
+  const rim = C.mix(colA, [255, 255, 230], .28);
+  const trunk = o.trunk || [78, 56, 42];
+  ctx.globalAlpha = a;
+
+  // 幹
+  const th = h * (sp === 1 ? .22 : sp === 2 ? .30 : .40);
+  const tw = Math.max(1, Math.round(h * .075));
+  for (let i = 0; i < th; i++) {
+    const t = i / th;
+    const ww = Math.max(1, Math.round(tw * (1 - t * .35)));
+    const bx = x + sway * t * t * .5;
+    ctx.fillStyle = C.css(C.mix(trunk, C.scale(trunk, 1.3), t * .4));
+    ctx.fillRect(Math.round(bx - ww / 2), Math.round(base - i), ww, 1);
+    ctx.fillStyle = C.css(C.scale(trunk, .7));
+    ctx.fillRect(Math.round(bx - ww / 2), Math.round(base - i), 1, 1);
+  }
+  const topX = x + sway * .5, topY = base - th;
+
+  if (sp === 1) {
+    // 針葉樹: 段重ねの三角
+    const tiers = 3;
+    for (let s2 = 0; s2 < tiers; s2++) {
+      const ft = s2 / tiers;
+      const cy = topY - h * (.10 + ft * .52);
+      const rw = h * (.34 - ft * .10);
+      const hh = h * .30;
+      for (let i = 0; i < hh; i++) {
+        const t = i / hh;
+        const ww = rw * (1 - t);
+        const off = sway * (ft + t * .3) * .6;
+        ctx.fillStyle = C.css(C.mix(colB, colA, t * .5 + .18));
+        ctx.fillRect(Math.round(topX - ww + off), Math.round(cy - i), Math.max(1, Math.round(ww * 2)), 1);
+      }
+      ctx.fillStyle = C.css(rim);
+      ctx.fillRect(Math.round(topX - rw * .5 + sway * ft * .6), Math.round(cy - hh * .55), Math.max(1, Math.round(rw * .5)), 1);
+    }
+  } else {
+    // 広葉樹 / ポプラ: 塊を重ねて陰影をつける
+    const rx = h * (sp === 2 ? .17 : .30);
+    const ry = h * (sp === 2 ? .40 : .28);
+    const cy = topY - ry * .72;
+    const blobs = sp === 2
+      ? [[0, 0, 1], [0, -.5, .8], [0, .45, .85]]
+      : [[0, 0, 1], [-.62, .22, .66], [.64, .16, .62], [-.2, -.6, .6], [.3, -.52, .56]];
+    // 暗部を先に置く
+    for (const bl of blobs) {
+      const bx = topX + bl[0] * rx + sway * .8, by = cy + bl[1] * ry;
+      p.circle(bx, by + ry * .16, rx * bl[2], C.css(colB), a);
+    }
+    // 明部
+    for (const bl of blobs) {
+      const bx = topX + bl[0] * rx + sway * .8, by = cy + bl[1] * ry;
+      p.circle(bx - rx * .1, by - ry * .12, rx * bl[2] * .82, C.css(colA), a);
+    }
+    // 左上のリムライト
+    p.circle(topX - rx * .42 + sway * .8, cy - ry * .5, rx * .34, C.css(rim), a * .85);
+    // 葉のディザ（輪郭を柔らかく）
+    ctx.fillStyle = C.css(colA);
+    for (let i = 0; i < 10; i++) {
+      const ang = M.hash(i * 3.1 + h) * 6.28;
+      const rr = rx * (.85 + M.hash(i * 7.7) * .3);
+      ctx.fillRect(Math.round(topX + Math.cos(ang) * rr + sway * .8),
+                   Math.round(cy + Math.sin(ang) * rr * (ry / rx)), 1, 1);
+    }
   }
   ctx.globalAlpha = 1;
 };

@@ -1,5 +1,5 @@
 /* =====================================================================
-   game.js — ステージ進行 / トリップ管理 / スコア / ダッシュボード / HUD
+   game.js — ステージ進行 / トリップ管理 / スコア / 自車描画 / HUD
    ---------------------------------------------------------------------
    ステージデータ(data/stage1.js)を時間で補間し、
      world(重み) / road(変形) / pixel(ポストFX)
@@ -99,8 +99,12 @@ class Game {
     this.particles = [];
     this.judgeText = null;
     this.frame = 0;
-    // 自動品質: 実機が重ければ重いエフェクトから静かに削る
-    this.frameMs = 16.7; this.qual = 1; this.lowRes = false;
+    /* 自動品質。実測では内部解像度が最も効くので、そちらを主レバーにする。
+       エフェクト側(qual)は 0.6 までしか落とさない = 終盤の絵作りを壊さない。 */
+    this.frameMs = 16.7; this.workMs = 8; this.qual = 1;
+    this.resLadder = [192, 176, 160, 144];
+    this.resStep = 0; this.resCool = 3;
+    this.exhaust = [];
 
     window.addEventListener('resize', () => this.p.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.p.resize(), 250));
@@ -138,8 +142,7 @@ class Game {
     this.score = 0; this.combo = 0; this.maxCombo = 0;
     this.grooveRaw = .38;
     this.distort = 0; this.hueBlip = 0; this.flash = 0;
-    this.camMode = 'first'; this.camTimer = 0;
-    this.mirrorWorld = 0;
+    this.camTimer = 0; this.camZoom = 0;   // closeUp 演出（カメラが一瞬寄る）
     this.shake = 0;
     this.deepest = 0;
     this.pal = {};
@@ -169,16 +172,36 @@ class Game {
       if (dt > .06) dt = .06;
       this.frame++;
       this.frameMs += (Math.min(60, dt * 1000) - this.frameMs) * .05;
-      if (this.frameMs > 23) this.qual = M.clamp(this.qual - dt * .5, .3, 1);
-      else if (this.frameMs < 17.5) this.qual = M.clamp(this.qual + dt * .25, .3, 1);
-      if (!this.lowRes && this.qual < .45 && this.frame > 240) { this.lowRes = true; this.p.setBaseWidth(160); }
-      else if (this.lowRes && this.qual > .92) { this.lowRes = false; this.p.setBaseWidth(192); }
       this.input.update(dt);
+      // 実処理時間を測る。rAF の間隔は vsync で 16.7ms に張り付くので
+      // フレーム間隔では「余裕があるか」が判定できない。
+      const w0 = performance.now();
       this.update(dt);
       this.render();
+      this.workMs += (Math.min(80, performance.now() - w0) - this.workMs) * .06;
+      this.autoQuality(dt);
       requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+  }
+
+  /* 重い端末では解像度を1段ずつ落とし、余裕が戻れば1段ずつ戻す */
+  autoQuality(dt) {
+    const heavy = this.workMs > 14.0;      // 1フレームの予算 16.7ms に対して余裕なし
+    const light = this.workMs < 8.5;       // 余裕あり
+    if (heavy) this.qual = M.clamp(this.qual - dt * .9, .6, 1);
+    else if (light) this.qual = M.clamp(this.qual + dt * .3, .6, 1);
+    this.resCool -= dt;
+    if (this.resCool > 0) return;
+    if (heavy && this.resStep < this.resLadder.length - 1) {
+      this.resStep++;
+      this.p.setBaseWidth(this.resLadder[this.resStep]);
+      this.resCool = 3.0;
+    } else if (this.workMs < 9.0 && this.resStep > 0) {
+      this.resStep--;
+      this.p.setBaseWidth(this.resLadder[this.resStep]);
+      this.resCool = 7.0;
+    }
   }
 
   update(dt) {
@@ -273,9 +296,13 @@ class Game {
 
     /* --- イベント ------------------------------------------------ */
     for (const e of this.tl.events(t)) this.onEvent(e);
+    // カメラ: 通常は定位置。closeUp イベント中だけ車に寄って見上げる
     this.camTimer -= dt;
-    if (this.camTimer <= 0 && this.camMode !== 'first') this.camMode = 'first';
-    this.mirrorWorld = M.approach(this.mirrorWorld, this.camMode === 'mirror' ? 1 : 0, 2, dt);
+    this.camZoom = M.approach(this.camZoom, this.camTimer > 0 ? 1 : 0, 2.2, dt);
+    const CD = PX.ROAD_CONST.CAR_DZ, CH = PX.ROAD_CONST.CAM_H;
+    this.road.carDz = M.lerp(CD, CD * .62, this.camZoom);
+    this.road.camH = M.lerp(CH, CH * .72, this.camZoom);
+    this.road.camFollow = M.lerp(.58, .34, this.camZoom);
 
     /* --- エンジン音 ---------------------------------------------- */
     PX.Audio.setEngine(.25 + M.sat(this.road.speed / 50) * .55 + Math.abs(this.input.steer) * .1,
@@ -356,8 +383,7 @@ class Game {
         PX.Audio.fadeMusic(1, .25); PX.Audio.sfx('shimmer');
         this.flash = 1; this.burst(this.p.w * .5, this.p.h * .45, 46);
         break;
-      case 'thirdPerson': this.camMode = 'third'; this.camTimer = e.dur; break;
-      case 'mirrorWorld': this.camMode = 'mirror'; this.camTimer = e.dur; break;
+      case 'closeUp': this.camTimer = e.dur; break;
       case 'fireworks':
         for (let i = 0; i < 6; i++) this.burst(this.p.w * (.15 + Math.random() * .7), this.p.h * (.15 + Math.random() * .4), 26);
         break;
@@ -418,9 +444,7 @@ class Game {
     const tun = this.tl.out.v.tunnelDark;
     if (tun > .02) this.drawTunnel(tun);
 
-    if (this.camMode === 'third') this.drawThirdPerson();
-    else this.drawDashboard();
-
+    this.drawCar();
     this.drawHUD();
     this.applyFx();
   }
@@ -431,7 +455,6 @@ class Game {
     const hz = road.horizonY(p);
     const wall = C.mix(pal.near, [6, 5, 10], .8);
     const q = {};
-    // アーチ状に左右から閉じる
     for (let y = 0; y < p.h; y++) {
       const t = M.sat((y - hz + 24) / (p.h - hz + 24));
       const open = M.lerp(.10, .62, Math.pow(t, .7)) * M.lerp(1.6, 1, a);
@@ -439,11 +462,9 @@ class Game {
       const x0 = Math.round(p.w * .5 - half), x1 = Math.round(p.w * .5 + half);
       if (x0 > 0) p.rectA(0, y, x0, 1, wall, a);
       if (x1 < p.w) p.rectA(x1, y, p.w - x1, 1, wall, a);
-      // 壁の縁のハイライト
       if (x0 > 0) p.rectA(x0 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
       if (x1 < p.w) p.rectA(x1 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
     }
-    // 天井灯（近づいてくる）
     for (let i = 0; i < 12; i++) {
       const dz = M.mod(i * 5 - road.z * .55, 60) + 1.2;
       road.project(p, dz, 0, q);
@@ -454,141 +475,33 @@ class Game {
     }
   }
 
-  /* ------------------------------------------------ ダッシュボード */
-  drawDashboard() {
-    const p = this.p, pal = this.pal, trip = this.trip, cond = this.cond;
-    const dashH = Math.round(p.h * .195);
-    const y0 = p.h - dashH;
-    // 車内は世界の色に少しだけ染まる程度に留める（常にニュートラルな暗さ）
-    const dark = C.mix(pal.near, [16, 13, 22], .74);
-    const dark2 = C.mix(pal.near, [7, 6, 12], .84);
-    const rimCol = C.mix(dark, [70, 62, 86], .55);
-    const rimHi = C.mix(pal.line, pal.accentA, .25 + trip.level * .045);
-    const ctx = p.ctx;
-
-    /* フロントガラス下端のカーブ + ダッシュ面 */
-    for (let x = 0; x < p.w; x++) {
-      const c = Math.round(Math.cos((x / p.w - .5) * 3.0) * 4);
-      p.rect(x, y0 - c, 1, 2, C.mix(pal.line, dark, .5));
-      p.rect(x, y0 - c + 2, 1, dashH + c, dark);
-    }
-    p.vgrad(0, y0 + 7, p.w, dashH - 7, dark, dark2, true);
-    // ダッシュ上面のステッチ
-    for (let x = 6; x < p.w - 6; x += 6) p.rectA(x, y0 + 6, 3, 1, [255, 255, 255], .06);
-
-    /* Aピラー / ルーフ（視界は狭めない） */
-    p.rect(0, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
-    p.rect(p.w - 2, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
-    p.rect(0, 0, p.w, 2, C.mix(dark2, pal.mid, .18));
-
-    /* サイドミラー（ミラーの中だけ別世界） */
-    const mw = 30, mh = 15, mx = 3, my = y0 - 40;
-    p.rect(mx + 4, my + mh + 1, 4, 5, C.mix(dark2, pal.mid, .3));   // 支柱
-    p.rect(mx - 1, my - 1, mw + 2, mh + 2, C.mix(dark2, pal.mid, .35));
-    this.drawMirror(mx, my, mw, mh);
-
-    /* メーター（速度計 = 進行、回転計 = グルーヴ） */
-    const gy = y0 + 15;
-    this.drawGauge(p.w * .16, gy, 9, M.sat(this.songTime / this.stage.driveEnd), pal, rimHi, cond, 'trip');
-    this.drawGauge(p.w * .84, gy, 9, this.trip.groove, pal, rimHi, cond, 'groove');
-
-    /* ハンドル */
-    const cx = p.w * .5;
-    const cy = y0 + dashH * .96;
-    const R = Math.round(p.w * .40);
-    const rot = this.input.steer * .62 + Math.sin(cond.beat * Math.PI) * .012 * M.sat(trip.level / 6);
-    const glow = .25 + this.trip.groove * .75;
-
-    for (let a = -Math.PI * .99; a <= .03; a += .012) {
-      const aa = a + rot;
-      const x = cx + Math.cos(aa) * R, y = cy + Math.sin(aa) * R * .78;
-      if (y > p.h) continue;
-      const top = Math.sin(a) < -.5;
-      const col = top ? C.mix(rimCol, rimHi, .22 + glow * .35 + cond.env.kick * .12 * glow) : rimCol;
-      p.rect(x - 1, y - 1, 4, 4, col);
-      p.rect(x, y - 2, 2, 1, C.mix(col, [255, 255, 255], .18));
-    }
-    // スポーク（厚みを持たせる）
-    for (let i = 0; i < 3; i++) {
-      const a = (-Math.PI * .5) + (i - 1) * 1.06 + rot;
-      const x1 = cx + Math.cos(a) * R * .93, y1 = cy + Math.sin(a) * R * .72;
-      for (let o = -1; o <= 1; o++) p.line(cx + o, cy, x1 + o, y1, rimCol);
-      p.line(cx, cy - 1, x1, y1 - 1, C.mix(rimCol, [255, 255, 255], .12), .5);
-    }
-    // ハブ
-    p.circle(cx, cy, 9, C.css(C.mix(rimCol, [0, 0, 0], .35)));
-    p.circle(cx, cy, 6, C.css(C.mix(rimCol, rimHi, glow * .5)));
-    p.circle(cx, cy, 3, C.cssa(pal.lightGlow, .3 + cond.env.kick * .55 * glow));
-
-    /* ガラスの映り込み */
-    p.rectA(0, y0 - 1, p.w, 1, pal.lightGlow, .10 + cond.env.hat * .10);
-  }
-
-  /* 円形メーター */
-  drawGauge(cx, cy, r, v, pal, hi, cond, kind) {
-    const p = this.p;
-    const body = C.mix(pal.near, [10, 9, 16], .8);
-    p.circle(cx, cy, r + 1, C.css(C.mix(body, [255, 255, 255], .05)));
-    p.circle(cx, cy, r, C.css(body));
-    const n = 14;
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1);
-      const a = Math.PI * .78 + t * Math.PI * 1.44;
-      const on = t <= v;
-      const col = on ? (kind === 'groove' ? C.rainbow(.34 - t * .34, .58) : C.mix(hi, pal.accentB, t))
-                     : C.mix(body, [255, 255, 255], .10);
-      p.px(cx + Math.cos(a) * (r - 2), cy + Math.sin(a) * (r - 2), C.css(col));
-    }
-    const a = Math.PI * .78 + M.sat(v) * Math.PI * 1.44;
-    p.line(cx, cy, cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4), C.css(hi));
-    p.px(cx, cy, C.css(C.mix(hi, [255, 255, 255], .4)));
-  }
-
-  /* ミラーの中は別世界 */
-  drawMirror(x, y, w, h) {
-    const p = this.p, pal = this.pal, trip = this.trip;
-    const t = performance.now() / 1000;
-    p.rect(x - 1, y - 1, w + 2, h + 2, C.mix(pal.near, [0, 0, 0], .6));
-    // 通常は後方の道、mirrorWorld 中は完全に別の世界
-    const alt = this.mirrorWorld;
-    const top = C.mix(pal.skyTop, C.rainbow(t * .3, .5), alt * .8);
-    const bot = C.mix(pal.road, C.rainbow(t * .3 + .4, .35), alt * .8);
-    p.vgrad(x, y, w, h, top, bot, false);
-    // 後方に流れる線
-    for (let i = 0; i < 5; i++) {
-      const yy = y + M.mod(t * (14 + i * 5) + i * 3, h);
-      p.rectA(x + 2 + i * 4, yy, 2, 1, pal.line, .4 + alt * .4);
-    }
-    if (alt > .3) {
-      for (let i = 0; i < 6; i++) {
-        const px_ = x + M.mod(i * 5 + t * 9, w);
-        const py = y + 2 + M.hash(i * 3.3) * (h - 4);
-        p.rectA(px_, py, 1, 1, C.rainbow(i * .17 + t, .7), alt);
+  /* ------------------------------------------------ 自車（三人称） */
+  drawCar() {
+    const p = this.p, road = this.road, pal = this.pal, cond = this.cond;
+    const pose = road.carPose(p);
+    if (pose.sy < -40 || pose.sy > p.h + 80) return;
+    const beat = cond.env.kick;
+    // 排気煙（速度とビートで吹く）
+    const u = pose.w / 9;
+    if (u > .5) {
+      for (let i = 0; i < 3; i++) {
+        const q = this.exhaust[i] || (this.exhaust[i] = { t: Math.random() });
+        q.t += .02 + beat * .03;
+        if (q.t > 1) q.t -= 1;
+        const a = (1 - q.t) * .22 * (.4 + beat * .6);
+        const r = u * (1.2 + q.t * 3.4);
+        p.circle(pose.sx - pose.w * .74 + (i - 1) * u * .6, pose.sy - u * 4 + q.t * u * 3,
+          r, C.cssa(C.mix(pal.fog, [220, 220, 230], .5), a));
       }
     }
-    p.rectA(x, y, w, 1, [255, 255, 255], .18);
-  }
-
-  /* 一瞬だけ三人称 */
-  drawThirdPerson() {
-    const p = this.p, pal = this.pal;
-    const t = performance.now() / 1000;
-    const x = p.w * .5 + this.input.steer * p.w * .12;
-    const y = p.h * .86;
-    const bob = Math.sin(t * 9) * .8 + this.cond.env.kick * 1.4;
-    // 後ろから見た車
-    const body = C.mix(pal.accentC, [70, 40, 80], .3);
-    p.rectA(x - 20, y + 2, 40, 3, [0, 0, 0], .4);
-    p.rect(x - 19, y - 10 + bob, 38, 10, body);
-    p.rect(x - 14, y - 17 + bob, 28, 8, C.mix(body, [0, 0, 0], .25));
-    p.rect(x - 12, y - 16 + bob, 24, 6, C.mix(pal.accentB, pal.mid, .4));
-    p.rect(x - 17, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
-    p.rect(x + 12, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
-    p.rect(x - 21, y - 4 + bob, 6, 4, [24, 22, 30]);
-    p.rect(x + 15, y - 4 + bob, 6, 4, [24, 22, 30]);
-    // テールランプの光
-    p.circle(x - 15, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
-    p.circle(x + 14, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
+    PX.draw.carRear(p, pose.sx, pose.sy, pose.w, {
+      bank: road.bank,
+      bounce: -beat * 1.1 - cond.env.bass * .5,
+      brake: this.distort * .5,
+      beat,
+      body: C.mix([206, 62, 96], pal.accentC, .30 + M.sat(this.trip.level / 10) * .35),
+      glass: C.mix([64, 88, 128], pal.accentB, .35)
+    });
   }
 
   /* ---------------------------------------------------------- HUD */

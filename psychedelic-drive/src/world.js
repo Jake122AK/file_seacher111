@@ -12,7 +12,7 @@
 'use strict';
 const M = PX.M, C = PX.C, D = PX.draw;
 
-const MAX_DRAW = 200;   // 1フレームに描く路肩オブジェクトの上限
+const MAX_DRAW = 150;   // 1フレームに描く路肩オブジェクトの上限
 
 const WORLDS = ['suburb', 'night', 'weird', 'tropical', 'space', 'city', 'jungle', 'ocean', 'abstract', 'climax', 'white'];
 
@@ -131,19 +131,33 @@ class World {
     };
   }
 
+  /* 種別ごとの「道路の内側エッジからの最小クリアランス」(world units)。
+     建物のように幅のあるものは外側へ伸ばすので、ここで road にはみ出さない。 */
+  _clearance(kind) {
+    switch (kind) {
+      case 'house':                return 1.30;
+      case 'island':               return 2.20;
+      case 'monolith': case 'rock': return 1.45;
+      case 'crystal': case 'coral': return 1.35;
+      case 'flora':                return 1.32;
+      case 'figure':               return 1.24;
+      default:                     return 1.20;   // pole / light / sign
+    }
+  }
+
   _spawnAt(z) {
     // 両サイド
     for (let s = -1; s <= 1; s += 2) {
-      if (this.rng() > .92) continue;
+      if (this.rng() > .90) continue;
       const kind = this._pickKind();
-      const near = 1.05 + this.rng() * 1.35;
+      const near = this._clearance(kind) + this.rng() * .95;
       const o = this._mk(kind, z + this.rng() * 1.5, s * near);
       this.objects.push(o);
       // 群衆: figure は密度に応じて横一列に増える（10人→100人）
       if (kind === 'figure') {
         const extra = Math.floor(M.lerp(0, 5, M.sat((this.density - 1) / 2.6)) + this.rng() * 2);
         for (let i = 1; i <= extra; i++) {
-          const o2 = this._mk('figure', z + this.rng() * 2.2, s * (near + i * (.62 + this.rng() * .4)));
+          const o2 = this._mk('figure', z + this.rng() * 2.2, s * (near + i * (.58 + this.rng() * .35)));
           o2.sc *= .96;
           this.objects.push(o2);
         }
@@ -394,15 +408,15 @@ class World {
         const yy = hz + 1 + r * 2;
         const sc = 1;
         const a = crowd * (1 - r * .18);
-        const count = Math.floor(p.w / 6) + 3;
+        const count = Math.floor(p.w / 7) + 3;
         const beatOff = (cond.env.kick > .4 ? 1 : 0);
         for (let i = 0; i < count; i++) {
           const x = M.mod(i * 5 - scroll * (.02 + r * .004) + r * 2.5, p.w + 12) - 6;
           const ph = M.hash2(i * 1.7, r * 3.1);
           const f = (Math.floor(cond.beat * 2 + ph * 2) % 2) ? PX.SPR.hula2 : PX.SPR.hula1;
+          // 地平線の群衆は 1px スケール。sway は使わず描画コールを 1 回に抑える
           p.sprite(f, x, yy + 1 - beatOff, {
-            scale: sc, ax: .5, ay: 1, alpha: a * .9,
-            hue: trip.hueSpin + ph * .3, sway: Math.sin(cond.beat * Math.PI + ph * 6) * 1.2
+            scale: sc, ax: .5, ay: 1, alpha: a * .9, hue: trip.hueSpin + ph * .3
           });
         }
       }
@@ -484,7 +498,12 @@ class World {
       if (q.sx < -130 || q.sx > p.w + 130) continue;
       const unit = q.sc * p.w * .58;               // 1 world unit あたりのピクセル数
       if (unit < .6) continue;
-      const fade = M.sat((86 - dz) / 26) * M.sat((dz - .6) / 1.2);
+      /* 近距離フェード。大きい物ほど早く消す。
+         これが無いと、巨大化した建物が至近距離で画面を塞ぐ「壁」になる。 */
+      const big = (o.kind === 'house' || o.kind === 'island' || o.kind === 'monolith');
+      const nearFade = big ? M.smooth((dz - 3.1) / 2.4) : M.smooth((dz - 1.3) / 1.3);
+      if (nearFade <= .01) continue;
+      const fade = M.sat((86 - dz) / 26) * nearFade;
       const beat = env.kick, hat = env.hat;
       const ph = o.phase;
       const groove = trip.groove;
@@ -517,21 +536,34 @@ class World {
         if (this.w.jungle > .3 && o.seed % 2 < 1) {
           D.fern(p, x, base, h * .8, sway * 2, C.mix(pal.accentA, [30, 120, 60], .5), C.mix(pal.accentC, [20, 90, 50], .5), fade);
         } else {
-          D.tree(p, x, base, h, m, sway * (1 + palm), colA, colB, fade, hue);
+          D.tree2(p, x, base, h, {
+            m, species: Math.floor(o.seed * 1.7) % 3,
+            sway: sway * (1 + palm), colA, colB,
+            trunk: C.mix([78, 56, 42], pal.near, .35),
+            alpha: fade
+          });
         }
         break;
       }
       case 'house': {
-        const tall = M.sat(this.w.city * 1.4 + this.w.climax * .5);
+        const tall = M.sat(this.w.city * 1.4 + this.w.climax * .25);
         const melt = M.sat(this.w.space * 1.2 + this.w.abstract * .9);
-        const w = unit * (.85 + o.sc * .5) * (1 + tall * .1);
-        const h = unit * (1.5 + o.sc * .8) * M.lerp(1, 3.2, tall);
-        D.building(p, x, base, w, h, tall, {
-          alpha: fade, melt,
-          body: C.mix(pal.near, pal.mid, .3),
-          roof: C.mix(pal.accentC, pal.near, .4),
+        // 建物の種類でシルエットを変える（同じ箱の羅列にしない）
+        const type = Math.floor(o.seed) % 3;
+        const wMul = type === 0 ? .95 : type === 1 ? 1.35 : .70;
+        const hMul = type === 0 ? 1.0 : type === 1 ? .78 : 1.45;
+        const w = unit * (.80 + o.sc * .45) * wMul * (1 + tall * .1);
+        const h = unit * (1.45 + o.sc * .75) * hMul * M.lerp(1, 3.2, tall);
+        const bodyTint = C.mix(C.mix(pal.near, pal.mid, .3), pal.accentC, (o.seed % 7) / 7 * .18);
+        D.building2(p, x, base, {
+          w, h, tall, melt, alpha: fade,
+          vx: p.w * .5, vy: this.road.horizonY(p),
+          k: M.sat((w / unit * .85) / (dz + w / unit * .85)),
+          dir: o.side > 0 ? 1 : -1,
+          body: bodyTint,
+          roof: C.mix(pal.accentC, pal.near, .35 + (o.seed % 5) / 5 * .3),
           win: C.mix(pal.lightGlow, pal.accentA, .3),
-          winOff: C.mix(pal.mid, [0, 0, 0], .35),
+          winOff: C.mix(pal.mid, [0, 0, 0], .4),
           seed: o.seed,
           beatWin: env.hat * .7 * M.sat(lvl / 3),
           blink: M.sat((lvl - 2) / 5) * .35,      // 窓が目のようにまばたき
@@ -563,9 +595,20 @@ class World {
         // 住宅街では通行人、南国以降はフラダンサー
         const hula = M.sat(this.w.tropical * 1.5 + this.w.climax * 1.2 + this.w.abstract * .6 + this.w.jungle * .4);
         const s = Math.max(1, Math.round(unit * .027));
-        if (hula > .4) {
-          const f = (Math.floor(cond.beat * 2 + o.phase * 2) % 2) ? S.hula2 : S.hula1;
-          p.sprite(f, x, base, {
+        const v = Math.floor(o.seed * 3.1) % 3;          // 個体差（毎フレーム同じ）
+        const odd = M.sat(this.w.abstract + this.w.climax * .8 + this.w.space * .7);
+        const frame = Math.floor(cond.beat * 2 + o.phase * 2) % 2;
+        if (odd > .45 && (o.seed % 5) < 2.2) {
+          // サイケゾーンの住人（ローブ・宇宙人・二足歩行の猫）
+          const spr = (o.seed % 3 < 1) ? S.robed : (o.seed % 3 < 2 ? S.alien : S.catStand);
+          p.sprite(spr, x, base, {
+            scale: s, ax: .5, ay: 1, alpha: fade, hue,
+            sway: dance * s * 1.8,
+            squash: 1 + Math.sin(cond.beat * Math.PI * 2 + o.phase * 6) * .08
+          });
+        } else if (hula > .4) {
+          const set = v === 0 ? [S.hula1, S.hula2] : v === 1 ? [S.hula1b, S.hula2b] : [S.hula1c, S.hula2c];
+          p.sprite(set[frame], x, base, {
             scale: s, ax: .5, ay: 1, alpha: fade, hue,
             sway: dance * s * 1.5,
             squash: 1 + Math.sin(cond.beat * Math.PI * 2 + o.phase * 6) * .07 * (0.4 + trip.groove)
@@ -575,8 +618,14 @@ class World {
             p.rect(x + s * 4, base - s * 12, s, s, C.css(pal.accentA));
           }
         } else {
-          const f = (Math.floor(this.time * 4 + o.phase * 3) % 2) ? S.walk2 : S.walk1;
-          p.sprite(f, x, base, { scale: s, ax: .5, ay: 1, alpha: fade, hue: trip.level > 3 ? hue : 0, flip: o.side > 0 });
+          const wf = Math.floor(this.time * 4 + o.phase * 3) % 2;
+          let set;
+          if (o.seed % 11 < 1.4) set = [S.kid, S.kid];
+          else set = v === 0 ? [S.walk1, S.walk2] : v === 1 ? [S.walk1b, S.walk2b] : [S.walk1c, S.walk2c];
+          p.sprite(set[wf], x, base, {
+            scale: s, ax: .5, ay: 1, alpha: fade,
+            hue: trip.level > 3 ? hue : 0, flip: o.side > 0
+          });
         }
         break;
       }
