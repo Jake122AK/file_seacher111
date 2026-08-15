@@ -561,6 +561,9 @@ ZONES_JS = ("/* 観光地版ではキョンシーを出さないので、屍蝋(
             + io.open(os.path.join(HERE, 'zones.js'), encoding='utf-8').read()
             + io.open(os.path.join(HERE, 'dress.js'), encoding='utf-8').read())
 
+KON_JS = (io.open(os.path.join(HERE, 'kon.js'), encoding='utf-8').read()
+          + io.open(os.path.join(HERE, 'combo.js'), encoding='utf-8').read())
+
 PLAYER = ZONES_JS + r'''
 /* ==== g_glb.js ==== */
 /* =========================================================================
@@ -1362,15 +1365,102 @@ function setupPlayerUI() {
   }
 }
 
-'''
+''' + KON_JS
+
+# ---------------------------------------------------------------------------
+# 5. 鳥居くぐりと、子ぎつねのコン
+# ---------------------------------------------------------------------------
+
+# くぐった鳥居を数えるための一覧。太陽の遮蔽モデルが読む R.toriiTs とは別に、
+# 横位置 s も要る（脇道を通ったぶんを数えないため）。
+rep("  R.toriiTs = inst.map(o => o.t);      // the sun occlusion model reads these",
+    "  R.toriiTs = inst.map(o => o.t);      // the sun occlusion model reads these\n"
+    "  R.toriiPass = inst.map(o => ({ t: o.t, s: 0 }));   // くぐり判定はこちら")
+
+# 連続数に応じて画角を開く。走っている感じは、速度より画角で出る。
+rep("  CAM.fov += (CAM.fovTarget - CAM.fov) * Math.min(1, dt * 11);",
+    "  const fovAdd = (typeof COMBO !== 'undefined') ? COMBO.fovAdd : 0;\n"
+    "  CAM.fov += (CAM.fovTarget + fovAdd - CAM.fov) * Math.min(1, dt * 11);")
+
+# 連続数に応じて速くなる。上限は 1.45 倍（6.60 -> 9.57 m/s）。
+rep("    const want = (run ? CFG.runSpeed : CFG.walkSpeed) * (fz < 0 ? 0.72 : 1.0);",
+    "    const cb = (typeof COMBO !== 'undefined' && run) ? COMBO.boost : 1;\n"
+    "    const want = (run ? CFG.runSpeed : CFG.walkSpeed) * (fz < 0 ? 0.72 : 1.0) * cb;")
+
+rep("    updateKyonshi(dt);\n    updatePlayer(dt);",
+    "    updateKyonshi(dt);\n    updatePlayer(dt);\n    updateCombo(dt);\n    updateKon(dt);")
+
+rep('  <div id="hint">WASD 歩く（Shift 走る） ／ ホイール 拡大縮小 ／ F 俯瞰 ／ Q・E 時刻 ／ Z・X 節気 ／ K 狐人 ／ G 参道へ</div>',
+    '  <div id="hint">WASD 走る（Shift 歩く） ／ Space 跳ぶ ／ '
+    '<b>鳥居をくぐり続けると速くなる</b> ／ M 音 ／ F 俯瞰 ／ Q・E 時刻</div>\n'
+    '  <div id="rush"></div>\n'
+    '  <div id="cmb"><b id="cmbN">0</b><i>本</i></div>\n'
+    '  <div id="pop"></div>\n'
+    '  <div id="stats"></div>\n'
+    '  <div id="konSay"></div>\n'
+    '  <div id="conf"></div>')
+
+# 見た目は朱・白・金の三色に寄せる。丸ゴシックと角丸で、山の厳かさと
+# ぶつからない程度に軽くする。
+rep("  #loading{position:fixed;inset:0;background:#06080b;display:flex;align-items:center;justify-content:center;",
+    """  #hud{display:none}
+  #hint b{font-weight:600;opacity:.95;font-style:normal}
+  /* くぐった数 */
+  #cmb{position:absolute;right:calc(env(safe-area-inset-right,12px) + 20px);top:41%;
+    transform:translateY(-50%);opacity:0;pointer-events:none;z-index:6;text-align:right;
+    color:#ffeed6;
+    font:800 13px/1 -apple-system,"Hiragino Maru Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+    text-shadow:0 2px 4px rgba(0,0,0,.85),0 0 16px rgba(0,0,0,.7),0 0 34px rgba(255,120,40,.45)}
+  #cmb b{display:block;font-size:62px;font-weight:800;line-height:.9;letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums}
+  #cmb i{font-style:normal;font-size:14px;opacity:.8;letter-spacing:.26em}
+  /* 節目の見出し */
+  #pop{position:absolute;left:50%;top:33%;transform:translate(-50%,-50%);opacity:0;
+    pointer-events:none;z-index:6;text-align:center;
+    font:800 13px/1.3 -apple-system,"Hiragino Maru Gothic ProN","Noto Sans JP",system-ui,sans-serif}
+  /* 明るい参道の上に白い字を置くと、そのまま溶ける。字の後ろに闇を敷く。 */
+  #pop:before{content:"";position:absolute;left:50%;top:46%;width:560px;height:230px;
+    transform:translate(-50%,-50%);border-radius:50%;z-index:-1;
+    background:radial-gradient(ellipse at center,rgba(8,5,3,.62),rgba(8,5,3,0) 68%)}
+  #pop b{display:block;font-size:52px;letter-spacing:.10em;color:#fff4dc;
+    text-shadow:0 2px 4px rgba(0,0,0,.85),0 0 20px rgba(0,0,0,.75),0 0 46px rgba(255,150,60,.6)}
+  #pop i{font-style:normal;font-size:12px;letter-spacing:.34em;color:#ffe0ae;
+    text-shadow:0 1px 3px rgba(0,0,0,.9)}
+  /* 速度線。円錐グラデーションで描くと、0.3 度の縞が画素に乗らずモアレ
+     （画面を斜めに横切る平行線）になる。素直に線を並べる。 */
+  #rush{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:4;overflow:hidden;
+    animation:konspin 44s linear infinite;mix-blend-mode:screen}
+  #rush i{position:absolute;left:50%;top:50%;width:2px;transform-origin:0 0;border-radius:2px;
+    background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.9) 42%,rgba(255,255,255,0))}
+  @keyframes konspin{to{transform:rotate(360deg)}}
+  /* 紙吹雪。落下は JS が毎フレーム transform に書く。 */
+  #conf{position:fixed;inset:0;pointer-events:none;z-index:9;overflow:hidden}
+  #conf i{position:absolute;left:0;top:0;border-radius:1px;will-change:transform}
+  /* コンのふきだし */
+  #konSay{position:absolute;left:0;top:0;opacity:0;pointer-events:none;z-index:7;
+    transform:translate(-50%,-100%);padding:6px 13px 7px;border-radius:14px;white-space:nowrap;
+    background:rgba(255,251,244,.95);color:#4a3324;letter-spacing:.03em;
+    box-shadow:0 4px 18px rgba(0,0,0,.34);
+    font:700 13px/1.2 -apple-system,"Hiragino Maru Gothic ProN","Noto Sans JP",system-ui,sans-serif}
+  #konSay:after{content:"";position:absolute;left:50%;bottom:-6px;margin-left:-5px;
+    border:5px solid transparent;border-top-color:rgba(255,251,244,.95);border-bottom:0}
+  #stats{position:absolute;left:calc(env(safe-area-inset-left,12px) + 12px);
+    bottom:calc(env(safe-area-inset-bottom,12px) + 10px);font-size:10px;opacity:.40;
+    letter-spacing:.06em;pointer-events:none;font-variant-numeric:tabular-nums}
+  #loading{position:fixed;inset:0;background:#06080b;display:flex;align-items:center;justify-content:center;""")
 
 rep('/* ==== e_main.js ==== */', PLAYER.lstrip('\n') + '/* ==== e_main.js ==== */')
 
 # 参道側のものも覗けるようにしておく（位置を飛ばして絵を確認するのに要る）
 rep("""    KIT, JOINTS, poseKitsune, placeKitsune };""",
     """    KIT, JOINTS, poseKitsune, placeKitsune,
-    PLAY, CROWD, pathRight, pathTan, branchOffsetAt, viewOpenAt, ZONES, POND, STREAM };""")
-rep("  window.__ready = true;", "  buildZones();\n  setupPlayerUI();\n  window.__ready = true;")
+    PLAY, CROWD, pathRight, pathTan, branchOffsetAt, viewOpenAt, ZONES, POND, STREAM,
+    KON, COMBO, KON_BONES, konSay, comboAdd };""")
+rep("  window.__ready = true;",
+    "  buildZones();\n  setupPlayerUI();\n"
+    "  initKon();\n  initCombo();\n  setupSound();\n"
+    "  konSay('いこっ！', 'hello', 3.4);\n"
+    "  window.__ready = true;")
 
 # キャラクターは前景なので、遠景カリングの対象から外す
 rep("""  if (QS.has('walk')) CFG.autoWalk = QS.get('walk') !== '0';""",

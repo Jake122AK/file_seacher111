@@ -460,6 +460,10 @@ function buildZones() {
   S.draws.push({ mesh: bpath, name: 'branch_path' });
   S.shadowDraws.push({ mesh: bpath });
 
+  /* くぐり判定には分岐のぶんも入れる。第2の参道を選んでも数が途切れない
+     ようにしたいので、横位置を添えて同じ一覧に混ぜる。 */
+  R.toriiPass = (R.toriiPass || []).concat(bi.map(o => ({ t: o.t, s: branchOffsetAt(o.t) })));
+
   bt.setInstances(bi); btLow.setInstances(bi);
   S.draws.push({ mesh: bt, name: 'torii_branch' });
   S.shadowDraws.push({ mesh: btLow });
