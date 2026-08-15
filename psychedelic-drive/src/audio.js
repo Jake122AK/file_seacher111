@@ -218,6 +218,8 @@ const Audio = PX.Audio = {
 
   _playStep(step, t, stepDur) {
     const tr = this.track;
+    // AudioContext 生成直後にシークすると t が負になり得るので必ず現在時刻以降へ
+    if (t < this.ctx.currentTime) t = this.ctx.currentTime + .001;
     const bar = Math.floor(step / (tr.beatsPerBar * 4));
     let sec = tr.sections[0], si = 0;
     for (let i = 0; i < tr.sections.length; i++) if (bar >= tr.sections[i].bar) { sec = tr.sections[i]; si = i; }

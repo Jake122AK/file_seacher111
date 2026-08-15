@@ -65,7 +65,10 @@ class Pixel {
   }
 
   resize() {
-    const vw = window.innerWidth, vh = window.innerHeight;
+    let vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // 横長の画面（PC・タブレット）でも縦画面の構図を保つ
+    if (vw / vh > 0.62) vw = Math.round(vh * 0.52);
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
     const aspect = vh / vw;
     let w = this.baseW;
@@ -86,7 +89,7 @@ class Pixel {
     this.view.style.height = cssH + 'px';
     this.vctx = this.view.getContext('2d', { alpha: false });
     this.vctx.imageSmoothingEnabled = false;
-    this.viewRect = { w: cssW, h: cssH, left: (vw - cssW) / 2, top: (vh - cssH) / 2 };
+    this.viewRect = { w: cssW, h: cssH, left: (window.innerWidth - cssW) / 2, top: (vh - cssH) / 2 };
   }
 
   resetFx() { Object.assign(this.fx, DEFAULT_FX); }

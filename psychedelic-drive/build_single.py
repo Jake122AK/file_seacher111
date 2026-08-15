@@ -60,5 +60,15 @@ def main():
         f.write(page)
     print('%s  (%.1f KB, %d files)' % (OUT, len(page.encode('utf-8')) / 1024.0, len(order)))
 
+    # ホスティング先が <html>/<head>/<body> を用意する場合向けの断片版
+    frag = ('<title>Midnight Mushroom Drive</title>\n'
+            '<style>\n' + css + '</style>\n'
+            + body.strip() + '\n'
+            '<script>\n' + js + '\n</script>\n')
+    frag_path = os.path.join(OUT_DIR, 'embed.html')
+    with io.open(frag_path, 'w', encoding='utf-8') as f:
+        f.write(frag)
+    print('%s  (%.1f KB)' % (frag_path, len(frag.encode('utf-8')) / 1024.0))
+
 if __name__ == '__main__':
     main()
