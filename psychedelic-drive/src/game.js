@@ -1,0 +1,685 @@
+/* =====================================================================
+   game.js — ステージ進行 / トリップ管理 / スコア / ダッシュボード / HUD
+   ---------------------------------------------------------------------
+   ステージデータ(data/stage1.js)を時間で補間し、
+     world(重み) / road(変形) / pixel(ポストFX)
+   に配るだけの層。ここにステージ固有の記述は書かない。
+
+   ★ グルーヴ分岐 ★
+   判定精度から groove(0..1) を作り、
+     ・trip.level を最大 +1.6 押し上げる
+     ・worlds を keys[].deep 側へブレンドする
+     ・路肩オブジェクトの密度(フラダンサーの人数)を最大 3.4 倍にする
+   → 上手いほど深い世界が見える。ヘタなら少し現実寄りに戻る。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C, D = PX.draw;
+
+/* --------------------------------------------- タイムライン補間 */
+const WARP_DEF = { sky: 0, spiral: 0, wave: 0, snake: 0, loop: 0, breathe: 0, rainbow: 0, glow: 0, keys: 0, tongue: 0, liquid: 0, widen: 1 };
+const FX_DEF = { wave: 0, vwave: 0, ripple: 0, rgb: 0, hue: 0, sat: 0, bright: 1, invert: 0, posterize: 0, trails: 0, melt: 0, kaleido: 0, tunnel: 0, vignette: 0, scan: 0, flash: 0 };
+const V_DEF = { speed: 30, horizon: .44, moonSize: 0, cloudFace: 0, starBoost: 0, sunGlasses: 0, moonFace: 0, tunnelDark: 0, crowd: 0, signSet: 'normal' };
+
+function lerpObj(a, b, u, def, out) {
+  out = out || {};
+  for (const k in def) {
+    const av = (a && a[k] !== undefined) ? a[k] : def[k];
+    const bv = (b && b[k] !== undefined) ? b[k] : def[k];
+    out[k] = typeof av === 'number' ? av + (bv - av) * u : (u < .5 ? av : bv);
+  }
+  return out;
+}
+function lerpWorlds(a, b, u, out) {
+  out = out || {};
+  for (const k of PX.WORLD_LIST) out[k] = 0;
+  if (a) for (const k in a) out[k] = (out[k] || 0) + a[k] * (1 - u);
+  if (b) for (const k in b) out[k] = (out[k] || 0) + b[k] * u;
+  return out;
+}
+
+class Timeline {
+  constructor(stage) {
+    this.stage = stage;
+    this.keys = stage.keys;
+    this.i = 0;
+    this.out = { level: 0, worlds: {}, deep: null, warp: {}, fx: {}, v: {} };
+    this.fired = new Array(stage.events.length).fill(false);
+  }
+  sample(t) {
+    const K = this.keys;
+    let i = 0, lo = 0, hi = K.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (K[mid].t <= t) lo = mid; else hi = mid - 1; }
+    i = lo;
+    const a = K[i], b = K[i + 1] || K[i];
+    const u = b === a ? 0 : M.smooth((t - a.t) / (b.t - a.t));
+    const o = this.out;
+    o.level = M.lerp(a.level || 0, b.level || 0, u);
+    lerpWorlds(a.worlds, b.worlds, u, o.worlds);
+    // deep（グルーヴ時の世界）も同様に補間。無ければ通常と同じ。
+    o.deep = lerpWorlds(a.deep || a.worlds, b.deep || b.worlds, u, o.deep || {});
+    lerpObj(a.warp, b.warp, u, WARP_DEF, o.warp);
+    lerpObj(a.fx, b.fx, u, FX_DEF, o.fx);
+    lerpObj(a.v, b.v, u, V_DEF, o.v);
+    return o;
+  }
+  events(t) {
+    const out = [];
+    const E = this.stage.events;
+    for (let i = 0; i < E.length; i++) {
+      if (!this.fired[i] && t >= E[i].t) { this.fired[i] = true; out.push(E[i]); }
+    }
+    return out;
+  }
+  reset() { this.fired.fill(false); }
+}
+
+/* エンジン側が決めるエフェクトの最大振れ幅。
+   ここを絞ることで「終盤 100%」でも走行ラインが読める状態を担保する。 */
+const FX_MAX = {
+  wave: .28, vwave: .20, ripple: .26, rgb: .42, hue: .05, sat: .50,
+  trails: .22, melt: .12, kaleido: .38, tunnel: .38, posterize: .70, invert: .26
+};
+
+/* ------------------------------------------------------------ Game */
+class Game {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.p = new PX.Pixel(canvas, 192);
+    this.p.resize();
+    PX.buildArt();
+    this.input = new PX.Input(canvas, this.p);
+    this.scene = 'house';
+    this.stage = PX.STAGES.stage1;
+    this.track = PX.TRACKS[this.stage.track] || PX.TRACKS.default;
+    this.house = new PX.HouseScene(this.p, this.input);
+    this.outro = null;
+    this.acc = 0; this.last = 0;
+    this.songTime = 0;
+    this.particles = [];
+    this.judgeText = null;
+    this.frame = 0;
+    // 自動品質: 実機が重ければ重いエフェクトから静かに削る
+    this.frameMs = 16.7; this.qual = 1; this.lowRes = false;
+
+    window.addEventListener('resize', () => this.p.resize());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.p.resize(), 250));
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && PX.Audio.ctx && PX.Audio.ctx.state === 'suspended') PX.Audio.ctx.resume();
+    });
+  }
+
+  /* ------------------------------------------------- ドライブ開始 */
+  startDrive(offset) {
+    offset = offset || 0;
+    const tr = this.track;
+    this.chart = new PX.Chart(tr);
+    this.cond = new PX.Conductor(tr);
+    this.road = new PX.Road(this.chart);
+    this.world = new PX.World(this.road);
+    this.tl = new Timeline(this.stage);
+    this.songTime = offset;
+    this.scene = 'drive';
+    // シーク時は過ぎたイベントを消化済みにし、世界の重みを即座に合わせる
+    if (offset > 0) {
+      this.tl.events(offset);
+      const K = this.tl.sample(offset);
+      for (const k of PX.WORLD_LIST) this.world.w[k] = K.worlds[k] || 0;
+      this.chart.cursor = 0;
+      const b0 = offset / (60 / tr.bpm);
+      for (const n of this.chart.notes) if (n.beat < b0) n.judged = true;
+    }
+
+    this.trip = {
+      level: 0, groove: .38, grooveBoost: 0, hueSpin: 0,
+      moonSize: 0, cloudFace: 0, starBoost: 0,
+      signWords: this.stage.signSets.normal
+    };
+    this.score = 0; this.combo = 0; this.maxCombo = 0;
+    this.grooveRaw = .38;
+    this.distort = 0; this.hueBlip = 0; this.flash = 0;
+    this.camMode = 'first'; this.camTimer = 0;
+    this.mirrorWorld = 0;
+    this.shake = 0;
+    this.deepest = 0;
+    this.pal = {};
+
+    PX.Audio.init();
+    PX.Audio.setTrack(tr);
+    PX.Audio.startEngine();   // 走行中は常にエンジン音（導入を飛ばした場合の保険も兼ねる）
+    if (tr.audioUrl) {
+      PX.Audio.loadExternal(tr.audioUrl).then(() => PX.Audio.play(offset)).catch(() => PX.Audio.play(offset));
+    } else {
+      PX.Audio.play(offset);
+    }
+    PX.Audio.fadeMusic(1, .8);
+  }
+
+  /* ------------------------------------------------------- ループ */
+  start() {
+    const step = (ts) => {
+      if (!this.last) this.last = ts;
+      let dt = (ts - this.last) / 1000;
+      this.last = ts;
+      if (dt > .06) dt = .06;
+      this.frame++;
+      this.frameMs += (Math.min(60, dt * 1000) - this.frameMs) * .05;
+      if (this.frameMs > 23) this.qual = M.clamp(this.qual - dt * .5, .3, 1);
+      else if (this.frameMs < 17.5) this.qual = M.clamp(this.qual + dt * .25, .3, 1);
+      if (!this.lowRes && this.qual < .45 && this.frame > 240) { this.lowRes = true; this.p.setBaseWidth(160); }
+      else if (this.lowRes && this.qual > .92) { this.lowRes = false; this.p.setBaseWidth(192); }
+      this.input.update(dt);
+      this.update(dt);
+      this.render();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  update(dt) {
+    switch (this.scene) {
+      case 'house':
+        this.house.update(dt);
+        if (this.house.done) this.startDrive();
+        break;
+      case 'drive':
+        this.updateDrive(dt);
+        break;
+      case 'outro':
+        this.outro.update(dt);
+        if (this.outro.done) {
+          const taps = this.input.takeTaps();
+          if (taps.length) this.restart();
+        }
+        break;
+    }
+  }
+
+  /* 任意の時刻へ移動（プレビュー用） */
+  seek(t) { PX.Audio.stop(); this.p.clearHistory(); this.startDrive(t); }
+
+  restart() {
+    PX.Audio.stop();
+    PX.Audio.stopEngine(.3);
+    this.p.clearHistory();
+    this.house = new PX.HouseScene(this.p, this.input);
+    this.scene = 'house';
+  }
+
+  /* =============================================== DRIVE UPDATE */
+  updateDrive(dt) {
+    const p = this.p;
+    // 音楽時計（音源があればそれが正、無ければ内部時計）
+    if (PX.Audio.ready && PX.Audio.playing) this.songTime = PX.Audio.now();
+    else this.songTime += dt;
+    const t = this.songTime;
+
+    this.cond.set(t);
+    const K = this.tl.sample(t);
+
+    /* --- グルーヴ → トリップ強度 --------------------------------- */
+    this.road.setTiming(this.track.bpm, this.cond.beat);
+    const judged = this.chart.update(this.cond.beat, this.input.steer);
+    for (const j of judged) this.onJudge(j);
+
+    // 連続的なライン精度も少しだけ効かせる（“ノっている”感）
+    const laneNow = this.chart.laneAt(this.cond.beat);
+    const lineAcc = M.sat(1 - Math.abs(this.input.steer - laneNow) / .5);
+    this.grooveRaw = M.clamp(this.grooveRaw + (lineAcc - .5) * dt * .12, 0, 1);
+    this.trip.groove = M.approach(this.trip.groove, this.grooveRaw, 1.6, dt);
+    const gb = this.trip.grooveBoost = M.sat((this.trip.groove - .42) / .48);
+
+    /* --- トリップレベル ------------------------------------------ */
+    const base = K.level;
+    const gate = M.sat(base / 1.5);                 // 序盤は絶対に普通のまま
+    const bonus = (this.trip.groove - .45) * 3.2 * gate;
+    this.trip.level = M.clamp(base + M.clamp(bonus, -1.3, 1.7), 0, 10);
+    this.deepest = Math.max(this.deepest, this.trip.level);
+
+    this.trip.hueSpin += dt * this.trip.level * .012;
+    this.trip.moonSize = K.v.moonSize;
+    this.trip.cloudFace = K.v.cloudFace;
+    this.trip.starBoost = K.v.starBoost;
+    this.trip.signWords = this.stage.signSets[K.v.signSet] || this.stage.signSets.normal;
+
+    /* --- ワールド重み（グルーヴで deep 側へ分岐） ------------------ */
+    const wts = {};
+    for (const k of PX.WORLD_LIST) wts[k] = M.lerp(K.worlds[k] || 0, K.deep[k] || 0, gb);
+    this.world.setTarget(wts);
+    this.world.moonFace = K.v.moonFace;
+    this.world.sunGlasses = K.v.sunGlasses;
+
+    /* --- 道路 ---------------------------------------------------- */
+    this.road.speed = K.v.speed * M.lerp(.94, 1.06, this.trip.groove);
+    this.road.horizon = K.v.horizon;
+    for (const k in WARP_DEF) {
+      const boost = (k === 'widen') ? 1 : M.lerp(.85, 1.18, gb);
+      this.road.warp[k] = (k === 'widen') ? K.warp[k] : K.warp[k] * boost;
+    }
+    // 低音で路面がうねる / ビートで幅が脈動
+    this.road.warp.wave += this.cond.env.bass * .05 * M.sat(this.trip.level / 4);
+    this.road.warp.breathe += this.cond.env.kick * .3 * M.sat(this.trip.level / 5);
+    this.road.pitch = Math.sin(this.cond.beat * Math.PI) * this.cond.env.kick * 1.4 * M.sat(this.trip.level / 6)
+                    - this.cond.env.bass * 1.2 * M.sat(this.trip.level / 8);
+    this.road.roll = Math.sin(t * .21) * .05 * M.sat((this.trip.level - 5) / 5)
+                   + this.input.steer * .012;
+    this.road.update(dt, this.input.steer, this.cond);
+    this.world.update(dt, this.cond, this.trip);
+
+    /* --- イベント ------------------------------------------------ */
+    for (const e of this.tl.events(t)) this.onEvent(e);
+    this.camTimer -= dt;
+    if (this.camTimer <= 0 && this.camMode !== 'first') this.camMode = 'first';
+    this.mirrorWorld = M.approach(this.mirrorWorld, this.camMode === 'mirror' ? 1 : 0, 2, dt);
+
+    /* --- エンジン音 ---------------------------------------------- */
+    PX.Audio.setEngine(.25 + M.sat(this.road.speed / 50) * .55 + Math.abs(this.input.steer) * .1,
+      .085 * (1 - M.sat(this.trip.level / 14)));
+
+    /* --- パレット ------------------------------------------------ */
+    const nw = this.world.normWeights();
+    // 色相は「累積回転」させない（作り込んだパレットが台無しになる）。
+    // レベルに応じた有界な揺らぎ + 一瞬のブリップだけにする。
+    const hueWobble = Math.sin(t * .19) * .035 * M.sat(this.trip.level / 10)
+                    + Math.sin(t * .047) * .025 * M.sat((this.trip.level - 6) / 4);
+    PX.blendPalette(nw, hueWobble + this.hueBlip,
+      M.sat(this.trip.level / 10) * .30 + this.trip.groove * .08, this.pal);
+
+    /* --- 減衰系 -------------------------------------------------- */
+    this.distort = M.approach(this.distort, 0, 1.8, dt);
+    this.hueBlip = M.approach(this.hueBlip, 0, 3.5, dt);
+    this.flash = M.approach(this.flash, 0, 2.2, dt);
+    this.shake = M.approach(this.shake, 0, 5, dt);
+    if (this.judgeText) { this.judgeText.life -= dt; if (this.judgeText.life <= 0) this.judgeText = null; }
+    this.updateParticles(dt);
+
+    /* --- 終了 ---------------------------------------------------- */
+    if (t >= this.stage.driveEnd) {
+      this.outro = new PX.OutroScene(p);
+      this.outro.stats = this.stats();
+      this.scene = 'outro';
+      PX.Audio.stop(1.0);
+      this.p.clearHistory();
+    }
+  }
+
+  stats() {
+    const s = this.chart.stats;
+    return {
+      perfect: s.perfect, groovy: s.groovy, good: s.good, miss: s.miss,
+      maxCombo: this.maxCombo, score: this.score,
+      depth: Math.round(this.deepest * 10) / 10
+    };
+  }
+
+  /* ------------------------------------------------------- 判定 */
+  onJudge(j) {
+    const g = j.grade;
+    const mul = Math.min(4, 1 + this.combo / 50);
+    if (g === 'MISS') {
+      this.combo = 0;
+      this.grooveRaw = M.clamp(this.grooveRaw - .11, 0, 1);
+      this.distort = Math.min(1.4, this.distort + .9);
+      this.road.kickOff(j.note.lane > this.input.steer ? -1 : 1);
+      PX.Audio.sfx('miss');
+    } else {
+      this.combo++;
+      this.maxCombo = Math.max(this.maxCombo, this.combo);
+      const pts = g === 'PERFECT' ? 300 : g === 'GROOVY' ? 180 : 70;
+      this.score += Math.round(pts * mul);
+      this.grooveRaw = M.clamp(this.grooveRaw + (g === 'PERFECT' ? .052 : g === 'GROOVY' ? .026 : -.004), 0, 1);
+      if (g === 'PERFECT') {
+        PX.Audio.sfx('perfect', Math.min(8, this.combo / 8));
+        if (this.combo % 8 === 0) this.burst(this.p.w * .5, this.p.h * .52, 14 + this.combo / 4);
+        if (this.trip.level > 7 && this.combo % 4 === 0) this.burst(this.p.w * (.2 + Math.random() * .6), this.p.h * .3, 8);
+      }
+    }
+    this.judgeText = { g, life: .42, x: this.p.w * .5 };
+  }
+
+  /* ----------------------------------------------------- イベント */
+  onEvent(e) {
+    switch (e.type) {
+      case 'cat':
+        this.world.forceSpawn('cat', 46, (M.hash(e.t) < .5 ? -1 : 1) * 2.2, { sit: true });
+        break;
+      case 'hueBlip': this.hueBlip = e.amount; break;
+      case 'shimmer': PX.Audio.sfx('shimmer'); break;
+      case 'whoosh': PX.Audio.sfx('whoosh'); break;
+      case 'tunnelIn': PX.Audio.fadeMusic(.25, 1.2); this.shake = .6; break;
+      case 'tunnelOut':
+        PX.Audio.fadeMusic(1, .25); PX.Audio.sfx('shimmer');
+        this.flash = 1; this.burst(this.p.w * .5, this.p.h * .45, 46);
+        break;
+      case 'thirdPerson': this.camMode = 'third'; this.camTimer = e.dur; break;
+      case 'mirrorWorld': this.camMode = 'mirror'; this.camTimer = e.dur; break;
+      case 'fireworks':
+        for (let i = 0; i < 6; i++) this.burst(this.p.w * (.15 + Math.random() * .7), this.p.h * (.15 + Math.random() * .4), 26);
+        break;
+      case 'whiteout': this.flash = 1.6; PX.Audio.sfx('shimmer'); break;
+      case 'musicOut': PX.Audio.fadeMusic(0, 3.0); break;
+    }
+  }
+
+  /* --------------------------------------------------- パーティクル */
+  burst(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = 20 + Math.random() * 90;
+      this.particles.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 20,
+        life: .5 + Math.random() * .9, max: 1.4,
+        c: C.rainbow(Math.random(), .62)
+      });
+    }
+    if (this.particles.length > 460) this.particles.splice(0, this.particles.length - 460);
+  }
+  updateParticles(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const q = this.particles[i];
+      q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 42 * dt;
+      q.vx *= (1 - dt * 1.1); q.life -= dt;
+      if (q.life <= 0) this.particles.splice(i, 1);
+    }
+  }
+
+  /* ================================================== RENDER */
+  render() {
+    const p = this.p;
+    switch (this.scene) {
+      case 'house': this.house.render(); break;
+      case 'drive': this.renderDrive(); break;
+      case 'outro': this.outro.render(this.outro.stats); break;
+    }
+    p.time = performance.now() / 1000;
+    p.present();
+  }
+
+  renderDrive() {
+    const p = this.p, pal = this.pal, cond = this.cond, trip = this.trip, road = this.road;
+    p.clear(pal.skyTop);
+
+    this.world.render(p, pal, cond, trip, road);
+    road.render(p, pal, cond.env, trip);
+    this.world.renderObjects(p, pal, cond, trip, road);
+    road.renderGuide(p, pal, M.sat(1.2 - trip.level / 6) * .8, cond.env);
+
+    // ドットの花火
+    for (const q of this.particles) {
+      const a = M.sat(q.life / q.max) * 1.2;
+      p.rectA(q.x, q.y, 1 + (q.life > .8 ? 1 : 0), 1 + (q.life > .8 ? 1 : 0), q.c, a);
+    }
+
+    // トンネル（世界が一度閉じる。ここが南国への切り替え点）
+    const tun = this.tl.out.v.tunnelDark;
+    if (tun > .02) this.drawTunnel(tun);
+
+    if (this.camMode === 'third') this.drawThirdPerson();
+    else this.drawDashboard();
+
+    this.drawHUD();
+    this.applyFx();
+  }
+
+  /* トンネル: 暗い壁と天井灯が流れる */
+  drawTunnel(a) {
+    const p = this.p, road = this.road, pal = this.pal;
+    const hz = road.horizonY(p);
+    const wall = C.mix(pal.near, [6, 5, 10], .8);
+    const q = {};
+    // アーチ状に左右から閉じる
+    for (let y = 0; y < p.h; y++) {
+      const t = M.sat((y - hz + 24) / (p.h - hz + 24));
+      const open = M.lerp(.10, .62, Math.pow(t, .7)) * M.lerp(1.6, 1, a);
+      const half = p.w * open;
+      const x0 = Math.round(p.w * .5 - half), x1 = Math.round(p.w * .5 + half);
+      if (x0 > 0) p.rectA(0, y, x0, 1, wall, a);
+      if (x1 < p.w) p.rectA(x1, y, p.w - x1, 1, wall, a);
+      // 壁の縁のハイライト
+      if (x0 > 0) p.rectA(x0 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
+      if (x1 < p.w) p.rectA(x1 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
+    }
+    // 天井灯（近づいてくる）
+    for (let i = 0; i < 12; i++) {
+      const dz = M.mod(i * 5 - road.z * .55, 60) + 1.2;
+      road.project(p, dz, 0, q);
+      const y = Math.round(hz - (q.sy - hz) * .75);
+      if (y < 0 || y > hz + 10) continue;
+      const w = Math.max(1, q.sw * .5);
+      p.rectA(q.sx - w / 2, y, w, Math.max(1, q.sc * 3), pal.lightGlow, a * .9);
+    }
+  }
+
+  /* ------------------------------------------------ ダッシュボード */
+  drawDashboard() {
+    const p = this.p, pal = this.pal, trip = this.trip, cond = this.cond;
+    const dashH = Math.round(p.h * .195);
+    const y0 = p.h - dashH;
+    // 車内は世界の色に少しだけ染まる程度に留める（常にニュートラルな暗さ）
+    const dark = C.mix(pal.near, [16, 13, 22], .74);
+    const dark2 = C.mix(pal.near, [7, 6, 12], .84);
+    const rimCol = C.mix(dark, [70, 62, 86], .55);
+    const rimHi = C.mix(pal.line, pal.accentA, .25 + trip.level * .045);
+    const ctx = p.ctx;
+
+    /* フロントガラス下端のカーブ + ダッシュ面 */
+    for (let x = 0; x < p.w; x++) {
+      const c = Math.round(Math.cos((x / p.w - .5) * 3.0) * 4);
+      p.rect(x, y0 - c, 1, 2, C.mix(pal.line, dark, .5));
+      p.rect(x, y0 - c + 2, 1, dashH + c, dark);
+    }
+    p.vgrad(0, y0 + 7, p.w, dashH - 7, dark, dark2, true);
+    // ダッシュ上面のステッチ
+    for (let x = 6; x < p.w - 6; x += 6) p.rectA(x, y0 + 6, 3, 1, [255, 255, 255], .06);
+
+    /* Aピラー / ルーフ（視界は狭めない） */
+    p.rect(0, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
+    p.rect(p.w - 2, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
+    p.rect(0, 0, p.w, 2, C.mix(dark2, pal.mid, .18));
+
+    /* サイドミラー（ミラーの中だけ別世界） */
+    const mw = 30, mh = 15, mx = 3, my = y0 - 40;
+    p.rect(mx + 4, my + mh + 1, 4, 5, C.mix(dark2, pal.mid, .3));   // 支柱
+    p.rect(mx - 1, my - 1, mw + 2, mh + 2, C.mix(dark2, pal.mid, .35));
+    this.drawMirror(mx, my, mw, mh);
+
+    /* メーター（速度計 = 進行、回転計 = グルーヴ） */
+    const gy = y0 + 15;
+    this.drawGauge(p.w * .16, gy, 9, M.sat(this.songTime / this.stage.driveEnd), pal, rimHi, cond, 'trip');
+    this.drawGauge(p.w * .84, gy, 9, this.trip.groove, pal, rimHi, cond, 'groove');
+
+    /* ハンドル */
+    const cx = p.w * .5;
+    const cy = y0 + dashH * .96;
+    const R = Math.round(p.w * .40);
+    const rot = this.input.steer * .62 + Math.sin(cond.beat * Math.PI) * .012 * M.sat(trip.level / 6);
+    const glow = .25 + this.trip.groove * .75;
+
+    for (let a = -Math.PI * .99; a <= .03; a += .012) {
+      const aa = a + rot;
+      const x = cx + Math.cos(aa) * R, y = cy + Math.sin(aa) * R * .78;
+      if (y > p.h) continue;
+      const top = Math.sin(a) < -.5;
+      const col = top ? C.mix(rimCol, rimHi, .22 + glow * .35 + cond.env.kick * .12 * glow) : rimCol;
+      p.rect(x - 1, y - 1, 4, 4, col);
+      p.rect(x, y - 2, 2, 1, C.mix(col, [255, 255, 255], .18));
+    }
+    // スポーク（厚みを持たせる）
+    for (let i = 0; i < 3; i++) {
+      const a = (-Math.PI * .5) + (i - 1) * 1.06 + rot;
+      const x1 = cx + Math.cos(a) * R * .93, y1 = cy + Math.sin(a) * R * .72;
+      for (let o = -1; o <= 1; o++) p.line(cx + o, cy, x1 + o, y1, rimCol);
+      p.line(cx, cy - 1, x1, y1 - 1, C.mix(rimCol, [255, 255, 255], .12), .5);
+    }
+    // ハブ
+    p.circle(cx, cy, 9, C.css(C.mix(rimCol, [0, 0, 0], .35)));
+    p.circle(cx, cy, 6, C.css(C.mix(rimCol, rimHi, glow * .5)));
+    p.circle(cx, cy, 3, C.cssa(pal.lightGlow, .3 + cond.env.kick * .55 * glow));
+
+    /* ガラスの映り込み */
+    p.rectA(0, y0 - 1, p.w, 1, pal.lightGlow, .10 + cond.env.hat * .10);
+  }
+
+  /* 円形メーター */
+  drawGauge(cx, cy, r, v, pal, hi, cond, kind) {
+    const p = this.p;
+    const body = C.mix(pal.near, [10, 9, 16], .8);
+    p.circle(cx, cy, r + 1, C.css(C.mix(body, [255, 255, 255], .05)));
+    p.circle(cx, cy, r, C.css(body));
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const a = Math.PI * .78 + t * Math.PI * 1.44;
+      const on = t <= v;
+      const col = on ? (kind === 'groove' ? C.rainbow(.34 - t * .34, .58) : C.mix(hi, pal.accentB, t))
+                     : C.mix(body, [255, 255, 255], .10);
+      p.px(cx + Math.cos(a) * (r - 2), cy + Math.sin(a) * (r - 2), C.css(col));
+    }
+    const a = Math.PI * .78 + M.sat(v) * Math.PI * 1.44;
+    p.line(cx, cy, cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4), C.css(hi));
+    p.px(cx, cy, C.css(C.mix(hi, [255, 255, 255], .4)));
+  }
+
+  /* ミラーの中は別世界 */
+  drawMirror(x, y, w, h) {
+    const p = this.p, pal = this.pal, trip = this.trip;
+    const t = performance.now() / 1000;
+    p.rect(x - 1, y - 1, w + 2, h + 2, C.mix(pal.near, [0, 0, 0], .6));
+    // 通常は後方の道、mirrorWorld 中は完全に別の世界
+    const alt = this.mirrorWorld;
+    const top = C.mix(pal.skyTop, C.rainbow(t * .3, .5), alt * .8);
+    const bot = C.mix(pal.road, C.rainbow(t * .3 + .4, .35), alt * .8);
+    p.vgrad(x, y, w, h, top, bot, false);
+    // 後方に流れる線
+    for (let i = 0; i < 5; i++) {
+      const yy = y + M.mod(t * (14 + i * 5) + i * 3, h);
+      p.rectA(x + 2 + i * 4, yy, 2, 1, pal.line, .4 + alt * .4);
+    }
+    if (alt > .3) {
+      for (let i = 0; i < 6; i++) {
+        const px_ = x + M.mod(i * 5 + t * 9, w);
+        const py = y + 2 + M.hash(i * 3.3) * (h - 4);
+        p.rectA(px_, py, 1, 1, C.rainbow(i * .17 + t, .7), alt);
+      }
+    }
+    p.rectA(x, y, w, 1, [255, 255, 255], .18);
+  }
+
+  /* 一瞬だけ三人称 */
+  drawThirdPerson() {
+    const p = this.p, pal = this.pal;
+    const t = performance.now() / 1000;
+    const x = p.w * .5 + this.input.steer * p.w * .12;
+    const y = p.h * .86;
+    const bob = Math.sin(t * 9) * .8 + this.cond.env.kick * 1.4;
+    // 後ろから見た車
+    const body = C.mix(pal.accentC, [70, 40, 80], .3);
+    p.rectA(x - 20, y + 2, 40, 3, [0, 0, 0], .4);
+    p.rect(x - 19, y - 10 + bob, 38, 10, body);
+    p.rect(x - 14, y - 17 + bob, 28, 8, C.mix(body, [0, 0, 0], .25));
+    p.rect(x - 12, y - 16 + bob, 24, 6, C.mix(pal.accentB, pal.mid, .4));
+    p.rect(x - 17, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
+    p.rect(x + 12, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
+    p.rect(x - 21, y - 4 + bob, 6, 4, [24, 22, 30]);
+    p.rect(x + 15, y - 4 + bob, 6, 4, [24, 22, 30]);
+    // テールランプの光
+    p.circle(x - 15, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
+    p.circle(x + 14, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
+  }
+
+  /* ---------------------------------------------------------- HUD */
+  drawHUD() {
+    const p = this.p, pal = this.pal;
+    // 進行ゲージ（極細）
+    const prog = M.sat(this.songTime / this.stage.driveEnd);
+    p.rectA(0, 0, p.w, 1, [0, 0, 0], .35);
+    p.rect(0, 0, Math.round(p.w * prog), 1, C.mix(pal.line, pal.accentA, .5));
+
+    // スコア / コンボ
+    p.text(String(this.score), 4, 4, C.cssa(pal.line, .70), 1, 1);
+    if (this.combo > 2) {
+      const s = this.combo >= 50 ? 2 : 1;
+      const col = this.combo >= 50 ? C.rainbow(performance.now() / 900, .65) : pal.line;
+      const txt = this.combo + 'x';
+      p.text(txt, p.w - PX.textWidth(txt, s, 1) - 4, 4, C.cssa(col, .8), s, 1);
+    }
+
+    // 判定表示（小さく、一瞬だけ）
+    if (this.judgeText) {
+      const j = this.judgeText;
+      const a = M.sat(j.life / .42);
+      const col = j.g === 'PERFECT' ? [255, 240, 140] : j.g === 'GROOVY' ? [140, 255, 220]
+        : j.g === 'GOOD' ? [200, 200, 220] : [255, 130, 150];
+      const y = Math.round(p.h * .78 - (1 - a) * 5);
+      p.textC(j.g, p.w * .5, y, C.cssa(col, a * .85), 1, 1);
+    }
+  }
+
+  /* ------------------------------------------------ ポストエフェクト
+     stage データの fx 値は 0..1 の「許容範囲のうちどれだけ使うか」。
+     実際の振れ幅は下の FX_MAX がエンジン側の責任として決める。
+     これがあるので data 側は思い切り 1.0 と書ける。 */
+  applyFx() {
+    const p = this.p, K = this.tl.out, trip = this.trip, cond = this.cond;
+    const fx = p.fx;
+    p.resetFx();
+    const lv = M.sat(trip.level / 10);
+    const gK = M.lerp(.84, 1.16, trip.grooveBoost);
+    const Q = this.qual;   // 自動品質（重い端末では静かに下がる）
+    const beat = cond.env.kick, bass = cond.env.bass;
+    const X = FX_MAX;
+    const now = performance.now();
+
+    // 走行ライン保護: トリップが深いほど「空で暴れて道路は守る」
+    fx.protectY = this.road.horizon + .02;
+    fx.protect = M.lerp(.40, .90, lv);
+
+    fx.wave = Math.min(X.wave, (K.fx.wave * X.wave + this.distort * .12) * gK);
+    fx.waveFreq = 1 + lv * 1.4;
+    fx.waveSpeed = .8 + lv;
+    fx.vwave = K.fx.vwave * X.vwave + this.distort * .06;
+    fx.ripple = Math.min(X.ripple * 1.6, (K.fx.ripple * X.ripple + this.distort * .22) * gK);
+    fx.rippleCX = .5; fx.rippleCY = this.road.horizon;
+    fx.rgb = K.fx.rgb * X.rgb * (.72 + beat * .5) * gK;
+    fx.hue = K.fx.hue * X.hue * Math.sin(now / 4200) + this.hueBlip * .5;
+    fx.sat = K.fx.sat * X.sat * gK;
+    fx.bright = K.fx.bright * (1 + beat * .04 * lv);
+    fx.invert = K.fx.invert * X.invert * (.4 + .6 * Math.abs(Math.sin(now / 3300)));
+    fx.posterize = K.fx.posterize * X.posterize;
+    fx.trails = K.fx.trails * X.trails * (.85 + this.trip.groove * .25) * Q;
+    fx.melt = K.fx.melt * X.melt * gK * Q;
+    fx.kaleido = K.fx.kaleido * X.kaleido * gK * (.88 + beat * .14) * Q;
+    fx.kaleidoSeg = 4 + Math.floor(lv * 4);
+    fx.kaleidoRot = now / 11000;
+    fx.tunnel = K.fx.tunnel * X.tunnel * gK * Q;
+    fx.vignette = K.fx.vignette + (1 - lv) * .10;
+    fx.scan = .09 + lv * .10;
+    fx.zoom = 1 + beat * .010 * lv + bass * .006;
+    fx.rot = Math.sin(now / 5200) * .014 * lv;
+    fx.shakeX = (Math.random() - .5) * this.shake * 6 + this.input.wheelKick * (Math.random() - .5) * 1.6;
+    fx.shakeY = (Math.random() - .5) * this.shake * 4;
+    fx.flash = M.sat(this.flash * .9 + K.fx.flash * this.flash);
+    fx.flashColor = [255, 252, 245];
+  }
+}
+
+/* --------------------------------------------------------- boot */
+function boot() {
+  const cv = document.getElementById('view');
+  const g = new PX.Game(cv);
+  PX.game = g;
+  g.start();
+  /* デバッグ/プレビュー用: ?t=225 で任意の時刻から、?skip=1 で導入を飛ばす
+     （PX.game.seek(秒) でもいつでも移動できる） */
+  const q = new URLSearchParams(location.search);
+  const t0 = parseFloat(q.get('t'));
+  if (q.get('skip') || !isNaN(t0)) g.startDrive(isNaN(t0) ? 0 : t0);
+  // 初回タッチで AudioContext を起こす
+  const unlock = () => { PX.Audio.init(); };
+  document.addEventListener('touchstart', unlock, { once: true });
+  document.addEventListener('mousedown', unlock, { once: true });
+}
+PX.Game = Game;
+if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(boot, 0);
+else window.addEventListener('DOMContentLoaded', boot);
+
+})(window.PX);

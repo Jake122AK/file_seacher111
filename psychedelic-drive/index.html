@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#07060d">
+<title>MIDNIGHT MUSHROOM DRIVE</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="rotate">たてに して ください<br><span>PORTRAIT ONLY</span></div>
+</div>
+
+<!-- ==== stage / track data (差し替え可能なコンテンツ層) ==== -->
+<script src="data/track_default.js"></script>
+<script src="data/stage1.js"></script>
+
+<!-- ==== engine (ゲームエンジン層) ==== -->
+<script src="src/core.js"></script>
+<script src="src/pixel.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/input.js"></script>
+<script src="src/art.js"></script>
+<script src="src/world.js"></script>
+<script src="src/road.js"></script>
+<script src="src/scenes.js"></script>
+<script src="src/game.js"></script>
+</body>
+</html>

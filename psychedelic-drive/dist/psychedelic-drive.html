@@ -1,0 +1,4897 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#07060d">
+<title>MIDNIGHT MUSHROOM DRIVE</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{
+  width:100%;height:100%;overflow:hidden;background:#05040a;
+  -webkit-user-select:none;user-select:none;
+  -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
+  touch-action:none;overscroll-behavior:none;
+}
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#05040a}
+#view{
+  display:block;
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+  background:#05040a;
+  touch-action:none;
+}
+#rotate{
+  display:none;position:fixed;inset:0;z-index:9;
+  align-items:center;justify-content:center;flex-direction:column;
+  background:#05040a;color:#e8d8ff;font:600 18px/1.8 system-ui,sans-serif;
+  letter-spacing:.12em;text-align:center;
+}
+#rotate span{font-size:11px;opacity:.5;letter-spacing:.3em}
+@media (orientation:landscape) and (max-height:480px){
+  #rotate{display:flex}
+}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="rotate">たてに して ください<br><span>PORTRAIT ONLY</span></div>
+</div>
+<script>
+/* ===== data/track_default.js ===== */
+/* =====================================================================
+   data/track_default.js — 仮トラック定義（差し替え前提）
+   ---------------------------------------------------------------------
+   実楽曲を入れる時にやること:
+     1) audioUrl に音源パスを指定（指定するとプロシージャル演奏は停止し、
+        音源の再生位置がそのまま Conductor の時計になる）
+     2) bpm / offset / sections[].bar を実曲に合わせる
+     3) chart に [{beat, lane, kind}] を書く（省略時は sections[].style から自動生成）
+   patterns[] のドラムグリッドは「音を鳴らす」だけでなく
+   「世界を光らせる」エンベロープ源も兼ねているので、実曲を入れる場合も
+   グリッドだけは書いておくと道路/背景/エフェクトが完全に同期する。
+
+   ステップは 16分音符。値は 0..1 のベロシティ。
+   ===================================================================== */
+(function () {
+'use strict';
+const _ = 0;
+/* 16分グリッドを読みやすく書くヘルパ: 'x...x...x...x...' 形式 */
+function g(s, v) {
+  v = v === undefined ? 1 : v;
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    out.push(c === 'x' ? v : c === 'o' ? v * .6 : c === '.' ? 0 : c === '-' ? 0 : (parseInt(c, 10) || 0) / 9 * v);
+  }
+  return out;
+}
+
+/* ------------------------------------------------------- パターン集 */
+const PAT = {
+  /* 静か。エンジン音だけの世界に、そっと拍だけ置く */
+  intro: {
+    kick:  g('x.......x.......', .8),
+    snare: g('................'),
+    hat:   g('..x...x...x...x.', .35),
+    bass:  g('x.......x.......'),
+    skank: g('................'),
+    bassNotes: [0, 0, 0, 0], bassLen: 3.0,
+    chords: [[0, 3, 7]]
+  },
+  /* レゲエ ワンドロップ（3拍目にキック+スネア） */
+  basic: {
+    kick:  g('........x.......'),
+    snare: g('........x.......', .8),
+    hat:   g('..x...x...x...x.', .5),
+    perc:  g('............o...', .5),
+    bass:  g('x..x....x..x....'),
+    skank: g('..x...x...x...x.'),
+    bassNotes: [0, 0, -4, -2], bassLen: 2.2,
+    chords: [[0, 3, 7], [-2, 2, 5], [-4, 0, 3], [-2, 2, 5]]
+  },
+  /* 少しずつ何かがおかしい */
+  skankA: {
+    kick:  g('........x.....x.'),
+    snare: g('........x.......', .85),
+    hat:   g('..x.o.x...x.o.x.', .55),
+    perc:  g('....o.......o..o', .5),
+    bass:  g('x..x..x.x..x..x.'),
+    skank: g('..x...x...x...xx'),
+    bassNotes: [0, 0, -4, -2], bassLen: 2.0,
+    chords: [[0, 3, 7], [-2, 2, 5], [-4, 0, 3], [-2, 2, 7]]
+  },
+  /* ダブ: 空間が広い。ディレイが効く */
+  dub: {
+    kick:  g('x.......x.......'),
+    snare: g('........x.......', .9),
+    hat:   g('..x.......x.....', .4),
+    perc:  g('..........o....o', .6),
+    bass:  g('x.....x.x.....x.'),
+    skank: g('..x.......x.....'),
+    pad:   g('x...............'),
+    bassNotes: [0, -4, -2, -5], bassLen: 3.2,
+    chords: [[0, 3, 7, 10], [-4, 0, 3, 7], [-2, 2, 5, 9], [-5, -1, 2, 7]]
+  },
+  dubDeep: {
+    kick:  g('x.......x...x...'),
+    snare: g('........x.......', .8),
+    hat:   g('....o.......o...', .3),
+    bass:  g('x.......x.......'),
+    skank: g('......x.......x.'),
+    pad:   g('x...............'),
+    bassNotes: [-5, -5, -7, -4], bassLen: 3.6,
+    chords: [[0, 3, 7, 10], [-5, -1, 2, 7]]
+  },
+  /* ビルドアップ */
+  build: {
+    kick:  g('x...x...x...x...'),
+    snare: g('....x.......x..x', .8),
+    hat:   g('xxxxxxxxxxxxxxxx', .35),
+    perc:  g('..o...o...o.o.oo', .5),
+    bass:  g('x..x..x..x..x..x'),
+    skank: g('..x...x...x...x.'),
+    sweep: g('x...............'),
+    lead:  g('....x.......x...'),
+    leadNotes: [12, 15, 19, 22],
+    bassNotes: [0, 0, 3, 5], bassLen: 1.6,
+    chords: [[0, 3, 7], [3, 7, 10], [5, 8, 12], [7, 10, 14]]
+  },
+  /* トンネル: ほぼ無音、パッドだけが残る */
+  tunnel: {
+    kick:  g('................'),
+    snare: g('................'),
+    hat:   g('................'),
+    bass:  g('x...............'),
+    skank: g('................'),
+    pad:   g('x...............'),
+    bassNotes: [-5], bassLen: 8,
+    chords: [[0, 3, 7, 10]]
+  },
+  /* 南国ドロップ */
+  tropicalA: {
+    kick:  g('x...x...x...x...'),
+    snare: g('....x.......x...', .85),
+    hat:   g('..x.o.x.o.x.o.x.', .55),
+    perc:  g('..o..o..o..o..oo', .55),
+    bass:  g('x..x..x.x..x..x.'),
+    skank: g('..x...x...x...x.'),
+    lead:  g('........x...x.x.'),
+    leadNotes: [12, 14, 16, 19, 21, 19, 16, 14],
+    bassNotes: [0, 3, -2, -4], bassLen: 2.0,
+    chords: [[0, 4, 7], [-2, 2, 5], [-4, 0, 3], [3, 7, 10]]
+  },
+  tropicalB: {
+    kick:  g('x...x..xx...x...'),
+    snare: g('....x.......x..x', .9),
+    hat:   g('xxx.xxx.xxx.xxxx', .45),
+    perc:  g('.o.o.o.o.o.o.oo.', .55),
+    bass:  g('x.x.x.x.x.x.x.x.'),
+    skank: g('..x.x.x...x.x.x.'),
+    lead:  g('....x...x...x.x.'),
+    pad:   g('x...............'),
+    leadNotes: [19, 21, 24, 21, 19, 16, 19, 21],
+    bassNotes: [0, 0, 5, 3], bassLen: 1.4,
+    chords: [[0, 4, 7, 11], [5, 9, 12], [3, 7, 10], [-2, 2, 5, 9]]
+  },
+  /* 巨大都市: ブーンバップ */
+  cityA: {
+    kick:  g('x.....x...x.....'),
+    snare: g('....x.......x...', .95),
+    hat:   g('x.x.x.x.x.x.x.xx', .4),
+    perc:  g('.......o......o.', .5),
+    bass:  g('x..x....x.x.....'),
+    skank: g('....x.......x...'),
+    lead:  g('..........x.....'),
+    leadNotes: [12, 10, 7, 12],
+    bassNotes: [0, -2, -4, -2], bassLen: 2.4,
+    chords: [[0, 3, 7, 10], [-2, 2, 5, 8]]
+  },
+  /* ジャングル: 打楽器の嵐 */
+  jungleA: {
+    kick:  g('x...x.x.x...x.x.'),
+    snare: g('....x.......x...', .8),
+    hat:   g('xxxxxxxxxxxxxxxx', .3),
+    perc:  g('x.oxx.o.x.oxx.oo', .6),
+    bass:  g('x..x..x..x..x..x'),
+    skank: g('..x...x...x...x.'),
+    bassNotes: [0, 3, 5, 3], bassLen: 1.5,
+    chords: [[0, 3, 7], [5, 8, 12]]
+  },
+  /* サイケゾーン */
+  psychA: {
+    kick:  g('x...x...x...x..x'),
+    snare: g('....x.......x...', .85),
+    hat:   g('xxxxxxxxxxxxxxxx', .38),
+    perc:  g('..o.o..o..o.o.oo', .5),
+    bass:  g('x.x.x.x.x.x.x.x.'),
+    skank: g('..x.x...x.x...x.'),
+    lead:  g('x.x.x.x.x.x.x.x.'),
+    pad:   g('x...............'),
+    leadNotes: [12, 15, 19, 22, 24, 22, 19, 15, 14, 17, 21, 24, 26, 24, 21, 17],
+    bassNotes: [0, 0, 3, 5], bassLen: 1.2,
+    chords: [[0, 3, 7, 10], [3, 7, 10, 14], [5, 8, 12, 15], [-2, 2, 5, 9]]
+  },
+  psychB: {
+    kick:  g('x..x..x.x..x..x.'),
+    snare: g('....x..x....x..x', .9),
+    hat:   g('xxxxxxxxxxxxxxxx', .42),
+    perc:  g('oo.ooo.ooo.ooo.o', .5),
+    bass:  g('xxx.xxx.xxx.xxx.'),
+    skank: g('x.x.x.x.x.x.x.x.'),
+    lead:  g('xx.xx.xx.xx.xx.x'),
+    pad:   g('x.......x.......'),
+    leadNotes: [24, 22, 19, 24, 26, 24, 22, 19, 21, 24, 26, 29, 26, 24, 21, 19],
+    bassNotes: [0, 5, 3, 7], bassLen: 1.0,
+    chords: [[0, 4, 7, 11], [2, 5, 9, 12], [5, 9, 12, 16], [7, 11, 14, 17]]
+  },
+  /* 最大クライマックス */
+  climaxA: {
+    kick:  g('x.x.x.x.x.x.x.x.'),
+    snare: g('....x.......x..x', 1),
+    hat:   g('xxxxxxxxxxxxxxxx', .48),
+    perc:  g('oooooooooooooooo', .38),
+    bass:  g('xxxxxxxxxxxxxxxx'),
+    skank: g('x.x.x.x.x.x.x.x.'),
+    lead:  g('xxxxxxxxxxxxxxxx'),
+    pad:   g('x.......x.......'),
+    sweep: g('x...............'),
+    leadNotes: [24, 26, 28, 31, 33, 36, 33, 31, 28, 26, 24, 26, 28, 31, 33, 36],
+    bassNotes: [0, 0, 0, 0], bassLen: .9,
+    chords: [[0, 4, 7, 11, 14], [5, 9, 12, 16, 19]]
+  },
+  /* 帰還 */
+  outro: {
+    kick:  g('x.......x.......', .5),
+    snare: g('................'),
+    hat:   g('..o.......o.....', .2),
+    bass:  g('x...............'),
+    skank: g('................'),
+    pad:   g('x...............'),
+    bassNotes: [0], bassLen: 4,
+    chords: [[0, 3, 7]]
+  },
+  silence: {
+    kick:  g('................'), snare: g('................'),
+    hat:   g('................'), bass: g('................'),
+    skank: g('................'),
+    chords: [[0, 3, 7]]
+  }
+};
+
+/* ------------------------------------------------------- セクション
+   bar: 開始小節 / energy: 0..1 / pattern: 演奏パターン
+   style,amp: 譜面(道路の曲がり方)の自動生成ルール
+   ------------------------------------------------------------------ */
+const SECTIONS = [
+  { name: 'INTRO',      bar: 0,   energy: .10, pattern: 'intro',     style: 'still',    amp: .18 },
+  { name: 'VERSE 1',    bar: 8,   energy: .28, pattern: 'basic',     style: 'straight', amp: .34 },
+  { name: 'VERSE 2',    bar: 16,  energy: .38, pattern: 'basic',     style: 'straight', amp: .44 },
+  { name: 'WRONG 1',    bar: 22,  energy: .44, pattern: 'skankA',    style: 'sway',     amp: .52 },
+  { name: 'WRONG 2',    bar: 32,  energy: .50, pattern: 'skankA',    style: 'skank',    amp: .58 },
+  { name: 'TRIP 1',     bar: 42,  energy: .58, pattern: 'dub',       style: 'sway',     amp: .62, dub: 1 },
+  { name: 'TRIP 2',     bar: 52,  energy: .64, pattern: 'dub',       style: 'long',     amp: .70, dub: 1 },
+  { name: 'BUILD',      bar: 62,  energy: .78, pattern: 'build',     style: 'wave',     amp: .76 },
+  { name: 'TUNNEL',     bar: 72,  energy: .12, pattern: 'tunnel',    style: 'still',    amp: .10 },
+  { name: 'PARADISE',   bar: 76,  energy: .92, pattern: 'tropicalA', style: 'skank',    amp: .82 },
+  { name: 'PARADISE 2', bar: 88,  energy: .88, pattern: 'tropicalA', style: 'wave',     amp: .82 },
+  { name: 'PARADISE 3', bar: 100, energy: .94, pattern: 'tropicalB', style: 'sway',     amp: .86 },
+  { name: 'COSMOS',     bar: 106, energy: .80, pattern: 'dub',       style: 'long',     amp: .82, dub: 1 },
+  { name: 'MEGACITY',   bar: 118, energy: .86, pattern: 'cityA',     style: 'scratch',  amp: .86 },
+  { name: 'JUNGLE',     bar: 128, energy: .82, pattern: 'jungleA',   style: 'wave',     amp: .84 },
+  { name: 'ABYSS',      bar: 138, energy: .74, pattern: 'dubDeep',   style: 'long',     amp: .82, dub: 1 },
+  { name: 'PSYCHE 1',   bar: 148, energy: .92, pattern: 'psychA',    style: 'wild',     amp: .90 },
+  { name: 'PSYCHE 2',   bar: 160, energy: .96, pattern: 'psychA',    style: 'scratch',  amp: .94 },
+  { name: 'PSYCHE 3',   bar: 172, energy: 1.0, pattern: 'psychB',    style: 'wave',     amp: .98 },
+  { name: 'ASCEND',     bar: 182, energy: 1.0, pattern: 'build',     style: 'climax',   amp: 1.0 },
+  { name: 'CLIMAX',     bar: 190, energy: 1.0, pattern: 'climaxA',   style: 'climax',   amp: 1.0 },
+  { name: 'COMEDOWN',   bar: 202, energy: .22, pattern: 'outro',     style: 'still',    amp: .16 },
+  { name: 'SILENCE',    bar: 208, energy: 0,   pattern: 'silence',   style: 'still',    amp: .05, bars: 6 }
+];
+
+window.PX = window.PX || {};
+window.PX.TRACKS = window.PX.TRACKS || {};
+window.PX.TRACKS.default = {
+  id: 'default',
+  title: 'MIDNIGHT MUSHROOM DRIVE',
+  artist: '(temp / procedural)',
+  bpm: 84,
+  beatsPerBar: 4,
+  offset: 0,
+  swing: 0.16,
+  root: 55,              // A1
+  delayBeats: 0.75,      // ダブディレイ = 付点8分
+  audioUrl: null,        // ← ここに音源パスを入れると実楽曲に差し替わる
+  chart: null,           // ← ここに [{beat,lane,kind}] を入れると譜面が固定される
+  sections: SECTIONS,
+  patterns: PAT
+};
+})();
+
+;
+/* ===== data/stage1.js ===== */
+/* =====================================================================
+   data/stage1.js — STAGE 1 タイムライン（コンテンツ層）
+   ---------------------------------------------------------------------
+   エンジンはこのデータを時間で補間するだけ。ここを書き換えれば
+   Stage 2, Stage 3 が無限に作れる（engine 側のコード変更は不要）。
+
+   keys[] の各要素:
+     t        : 秒
+     level    : トリップレベル 0..10（世界の理解がどこまで壊れているか）
+     worlds   : ワールド重み（合計は自由。正規化される）
+     deep     : グルーヴが高いときに寄っていく“深い版”の世界重み
+                → 上手いほど深い世界が見える。この作品固有の分岐。
+     warp     : 道路の変形
+     fx       : ポストエフェクト強度
+     v        : その他の変数（月の大きさ・雲の顔・標識の語彙など）
+
+   events[] は一度きりのトリガ。
+   ===================================================================== */
+(function () {
+'use strict';
+
+const SIGNS = {
+  normal: ['STOP', 'SLOW', '30', 'YIELD', 'SCHOOL'],
+  odd:    ['STOP', 'DANCE', 'SLOW', 'STOP', 'SOON'],
+  weird:  ['DANCE', 'FEEL', 'SOON', 'WHY', 'LOOK', 'STOP'],
+  trip:   ['DANCE', 'MELT', 'YES', 'NOW', 'WHO', 'HOME', 'SOON'],
+  deep:   ['ALL', 'ONE', 'YES', 'FOREVER', 'HELLO', 'LOVE', 'HOME'],
+  none:   ['HOME', 'HOME', 'SLOW', 'STOP']
+};
+
+/* keys ------------------------------------------------------------- */
+const K = [
+/* ============ PHASE 1 : NORMAL (0:00-1:00) — 完全に普通 ============ */
+{ t: 0,   level: 0,   worlds: { suburb: 1 },
+  warp: { widen: 1 }, fx: {}, v: { speed: 28, signSet: 'normal', horizon: .44 } },
+
+{ t: 20,  level: 0,   worlds: { suburb: 1 },
+  warp: {}, fx: {}, v: { speed: 29, signSet: 'normal' } },
+
+/* 30秒: ごく小さな異常。信号が一瞬紫。電柱が1px呼吸する。 */
+{ t: 30,  level: 0.35, worlds: { suburb: 1 },
+  warp: {}, fx: { hue: .004 }, v: { speed: 30, signSet: 'normal' } },
+
+{ t: 48,  level: 0.7, worlds: { suburb: .94, weird: .06 },
+  warp: { snake: .04 }, fx: { hue: .008, sat: .04 },
+  v: { speed: 30, signSet: 'odd', moonSize: .06 } },
+
+/* ============ PHASE 2 : SOMETHING IS WRONG (1:00-2:00) ============ */
+{ t: 60,  level: 1.5, worlds: { suburb: .86, weird: .14 },
+  warp: { snake: .10, breathe: .1 }, fx: { hue: .012, sat: .10 },
+  v: { speed: 31, signSet: 'odd', moonSize: .10, starBoost: .05 } },
+
+{ t: 78,  level: 2.2, worlds: { suburb: .7, weird: .3, night: .05 },
+  warp: { snake: .16, breathe: .2, glow: .12 }, fx: { hue: .02, sat: .16, rgb: .05 },
+  v: { speed: 32, signSet: 'weird', moonSize: .14, starBoost: .12 } },
+
+{ t: 100, level: 2.8, worlds: { suburb: .5, weird: .5 },
+  warp: { snake: .22, breathe: .32, glow: .2, wave: .06 },
+  fx: { hue: .03, sat: .22, rgb: .1, wave: .06 },
+  v: { speed: 33, signSet: 'weird', moonSize: .2, starBoost: .2, cloudFace: .1 } },
+
+/* ============ PHASE 3 : TRIP START (2:00-3:30) ==================== */
+{ t: 120, level: 3.4, worlds: { suburb: .34, weird: .66 },
+  deep:  { suburb: .2, weird: .6, tropical: .2 },
+  warp: { snake: .3, breathe: .45, glow: .35, wave: .12, rainbow: .14 },
+  fx: { hue: .05, sat: .3, rgb: .16, wave: .12, ripple: .05, trails: .08 },
+  v: { speed: 34, signSet: 'trip', moonSize: .26, starBoost: .3, cloudFace: .45, moonFace: 1 } },
+
+{ t: 150, level: 4.2, worlds: { suburb: .2, weird: .8 },
+  deep:  { weird: .7, tropical: .3 },
+  warp: { snake: .38, breathe: .6, glow: .5, wave: .22, rainbow: .3 },
+  fx: { hue: .08, sat: .4, rgb: .24, wave: .2, ripple: .1, trails: .16, posterize: .1 },
+  v: { speed: 35, signSet: 'trip', moonSize: .34, starBoost: .4, cloudFace: .8, moonFace: 1 } },
+
+{ t: 185, level: 5.0, worlds: { weird: 1 },
+  deep:  { weird: .74, tropical: .26 },
+  warp: { snake: .45, breathe: .8, glow: .7, wave: .35, rainbow: .48 },
+  fx: { hue: .11, sat: .5, rgb: .3, wave: .28, ripple: .16, trails: .24, posterize: .16 },
+  v: { speed: 36, signSet: 'trip', moonSize: .4, starBoost: .5, cloudFace: 1, moonFace: 1 } },
+
+/* ============ トンネル (3:30-3:40) ================================ */
+{ t: 208, level: 5.0, worlds: { weird: 1 },
+  warp: { snake: .3, rainbow: .3, glow: .5 },
+  fx: { hue: .1, sat: .3, rgb: .2, trails: .3, vignette: .3 },
+  v: { speed: 37, signSet: 'trip' } },
+
+{ t: 212, level: 4.6, worlds: { weird: .4, night: .6 },
+  warp: { widen: .86, rainbow: .06, glow: .9 },
+  fx: { vignette: 1.4, trails: .5, rgb: .1, bright: .55, tunnel: .35 },
+  v: { speed: 40, signSet: 'none', tunnelDark: 1 } },
+
+{ t: 216, level: 4.6, worlds: { night: 1 },
+  warp: { widen: .8, glow: 1 },
+  fx: { vignette: 1.7, trails: .6, bright: .34, tunnel: .55 },
+  v: { speed: 42, tunnelDark: 1 } },
+
+/* ============ 急激な南国化 (3:40-5:00) ============================ */
+{ t: 219, level: 6.0, worlds: { tropical: 1 },
+  deep:  { tropical: .8, abstract: .2 },
+  warp: { rainbow: .35, glow: .8, wave: .2, widen: 1.05 },
+  fx: { sat: .55, hue: .04, rgb: .16, trails: .12, flash: .6 },
+  v: { speed: 38, signSet: 'trip', sunGlasses: 1, cloudFace: .5 } },
+
+{ t: 235, level: 6.3, worlds: { tropical: 1 },
+  deep:  { tropical: .78, space: .22 },
+  warp: { rainbow: .4, glow: .7, wave: .28, snake: .3 },
+  fx: { sat: .5, hue: .05, rgb: .2, wave: .22, trails: .2, ripple: .12 },
+  v: { speed: 38, sunGlasses: 1, cloudFace: .7, crowd: 1 } },
+
+{ t: 265, level: 6.8, worlds: { tropical: 1 },
+  deep:  { tropical: .7, space: .3 },
+  warp: { rainbow: .5, glow: .8, wave: .38, snake: .34, liquid: .2 },
+  fx: { sat: .55, hue: .07, rgb: .26, wave: .3, trails: .26, ripple: .18, kaleido: .06 },
+  v: { speed: 39, sunGlasses: 1, cloudFace: .9, crowd: 1 } },
+
+/* ============ 世界崩壊 (5:00-7:00) ================================ */
+{ t: 300, level: 7.0, worlds: { tropical: .55, space: .45 },
+  deep:  { tropical: .35, space: .65 },
+  warp: { rainbow: .55, glow: .9, wave: .4, sky: .12, liquid: .25 },
+  fx: { sat: .55, hue: .1, rgb: .3, wave: .32, trails: .34, ripple: .2, kaleido: .1 },
+  v: { speed: 40, signSet: 'deep', starBoost: .6 } },
+
+{ t: 325, level: 7.3, worlds: { space: 1 },
+  deep:  { space: .75, abstract: .25 },
+  warp: { rainbow: .5, glow: 1, wave: .3, sky: .3, spiral: .12, liquid: .2 },
+  fx: { sat: .5, hue: .13, rgb: .32, wave: .3, trails: .4, ripple: .18, kaleido: .14, tunnel: .12 },
+  v: { speed: 41, starBoost: 1 } },
+
+{ t: 355, level: 7.5, worlds: { space: .45, city: .55 },
+  deep:  { space: .3, city: .5, abstract: .2 },
+  warp: { rainbow: .5, glow: .9, snake: .4, spiral: .1, keys: .1 },
+  fx: { sat: .5, hue: .16, rgb: .34, wave: .26, trails: .36, ripple: .16, kaleido: .12 },
+  v: { speed: 42, starBoost: .7 } },
+
+{ t: 380, level: 7.8, worlds: { city: 1 },
+  deep:  { city: .7, abstract: .3 },
+  warp: { rainbow: .55, glow: 1, snake: .45, wave: .3, keys: .18 },
+  fx: { sat: .55, hue: .2, rgb: .38, wave: .3, trails: .4, ripple: .2, kaleido: .16, melt: .1 },
+  v: { speed: 42 } },
+
+{ t: 400, level: 8.0, worlds: { city: .4, jungle: .6 },
+  deep:  { city: .25, jungle: .5, abstract: .25 },
+  warp: { rainbow: .55, glow: .9, snake: .5, wave: .38, breathe: 1 },
+  fx: { sat: .55, hue: .24, rgb: .36, wave: .34, trails: .4, ripple: .24, kaleido: .16, melt: .16 },
+  v: { speed: 42 } },
+
+{ t: 420, level: 8.2, worlds: { jungle: .45, ocean: .55 },
+  deep:  { jungle: .3, ocean: .45, abstract: .25 },
+  warp: { rainbow: .6, glow: 1, wave: .5, liquid: .5, snake: .4 },
+  fx: { sat: .6, hue: .28, rgb: .38, wave: .42, trails: .46, ripple: .3, kaleido: .18, melt: .12 },
+  v: { speed: 41 } },
+
+/* ============ 完全サイケデリックゾーン (7:00-9:00) ================= */
+{ t: 440, level: 8.6, worlds: { ocean: .4, abstract: .6 },
+  deep:  { ocean: .2, abstract: .8 },
+  warp: { rainbow: .75, glow: 1, spiral: .3, loop: .3, wave: .5, liquid: .5, keys: .2 },
+  fx: { sat: .65, hue: .34, rgb: .44, wave: .46, trails: .5, ripple: .32, kaleido: .3, tunnel: .2, melt: .1 },
+  v: { speed: 42, signSet: 'deep' } },
+
+{ t: 465, level: 9.0, worlds: { abstract: 1 },
+  deep:  { abstract: .8, climax: .2 },
+  warp: { rainbow: .85, glow: 1, spiral: .5, loop: .5, wave: .55, liquid: .7, keys: .35, sky: .2 },
+  fx: { sat: .7, hue: .42, rgb: .5, wave: .5, trails: .55, ripple: .38, kaleido: .42, tunnel: .3, melt: .18, posterize: .2 },
+  v: { speed: 43 } },
+
+{ t: 495, level: 9.3, worlds: { abstract: .8, space: .2 },
+  deep:  { abstract: .65, space: .15, climax: .2 },
+  warp: { rainbow: .9, glow: 1, spiral: .7, loop: .7, wave: .6, liquid: .8, keys: .5, sky: .35 },
+  fx: { sat: .75, hue: .5, rgb: .55, wave: .55, trails: .6, ripple: .42, kaleido: .55, tunnel: .4, melt: .22, posterize: .25, invert: .05 },
+  v: { speed: 44 } },
+
+{ t: 522, level: 9.6, worlds: { abstract: .6, climax: .4 },
+  deep:  { abstract: .4, climax: .6 },
+  warp: { rainbow: .95, glow: 1, spiral: .8, loop: .85, wave: .65, liquid: .9, keys: .6, sky: .5, tongue: .4 },
+  fx: { sat: .8, hue: .6, rgb: .6, wave: .6, trails: .65, ripple: .48, kaleido: .65, tunnel: .5, melt: .26, posterize: .3, invert: .07 },
+  v: { speed: 45 } },
+
+/* ============ 最大のクライマックス (9:00-9:40) ===================== */
+{ t: 540, level: 10, worlds: { climax: .5, abstract: .16, tropical: .12, space: .1, city: .06, jungle: .04, ocean: .02 },
+  deep:  { climax: .62, abstract: .12, tropical: .1, space: .08, city: .04, jungle: .03, ocean: .01 },
+  warp: { rainbow: 1, glow: 1, spiral: .9, loop: 1, wave: .7, liquid: 1, keys: .5, sky: .6, widen: 1.0 },
+  fx: { sat: .9, hue: .7, rgb: .7, wave: .68, trails: .72, ripple: .55, kaleido: .8, tunnel: .6, melt: .3, posterize: .35 },
+  v: { speed: 46, starBoost: 1, cloudFace: 1, sunGlasses: 1, moonFace: 1 } },
+
+{ t: 562, level: 10, worlds: { climax: .58, abstract: .14, tropical: .1, space: .1, city: .04, jungle: .03, ocean: .01 },
+  warp: { rainbow: 1, glow: 1, spiral: 1, loop: 1, wave: .8, liquid: 1, keys: .4, sky: 1.0, widen: 1.04 },
+  fx: { sat: 1, hue: .85, rgb: .85, wave: .8, trails: .8, ripple: .65, kaleido: 1, tunnel: .75, melt: .35, posterize: .4, invert: .06 },
+  v: { speed: 48, starBoost: 1 } },
+
+/* 車が空へ向かって走る */
+{ t: 574, level: 10, worlds: { climax: .6, space: .25, abstract: .15 },
+  warp: { rainbow: 1, glow: 1, spiral: 1, loop: 1, wave: .6, liquid: 1, sky: 1.6, widen: 1.0 },
+  fx: { sat: 1, hue: 1, rgb: .9, wave: .7, trails: .85, ripple: .6, kaleido: 1, tunnel: .9, melt: .3 },
+  v: { speed: 50, starBoost: 1 } },
+
+/* ============ 帰還 (9:40-10:00) =================================== */
+{ t: 580, level: 10, worlds: { white: 1 },
+  warp: { rainbow: .3, glow: 1, sky: .3, widen: 1 },
+  fx: { bright: 2.6, sat: -.5, trails: .3, flash: .9 },
+  v: { speed: 40 } },
+
+{ t: 584, level: 2, worlds: { night: 1 },
+  warp: {}, fx: { bright: 1.1, trails: .1, vignette: .2 },
+  v: { speed: 32, signSet: 'none' } },
+
+{ t: 588, level: 0, worlds: { night: 1 },
+  warp: {}, fx: { vignette: .25 },
+  v: { speed: 28, signSet: 'none' } },
+
+{ t: 600, level: 0, worlds: { night: 1 },
+  warp: {}, fx: { vignette: .25 },
+  v: { speed: 22, signSet: 'none' } }
+];
+
+/* events ----------------------------------------------------------- */
+const EVENTS = [
+  /* 同じ猫が3回現れる（プレイヤーは「気のせいか？」で済ませる） */
+  { t: 33,  type: 'cat' },
+  { t: 41,  type: 'cat' },
+  { t: 49,  type: 'cat' },
+  /* 信号が一瞬だけ紫 */
+  { t: 36,  type: 'hueBlip', amount: .12, dur: .18 },
+  { t: 57,  type: 'hueBlip', amount: .16, dur: .22 },
+  { t: 88,  type: 'hueBlip', amount: .25, dur: .3 },
+
+  { t: 120, type: 'shimmer' },
+  { t: 208, type: 'whoosh' },
+  { t: 211.5, type: 'tunnelIn' },
+  { t: 218.6, type: 'tunnelOut' },
+
+  { t: 250, type: 'thirdPerson', dur: 3.2 },
+  { t: 300, type: 'whoosh' },
+  { t: 352, type: 'thirdPerson', dur: 2.4 },
+  { t: 400, type: 'whoosh' },
+  { t: 438, type: 'mirrorWorld', dur: 6 },
+  { t: 465, type: 'shimmer' },
+  { t: 505, type: 'thirdPerson', dur: 2.8 },
+  { t: 520, type: 'mirrorWorld', dur: 8 },
+  { t: 540, type: 'shimmer' },
+  { t: 560, type: 'fireworks' },
+  { t: 574, type: 'whoosh' },
+  { t: 579.4, type: 'whiteout' },
+  { t: 584, type: 'musicOut' }
+];
+
+window.PX = window.PX || {};
+window.PX.STAGES = window.PX.STAGES || {};
+window.PX.STAGES.stage1 = {
+  id: 'stage1',
+  title: 'STAGE 1 — MIDNIGHT MUSHROOM DRIVE',
+  track: 'default',
+  driveEnd: 592,        // ここでドライブ終了 → 帰宅シーンへ
+  signSets: SIGNS,
+  keys: K,
+  events: EVENTS
+};
+})();
+
+;
+/* ===== src/core.js ===== */
+/* =====================================================================
+   core.js — 名前空間 / 数学 / カラーパレット / ビットマップフォント
+   ===================================================================== */
+window.PX = window.PX || {};
+(function (PX) {
+'use strict';
+
+/* ---------------------------------------------------------------- math */
+const M = PX.M = {
+  clamp(v, a, b) { return v < a ? a : (v > b ? b : v); },
+  sat(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); },
+  lerp(a, b, t) { return a + (b - a) * t; },
+  mix(a, b, t) { return a + (b - a) * (t < 0 ? 0 : t > 1 ? 1 : t); },
+  inv(a, b, v) { return b === a ? 0 : (v - a) / (b - a); },
+  invSat(a, b, v) { return M.sat(M.inv(a, b, v)); },
+  smooth(t) { t = M.sat(t); return t * t * (3 - 2 * t); },
+  smoother(t) { t = M.sat(t); return t * t * t * (t * (t * 6 - 15) + 10); },
+  ramp(a, b, v) { return M.smooth(M.inv(a, b, v)); },
+  mod(a, n) { return ((a % n) + n) % n; },
+  // 三角波 / のこぎり波 (位相 0..1)
+  tri(p) { p = M.mod(p, 1); return p < .5 ? p * 2 : 2 - p * 2; },
+  saw(p) { return M.mod(p, 1); },
+  // 決定論的ハッシュノイズ
+  hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); },
+  hash2(x, y) { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); },
+  noise(x) {
+    const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+    return M.lerp(M.hash(i), M.hash(i + 1), u);
+  },
+  fbm(x, oct) {
+    let v = 0, a = .5, f = 1;
+    for (let i = 0; i < (oct || 3); i++) { v += a * M.noise(x * f); f *= 2.03; a *= .5; }
+    return v;
+  },
+  // シード付き乱数
+  rng(seed) {
+    let s = (seed | 0) || 1;
+    return function () { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 100000) / 100000; };
+  },
+  approach(cur, tgt, rate, dt) { return cur + (tgt - cur) * (1 - Math.exp(-rate * dt)); },
+  pick(arr, r) { return arr[Math.min(arr.length - 1, Math.floor(r * arr.length))]; }
+};
+
+/* --------------------------------------------------------------- color */
+const C = PX.C = {
+  hex(h) {
+    h = h.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  },
+  css(c) { return 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')'; },
+  cssa(c, a) { return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a + ')'; },
+  mix(a, b, t) {
+    t = M.sat(t);
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  },
+  scale(c, k) { return [M.clamp(c[0] * k, 0, 255), M.clamp(c[1] * k, 0, 255), M.clamp(c[2] * k, 0, 255)]; },
+  add(c, k) { return [M.clamp(c[0] + k, 0, 255), M.clamp(c[1] + k, 0, 255), M.clamp(c[2] + k, 0, 255)]; },
+  hsl(h, s, l) {
+    h = M.mod(h, 1);
+    const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const f = (t) => {
+      t = M.mod(t, 1);
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
+  },
+  // 高速な近似色相回転（YIQ 回転）
+  rot(c, ang) {
+    if (!ang) return c;
+    const cs = Math.cos(ang * Math.PI * 2), sn = Math.sin(ang * Math.PI * 2);
+    const r = c[0], g = c[1], b = c[2];
+    const m0 = .299 + .701 * cs + .168 * sn, m1 = .587 - .587 * cs + .330 * sn, m2 = .114 - .114 * cs - .497 * sn;
+    const m3 = .299 - .299 * cs - .328 * sn, m4 = .587 + .413 * cs + .035 * sn, m5 = .114 - .114 * cs + .292 * sn;
+    const m6 = .299 - .300 * cs + 1.25 * sn, m7 = .587 - .588 * cs - 1.05 * sn, m8 = .114 + .886 * cs - .203 * sn;
+    return [
+      M.clamp(r * m0 + g * m1 + b * m2, 0, 255),
+      M.clamp(r * m3 + g * m4 + b * m5, 0, 255),
+      M.clamp(r * m6 + g * m7 + b * m8, 0, 255)
+    ];
+  },
+  // 虹（サイケ用の飽和した帯）
+  rainbow(t, l) { return C.hsl(t, 1, l === undefined ? .55 : l); }
+};
+
+/* ------------------------------------------------------------ palettes
+   各ワールドのカラーセット。全スロットが同名で存在するので、
+   複数ワールドを重み付き平均すれば「連続的にワールドが溶ける」。
+   ------------------------------------------------------------------- */
+const SLOTS = ['skyTop', 'skyMid', 'skyLow', 'sun', 'cloud', 'far', 'mid', 'near',
+  'ground', 'groundAlt', 'road', 'roadAlt', 'line', 'rumble', 'rumbleAlt',
+  'accentA', 'accentB', 'accentC', 'fog', 'lightGlow'];
+
+const RAW = {
+  /* PHASE1: 夕方の住宅街 */
+  suburb: {
+    skyTop: '#2b2a52', skyMid: '#6b4a70', skyLow: '#d8785c', sun: '#ffd090', cloud: '#7b5a7e',
+    far: '#3a3557', mid: '#2e2a46', near: '#231f36',
+    ground: '#2a2b33', groundAlt: '#25262e', road: '#3a3a44', roadAlt: '#343440',
+    line: '#d8d4c0', rumble: '#8a8778', rumbleAlt: '#5c5a50',
+    accentA: '#ffb060', accentB: '#7ac0d8', accentC: '#e06a80', fog: '#4a3a58', lightGlow: '#ffd8a0'
+  },
+  /* 夜の住宅街 (帰還) */
+  night: {
+    skyTop: '#0a0a1c', skyMid: '#131a34', skyLow: '#1e2748', sun: '#c8d4ff', cloud: '#1a2140',
+    far: '#161a2e', mid: '#121424', near: '#0d0f1c',
+    ground: '#151620', groundAlt: '#12131c', road: '#26262f', roadAlt: '#22222b',
+    line: '#c8c4b0', rumble: '#4e4c46', rumbleAlt: '#33322e',
+    accentA: '#ffd090', accentB: '#7090c0', accentC: '#8060a0', fog: '#1a1c30', lightGlow: '#ffdc9c'
+  },
+  /* PHASE2-3: 違和感 → トリップ入口 */
+  weird: {
+    skyTop: '#241a4e', skyMid: '#5a2a72', skyLow: '#c2506e', sun: '#ffc8e0', cloud: '#6e3a86',
+    far: '#40265e', mid: '#32204c', near: '#26183a',
+    ground: '#2c2438', groundAlt: '#261e32', road: '#42364e', roadAlt: '#3a2e46',
+    line: '#f0e0ff', rumble: '#a06ec0', rumbleAlt: '#6a4a86',
+    accentA: '#ff70c0', accentB: '#60e0d0', accentC: '#ffe060', fog: '#503070', lightGlow: '#ffb0f0'
+  },
+  /* 南国 */
+  tropical: {
+    skyTop: '#ff6aa8', skyMid: '#ff9a6a', skyLow: '#ffd48a', sun: '#fff2b0', cloud: '#ffb0c8',
+    far: '#7a5aa8', mid: '#2f8fb8', near: '#1d6f9a',
+    ground: '#f0c88a', groundAlt: '#e0b478', road: '#5a4a7a', roadAlt: '#524270',
+    line: '#fff4d0', rumble: '#ff7ab0', rumbleAlt: '#ffd060',
+    accentA: '#00e0c0', accentB: '#ff5090', accentC: '#ffe870', fog: '#ff9ab0', lightGlow: '#fff0c0'
+  },
+  /* 宇宙 */
+  space: {
+    skyTop: '#050418', skyMid: '#160a3a', skyLow: '#2e1060', sun: '#ffe8ff', cloud: '#3a1a70',
+    far: '#1d0f44', mid: '#140a30', near: '#0c0620',
+    ground: '#150a2c', groundAlt: '#100820', road: '#2a1a54', roadAlt: '#221446',
+    line: '#a0f0ff', rumble: '#7040c0', rumbleAlt: '#40208a',
+    accentA: '#70e0ff', accentB: '#ff70e0', accentC: '#fff0a0', fog: '#241050', lightGlow: '#c0a0ff'
+  },
+  /* 巨大都市 */
+  city: {
+    skyTop: '#0d0a24', skyMid: '#2a1050', skyLow: '#5a1a6a', sun: '#ff70a0', cloud: '#3a1656',
+    far: '#241a52', mid: '#1a1240', near: '#120c2c',
+    ground: '#1a1630', groundAlt: '#161228', road: '#2e2a4a', roadAlt: '#282442',
+    line: '#00f0e0', rumble: '#ff2e88', rumbleAlt: '#8a1a5a',
+    accentA: '#00f0ff', accentB: '#ff3070', accentC: '#ffe030', fog: '#2a1a4a', lightGlow: '#70f0ff'
+  },
+  /* ジャングル */
+  jungle: {
+    skyTop: '#0a2820', skyMid: '#16543a', skyLow: '#5aa050', sun: '#e8ff90', cloud: '#2a6a48',
+    far: '#1b4a34', mid: '#143a28', near: '#0e2c1e',
+    ground: '#274a26', groundAlt: '#20401f', road: '#3a4a30', roadAlt: '#32422a',
+    line: '#e0ff90', rumble: '#8ad04a', rumbleAlt: '#4a8a2a',
+    accentA: '#ffe040', accentB: '#ff5a3a', accentC: '#40ffb0', fog: '#2a6a48', lightGlow: '#d0ff80'
+  },
+  /* 海底 */
+  ocean: {
+    skyTop: '#02182e', skyMid: '#064a72', skyLow: '#0a86a8', sun: '#a8f0ff', cloud: '#0a5c80',
+    far: '#08405e', mid: '#052e46', near: '#031e30',
+    ground: '#0a3a4e', groundAlt: '#082e40', road: '#0e4a62', roadAlt: '#0c4056',
+    line: '#c0ffff', rumble: '#20c0c8', rumbleAlt: '#107080',
+    accentA: '#40ffe0', accentB: '#ff8ac0', accentC: '#ffe060', fog: '#0a6a90', lightGlow: '#a0ffff'
+  },
+  /* 抽象世界 */
+  abstract: {
+    skyTop: '#1a0030', skyMid: '#50007a', skyLow: '#a000a0', sun: '#ffffff', cloud: '#7a0090',
+    far: '#3a0a60', mid: '#2a0648', near: '#1c0432',
+    ground: '#2a0a44', groundAlt: '#220838', road: '#4a1070', roadAlt: '#400c62',
+    line: '#ffff00', rumble: '#00ffc0', rumbleAlt: '#ff00a0',
+    accentA: '#ffff40', accentB: '#00ffe0', accentC: '#ff40ff', fog: '#5a1080', lightGlow: '#ffffff'
+  },
+  /* クライマックス: 全部盛り */
+  climax: {
+    skyTop: '#2a0060', skyMid: '#a01090', skyLow: '#ff7040', sun: '#ffffff', cloud: '#ff90d0',
+    far: '#6a20a0', mid: '#4a1880', near: '#341060',
+    ground: '#5a2090', groundAlt: '#4a1878', road: '#7a30b0', roadAlt: '#6a28a0',
+    line: '#ffffff', rumble: '#ffe000', rumbleAlt: '#00ffd0',
+    accentA: '#ffffff', accentB: '#00ffe0', accentC: '#ffe000', fog: '#a040c0', lightGlow: '#ffffff'
+  },
+  /* 白飛び (帰還の瞬間) */
+  white: {
+    skyTop: '#ffffff', skyMid: '#ffffff', skyLow: '#fff8f0', sun: '#ffffff', cloud: '#ffffff',
+    far: '#fff4e8', mid: '#fff0e0', near: '#ffece0',
+    ground: '#fff4ec', groundAlt: '#fff0e4', road: '#fffaf4', roadAlt: '#fff6ee',
+    line: '#ffffff', rumble: '#fff0d0', rumbleAlt: '#ffe8c0',
+    accentA: '#ffffff', accentB: '#ffffff', accentC: '#ffffff', fog: '#ffffff', lightGlow: '#ffffff'
+  }
+};
+
+// hex → [r,g,b] へ展開
+const PAL = PX.PALETTES = {};
+for (const k in RAW) {
+  const p = {};
+  for (const s of SLOTS) p[s] = C.hex(RAW[k][s] || '#ff00ff');
+  PAL[k] = p;
+}
+PX.PALETTE_SLOTS = SLOTS;
+
+/* 重み付きブレンド + 色相回転 + 彩度ブースト */
+PX.blendPalette = function (weights, hueShift, satBoost, out) {
+  out = out || {};
+  let total = 0;
+  for (const k in weights) total += weights[k];
+  if (total <= 0) { total = 1; weights = { suburb: 1 }; }
+  for (let i = 0; i < SLOTS.length; i++) {
+    const s = SLOTS[i];
+    let r = 0, g = 0, b = 0;
+    for (const k in weights) {
+      const w = weights[k]; if (!w) continue;
+      const c = PAL[k] ? PAL[k][s] : PAL.suburb[s];
+      r += c[0] * w; g += c[1] * w; b += c[2] * w;
+    }
+    let c = [r / total, g / total, b / total];
+    if (hueShift) c = C.rot(c, hueShift);
+    if (satBoost) {
+      const lum = c[0] * .299 + c[1] * .587 + c[2] * .114;
+      c = [M.clamp(lum + (c[0] - lum) * (1 + satBoost), 0, 255),
+           M.clamp(lum + (c[1] - lum) * (1 + satBoost), 0, 255),
+           M.clamp(lum + (c[2] - lum) * (1 + satBoost), 0, 255)];
+    }
+    out[s] = c;
+  }
+  return out;
+};
+
+/* ------------------------------------------------------------ 3x5 font */
+const GLYPH = {
+  'A': '.#.,#.#,###,#.#,#.#', 'B': '##.,#.#,##.,#.#,##.', 'C': '.##,#..,#..,#..,.##',
+  'D': '##.,#.#,#.#,#.#,##.', 'E': '###,#..,##.,#..,###', 'F': '###,#..,##.,#..,#..',
+  'G': '.##,#..,#.#,#.#,.##', 'H': '#.#,#.#,###,#.#,#.#', 'I': '###,.#.,.#.,.#.,###',
+  'J': '..#,..#,..#,#.#,.#.', 'K': '#.#,#.#,##.,#.#,#.#', 'L': '#..,#..,#..,#..,###',
+  'M': '#.#,###,###,#.#,#.#', 'N': '#.#,###,###,###,#.#', 'O': '.#.,#.#,#.#,#.#,.#.',
+  'P': '##.,#.#,##.,#..,#..', 'Q': '.#.,#.#,#.#,##.,.##', 'R': '##.,#.#,##.,#.#,#.#',
+  'S': '.##,#..,.#.,..#,##.', 'T': '###,.#.,.#.,.#.,.#.', 'U': '#.#,#.#,#.#,#.#,.#.',
+  'V': '#.#,#.#,#.#,.#.,.#.', 'W': '#.#,#.#,###,###,#.#', 'X': '#.#,#.#,.#.,#.#,#.#',
+  'Y': '#.#,#.#,.#.,.#.,.#.', 'Z': '###,..#,.#.,#..,###',
+  '0': '###,#.#,#.#,#.#,###', '1': '.#.,##.,.#.,.#.,###', '2': '##.,..#,.#.,#..,###',
+  '3': '##.,..#,.#.,..#,##.', '4': '#.#,#.#,###,..#,..#', '5': '###,#..,##.,..#,##.',
+  '6': '.##,#..,##.,#.#,.#.', '7': '###,..#,.#.,.#.,.#.', '8': '.#.,#.#,.#.,#.#,.#.',
+  '9': '.#.,#.#,.##,..#,##.',
+  ' ': '...,...,...,...,...', '.': '...,...,...,...,.#.', ',': '...,...,...,.#.,#..',
+  ':': '...,.#.,...,.#.,...', '!': '.#.,.#.,.#.,...,.#.', '?': '##.,..#,.#.,...,.#.',
+  '-': '...,...,###,...,...', '+': '...,.#.,###,.#.,...', '/': '..#,..#,.#.,#..,#..',
+  '%': '#.#,..#,.#.,#..,#.#', 'x': '...,...,#.#,.#.,#.#', '*': '#.#,.#.,#.#,...,...',
+  '(': '..#,.#.,.#.,.#.,..#', ')': '#..,.#.,.#.,.#.,#..', "'": '.#.,.#.,...,...,...',
+  '>': '#..,.#.,..#,.#.,#..', '<': '..#,.#.,#..,.#.,..#', '=': '...,###,...,###,...'
+};
+const FONT = PX.FONT = {};
+for (const ch in GLYPH) {
+  const rows = GLYPH[ch].split(',');
+  const bits = [];
+  for (let y = 0; y < 5; y++) {
+    let m = 0;
+    for (let x = 0; x < 3; x++) if (rows[y][x] === '#') m |= (1 << x);
+    bits.push(m);
+  }
+  FONT[ch] = bits;
+}
+PX.FONT_W = 3; PX.FONT_H = 5;
+
+PX.textWidth = function (s, scale, sp) {
+  scale = scale || 1; sp = sp === undefined ? 1 : sp;
+  return s.length * (3 + sp) * scale - sp * scale;
+};
+
+})(window.PX);
+
+;
+/* ===== src/pixel.js ===== */
+/* =====================================================================
+   pixel.js — 低解像度ピクセルバッファ + ポストエフェクトパイプライン
+   ---------------------------------------------------------------------
+   描画は全て内部の低解像度キャンバス(既定 192px幅)に対して行う。
+   present() で ImageData に対し
+     [1] 幾何パス (波/リップル/メルト/万華鏡/トンネル/ズーム/回転/RGBずれ)
+     [2] 色パス   (色相回転/彩度/明度/反転/ポスタライズ/ビネット/スキャンライン)
+     [3] 残像パス (afterimage / pixel trails)
+   を適用してから、ニアレストネイバーで実画面へ拡大する。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C;
+
+const DEFAULT_FX = {
+  wave: 0, waveFreq: 1, waveSpeed: 1,   // 横方向の波打ち
+  protect: 0, protectY: .45,            // 走行ライン保護（下ほど幾何変形を弱める）
+  vwave: 0,                             // 縦方向のうねり
+  ripple: 0, rippleCX: .5, rippleCY: .5,// 同心円リップル
+  rgb: 0,                               // 色収差風ドットずれ
+  hue: 0, sat: 0, bright: 1, invert: 0, // 色
+  posterize: 0,                         // 色段階の粗さ
+  trails: 0,                            // 残像
+  melt: 0,                              // 画面が溶ける
+  kaleido: 0, kaleidoSeg: 6, kaleidoRot: 0,
+  tunnel: 0,                            // 中心へ吸い込むひねり
+  zoom: 1, rot: 0,                      // 画面全体のズーム/回転
+  shakeX: 0, shakeY: 0,
+  vignette: 0, scan: 0,
+  flash: 0, flashColor: null,
+  dither: 0
+};
+
+class Pixel {
+  constructor(view, baseW) {
+    this.view = view;
+    this.vctx = view.getContext('2d', { alpha: false });
+    this.baseW = baseW || 192;
+    this.fx = Object.assign({}, DEFAULT_FX);
+    this.time = 0;
+    this._mk(this.baseW, Math.round(this.baseW * 16 / 9));
+    this.quality = 1;   // 1 = full, 0 = 重いエフェクトを間引く
+    this._kalFrame = 0;
+  }
+
+  _mk(w, h) {
+    this.w = w; this.h = h;
+    this.cv = document.createElement('canvas'); this.cv.width = w; this.cv.height = h;
+    this.ctx = this.cv.getContext('2d', { alpha: false });
+    this.ctx.imageSmoothingEnabled = false;
+    this.post = document.createElement('canvas'); this.post.width = w; this.post.height = h;
+    this.pctx = this.post.getContext('2d', { alpha: false });
+    this.pctx.imageSmoothingEnabled = false;
+    this.imgOut = this.pctx.createImageData(w, h);
+    this.hist = new Uint8ClampedArray(w * h * 4);
+    this.srcData = null;
+  }
+
+  /* 実画面サイズに追従。内部解像度は幅固定・高さは端末アスペクト */
+  setBaseWidth(w) {
+    if (w === this.baseW) return;
+    this.baseW = w;
+    this._forceW = 0;
+    this.resize();
+  }
+
+  resize() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const aspect = vh / vw;
+    let w = this.baseW;
+    let h = Math.round(w * aspect);
+    if (h % 2) h++;
+    h = M.clamp(h, 240, 480);
+    if (w !== this.w || h !== this.h) this._mk(w, h);
+
+    // 内部バッファが整数倍で収まる最大スケールを選ぶ（ドットが崩れない）
+    const maxScale = Math.min(vw / w, vh / h);
+    let scale = Math.max(1, Math.floor(maxScale * dpr)) / dpr;
+    // 端末が小さすぎて1倍未満になる場合のみ非整数を許容
+    if (maxScale < 1) scale = maxScale;
+    const cssW = w * scale, cssH = h * scale;
+    this.view.width = Math.round(cssW * dpr);
+    this.view.height = Math.round(cssH * dpr);
+    this.view.style.width = cssW + 'px';
+    this.view.style.height = cssH + 'px';
+    this.vctx = this.view.getContext('2d', { alpha: false });
+    this.vctx.imageSmoothingEnabled = false;
+    this.viewRect = { w: cssW, h: cssH, left: (vw - cssW) / 2, top: (vh - cssH) / 2 };
+  }
+
+  resetFx() { Object.assign(this.fx, DEFAULT_FX); }
+
+  /* ------------------------------------------------------- draw helpers */
+  clear(col) {
+    const c = this.ctx;
+    c.fillStyle = typeof col === 'string' ? col : C.css(col || [0, 0, 0]);
+    c.fillRect(0, 0, this.w, this.h);
+  }
+  rect(x, y, w, h, col) {
+    if (w <= 0 || h <= 0) return;
+    const c = this.ctx;
+    c.fillStyle = typeof col === 'string' ? col : C.css(col);
+    c.fillRect(x | 0, y | 0, Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+  }
+  rectA(x, y, w, h, col, a) {
+    if (a <= 0 || w <= 0 || h <= 0) return;
+    const c = this.ctx;
+    c.globalAlpha = M.sat(a);
+    c.fillStyle = typeof col === 'string' ? col : C.css(col);
+    c.fillRect(x | 0, y | 0, Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+    c.globalAlpha = 1;
+  }
+  px(x, y, col) { this.rect(x, y, 1, 1, col); }
+  hline(x0, x1, y, col) {
+    if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
+    this.rect(x0, y, x1 - x0 + 1, 1, col);
+  }
+  vline(x, y0, y1, col) {
+    if (y1 < y0) { const t = y0; y0 = y1; y1 = t; }
+    this.rect(x, y0, 1, y1 - y0 + 1, col);
+  }
+  /* ドット感を保った円（走査線ベース） */
+  circle(cx, cy, r, col, a) {
+    if (r <= 0) return;
+    const c = this.ctx;
+    c.globalAlpha = a === undefined ? 1 : M.sat(a);
+    c.fillStyle = typeof col === 'string' ? col : C.css(col);
+    cx = Math.round(cx); cy = Math.round(cy); r = Math.round(r);
+    for (let y = -r; y <= r; y++) {
+      const dx = Math.floor(Math.sqrt(r * r - y * y) + .5);
+      if (dx <= 0) continue;
+      c.fillRect(cx - dx, cy + y, dx * 2 + 1, 1);
+    }
+    c.globalAlpha = 1;
+  }
+  ring(cx, cy, r, col, a, thick) {
+    thick = thick || 1;
+    const c = this.ctx;
+    c.globalAlpha = a === undefined ? 1 : M.sat(a);
+    c.fillStyle = typeof col === 'string' ? col : C.css(col);
+    cx = Math.round(cx); cy = Math.round(cy); r = Math.round(r);
+    const ri = Math.max(0, r - thick);
+    for (let y = -r; y <= r; y++) {
+      const dx = Math.floor(Math.sqrt(Math.max(0, r * r - y * y)) + .5);
+      const di = Math.abs(y) <= ri ? Math.floor(Math.sqrt(Math.max(0, ri * ri - y * y)) + .5) : 0;
+      if (dx <= 0) continue;
+      if (di <= 0) { c.fillRect(cx - dx, cy + y, dx * 2 + 1, 1); }
+      else {
+        c.fillRect(cx - dx, cy + y, dx - di, 1);
+        c.fillRect(cx + di + 1, cy + y, dx - di, 1);
+      }
+    }
+    c.globalAlpha = 1;
+  }
+  line(x0, y0, x1, y1, col, a) {
+    // ブレゼンハム（アンチエイリアスなし = ドット絵）
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const c = this.ctx;
+    c.globalAlpha = a === undefined ? 1 : M.sat(a);
+    c.fillStyle = typeof col === 'string' ? col : C.css(col);
+    let dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+    let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
+    let guard = 0;
+    while (guard++ < 4000) {
+      c.fillRect(x0, y0, 1, 1);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    c.globalAlpha = 1;
+  }
+  /* 縦グラデーション（バンディングを活かしたドット的ディザ付き） */
+  vgrad(x, y, w, h, top, bot, dither) {
+    const c = this.ctx;
+    for (let i = 0; i < h; i++) {
+      const t = h <= 1 ? 0 : i / (h - 1);
+      let col = C.mix(top, bot, t);
+      c.fillStyle = C.css(col);
+      c.fillRect(x | 0, (y + i) | 0, w, 1);
+      if (dither && i > 0 && i < h - 1) {
+        const d = M.mod(i, 2);
+        const nx = C.mix(top, bot, M.sat(t + .06));
+        c.fillStyle = C.css(nx);
+        for (let px = d; px < w; px += 4) c.fillRect((x + px) | 0, (y + i) | 0, 1, 1);
+      }
+    }
+  }
+
+  /* テキスト（3x5 ビットマップフォント） */
+  text(str, x, y, col, scale, spacing, alpha) {
+    scale = scale || 1; spacing = spacing === undefined ? 1 : spacing;
+    const c = this.ctx;
+    c.globalAlpha = alpha === undefined ? 1 : M.sat(alpha);
+    c.fillStyle = typeof col === 'string' ? col : C.css(col);
+    let cx = Math.round(x);
+    const up = str.toUpperCase();
+    for (let i = 0; i < up.length; i++) {
+      const g = PX.FONT[up[i]] || PX.FONT[str[i]] || PX.FONT[' '];
+      for (let ry = 0; ry < 5; ry++) {
+        const m = g[ry];
+        for (let rx = 0; rx < 3; rx++) {
+          if (m & (1 << rx)) c.fillRect(cx + rx * scale, Math.round(y) + ry * scale, scale, scale);
+        }
+      }
+      cx += (3 + spacing) * scale;
+    }
+    c.globalAlpha = 1;
+  }
+  textC(str, cx, y, col, scale, spacing, alpha) {
+    const w = PX.textWidth(str, scale || 1, spacing === undefined ? 1 : spacing);
+    this.text(str, Math.round(cx - w / 2), y, col, scale, spacing, alpha);
+  }
+
+  /* スプライト描画（行単位ブリットで揺れ/傾き/潰しを表現） */
+  sprite(spr, x, y, opt) {
+    if (!spr) return;
+    opt = opt || {};
+    const c = this.ctx;
+    const sc = Math.max(0, opt.scale === undefined ? 1 : opt.scale);
+    if (sc <= 0.03) return;
+    const src = (opt.hue && spr.hues) ? spr.hues[M.mod(Math.round(opt.hue * spr.hues.length), spr.hues.length)] : spr.cv;
+    const sw = spr.w, sh = spr.h;
+    const dw = Math.max(1, Math.round(sw * sc));
+    const dh = Math.max(1, Math.round(sh * sc * (opt.squash === undefined ? 1 : opt.squash)));
+    const ox = Math.round(x - dw * (opt.ax === undefined ? .5 : opt.ax));
+    const oy = Math.round(y - dh * (opt.ay === undefined ? 1 : opt.ay));
+    c.globalAlpha = opt.alpha === undefined ? 1 : M.sat(opt.alpha);
+    if (opt.additive) c.globalCompositeOperation = 'lighter';
+    const flip = opt.flip ? -1 : 1;
+    if (opt.sway && dh > 6) {
+      // 上に行くほど横にずれる（風/踊り/呼吸）。行単位だと重いのでバンド分割。
+      const rows = M.clamp(Math.round(dh / 6), 2, 6);
+      const step = dh / rows;
+      const sstep = sh / rows;
+      for (let i = 0; i < rows; i++) {
+        const t = 1 - i / (rows - 1);                   // 0(下) .. 1(上)
+        const off = Math.round(opt.sway * t * t);
+        c.save();
+        if (flip < 0) { c.translate(ox + dw, 0); c.scale(-1, 1); c.translate(-ox, 0); }
+        c.drawImage(src, 0, i * sstep, sw, sstep,
+          ox + off, oy + Math.round(i * step), dw, Math.ceil(step));
+        c.restore();
+      }
+        } else {
+      c.save();
+      if (flip < 0) { c.translate(ox + dw, 0); c.scale(-1, 1); c.translate(-ox, 0); }
+      c.drawImage(src, 0, 0, sw, sh, ox, oy, dw, dh);
+      c.restore();
+    }
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = 'source-over';
+  }
+
+  /* --------------------------------------------------------- post chain
+     幾何 / 色 / 残像 を1パスに融合。80k画素を3周していたのを1周にする。 */
+  present() {
+    const w = this.w, h = this.h, fx = this.fx, t = this.time;
+    const needGeom = fx.wave > .002 || fx.vwave > .002 || fx.ripple > .002 || fx.rgb > .002 ||
+      fx.melt > .002 || fx.kaleido > .002 || fx.tunnel > .002 ||
+      Math.abs(fx.zoom - 1) > .003 || Math.abs(fx.rot) > .0015 ||
+      Math.abs(fx.shakeX) > .4 || Math.abs(fx.shakeY) > .4;
+    const needColor = Math.abs(fx.hue) > .002 || Math.abs(fx.sat) > .01 ||
+      Math.abs(fx.bright - 1) > .01 || fx.invert > .004 || fx.posterize > .01 ||
+      fx.vignette > .01 || fx.scan > .01 || fx.flash > .004;
+    const needTrail = fx.trails > .01;
+
+    if (!needGeom && !needColor && !needTrail) {
+      if (this.hist) this.hist.fill(0);
+      this._blit(this.cv);
+      return;
+    }
+    const src = this.ctx.getImageData(0, 0, w, h);
+    this._process(src.data, this.imgOut.data, w, h, fx, t, needGeom, needColor, needTrail);
+    this.pctx.putImageData(this.imgOut, 0, 0);
+    this._blit(this.post);
+  }
+
+  _blit(cvs) {
+    const v = this.vctx, r = this.view;
+    v.imageSmoothingEnabled = false;
+    v.drawImage(cvs, 0, 0, this.w, this.h, 0, 0, r.width, r.height);
+  }
+
+  _process(S, D, w, h, fx, t, doGeom, doColor, doTrail) {
+    const cx = w * .5, cy = h * .5;
+    const H = this.hist;
+
+    /* ---- 幾何パラメータ ---- */
+    const kal = fx.kaleido, seg = Math.max(2, fx.kaleidoSeg | 0), segA = Math.PI * 2 / seg;
+    const shX = fx.shakeX || 0, shY = fx.shakeY || 0;
+    const rgb = fx.rgb;
+    const maxR2 = cx * cx + cy * cy;
+    const maxR = Math.sqrt(maxR2);
+    const rip = fx.ripple, ripCX = fx.rippleCX * w, ripCY = fx.rippleCY * h;
+
+    const mask = this._mask || (this._mask = new Float32Array(512));
+    const py = (fx.protectY === undefined ? .45 : fx.protectY) * h;
+    const keep = 1 - M.sat(fx.protect === undefined ? 0 : fx.protect);
+    for (let y = 0; y < h; y++) {
+      mask[y] = y <= py ? 1 : M.lerp(1, keep, M.smooth((y - py) / Math.max(1, h * .20)));
+    }
+    const rowOff = this._rowOff || (this._rowOff = new Float32Array(512));
+    for (let y = 0; y < h; y++) {
+      let o = 0;
+      if (fx.wave > .002) {
+        const k = M.lerp(1, .55, 1 - mask[y]);
+        o += Math.sin(y * .11 * fx.waveFreq + t * 2.4 * fx.waveSpeed) * fx.wave * 7 * k;
+        o += Math.sin(y * .031 * fx.waveFreq - t * 1.3 * fx.waveSpeed) * fx.wave * 11 * k;
+      }
+      rowOff[y] = o + shX;
+    }
+    const colOff = this._colOff || (this._colOff = new Float32Array(512));
+    const melt = this._melt || (this._melt = new Float32Array(512));
+    if (fx.melt > .002) {
+      for (let x = 0; x < w; x++) {
+        const seed = M.hash(x * 3.77);
+        const drip = .35 + .65 * Math.abs(Math.sin(t * (.25 + seed * .5) + seed * 11));
+        melt[x] += ((seed * .6 + M.hash(x * .91 + 7) * .4) * drip * fx.melt * h * .34 - melt[x]) * .06;
+      }
+    } else for (let x = 0; x < w; x++) melt[x] *= .88;
+    for (let x = 0; x < w; x++) {
+      let o = melt[x];
+      if (fx.vwave > .002) o += Math.sin(x * .09 + t * 1.9) * fx.vwave * 6;
+      colOff[x] = o;
+    }
+
+    /* ---- 色パラメータ ---- */
+    const hue = fx.hue, sat = fx.sat, br = fx.bright, inv = fx.invert;
+    const post = fx.posterize, vig = fx.vignette, scan = fx.scan;
+    const flash = fx.flash, fc = fx.flashColor || [255, 255, 255];
+    let m0 = 1, m1 = 0, m2 = 0, m3 = 0, m4 = 1, m5 = 0, m6 = 0, m7 = 0, m8 = 1;
+    const doHue = Math.abs(hue) > .002;
+    if (doHue) {
+      const cs = Math.cos(hue * Math.PI * 2), sn = Math.sin(hue * Math.PI * 2);
+      m0 = .299 + .701 * cs + .168 * sn; m1 = .587 - .587 * cs + .330 * sn; m2 = .114 - .114 * cs - .497 * sn;
+      m3 = .299 - .299 * cs - .328 * sn; m4 = .587 + .413 * cs + .035 * sn; m5 = .114 - .114 * cs + .292 * sn;
+      m6 = .299 - .300 * cs + 1.250 * sn; m7 = .587 - .588 * cs - 1.050 * sn; m8 = .114 + .886 * cs - .203 * sn;
+    }
+    const doSat = Math.abs(sat) > .01, doBr = Math.abs(br - 1) > .01;
+    const doInv = inv > .004, doFlash = flash > .004, doVig = vig > .01;
+    const levels = post > .01 ? Math.max(2, Math.round(M.lerp(32, 3, post))) : 0;
+    const step = levels ? 255 / (levels - 1) : 0;
+    const tDecay = M.lerp(.34, .60, M.sat(fx.trails));
+    const tK = M.lerp(.30, .78, M.sat(fx.trails));
+
+    for (let y = 0; y < h; y++) {
+      const rowBase = y * w;
+      const mk = mask[y];
+      const kalE = kal * mk, tunE = fx.tunnel * mk, rotE = (fx.rot || 0) * mk;
+      const zoomE = 1 + ((fx.zoom || 1) - 1) * mk;
+      const ripE = rip * (.35 + .65 * mk);
+      const usePolar = kalE > .11 || tunE > .09;
+      const useAffine = usePolar || Math.abs(rotE) > .0015 || Math.abs(zoomE - 1) > .003;
+      const rc = useAffine ? Math.cos(rotE) : 1, rs = useAffine ? Math.sin(rotE) : 0;
+      const yOffRow = colOff.length ? 0 : 0;
+      const scanMul = (scan > .01 && (y & 1)) ? (1 - scan * .30) : 1;
+      const dyv = y - cy, dyv2 = dyv * dyv;
+      const rowX = rowOff[y];
+
+      for (let x = 0; x < w; x++) {
+        const di = (rowBase + x) << 2;
+        let r, g, b;
+
+        /* --- 幾何 --- */
+        if (doGeom) {
+          let sx = x - rowX;
+          let sy = y - colOff[x] * mk + shY;
+          if (ripE > .004) {
+            const dx = x - ripCX, dy = y - ripCY;
+            const d = Math.sqrt(dx * dx + dy * dy) + .001;
+            const amp = Math.sin(d * .22 - t * 6.5) * ripE * 4.2 * (d < 60 ? 1 : 60 / d);
+            sx += dx / d * amp; sy += dy / d * amp;
+          }
+          if (useAffine) {
+            let dx = sx - cx, dy = sy - cy;
+            if (zoomE !== 1) { dx /= zoomE; dy /= zoomE; }
+            if (rotE) { const nx = dx * rc - dy * rs; dy = dx * rs + dy * rc; dx = nx; }
+            if (usePolar) {
+              if (tunE > .09) {
+                const rr0 = Math.sqrt(dx * dx + dy * dy) + .001;
+                const a = Math.atan2(dy, dx) + tunE * (1.6 - rr0 / maxR * 1.4) * 1.1;
+                const rr = rr0 * (1 - tunE * .18 * Math.sin(rr0 * .06 - t * 2.2));
+                dx = Math.cos(a) * rr; dy = Math.sin(a) * rr;
+              }
+              if (kalE > .11) {
+                const rr = Math.sqrt(dx * dx + dy * dy);
+                let fa = M.mod(Math.atan2(dy, dx) + fx.kaleidoRot, segA);
+                if (fa > segA * .5) fa = segA - fa;
+                const ka = fa - segA * .5 + 1.5707963;
+                dx += (Math.cos(ka) * rr - dx) * kalE;
+                dy += (Math.sin(ka) * rr - dy) * kalE;
+              }
+            }
+            sx = cx + dx; sy = cy + dy;
+          }
+          let ix = sx | 0, iy = sy | 0;
+          if (ix < 0) ix = -ix % w; else if (ix >= w) ix = w - 1 - (ix - w) % w;
+          if (iy < 0) iy = -iy % h; else if (iy >= h) iy = h - 1 - (iy - h) % h;
+          if (rgb > .002) {
+            const d = rgb * 3.2 * (.4 + .6 * mk);
+            let rx = (sx - d) | 0, bx = (sx + d) | 0;
+            if (rx < 0) rx = 0; else if (rx >= w) rx = w - 1;
+            if (bx < 0) bx = 0; else if (bx >= w) bx = w - 1;
+            const rowS = iy * w;
+            r = S[(rowS + rx) << 2];
+            g = S[((rowS + ix) << 2) + 1];
+            b = S[((rowS + bx) << 2) + 2];
+          } else {
+            const si = (iy * w + ix) << 2;
+            r = S[si]; g = S[si + 1]; b = S[si + 2];
+          }
+        } else {
+          r = S[di]; g = S[di + 1]; b = S[di + 2];
+        }
+
+        /* --- 色 --- */
+        if (doColor) {
+          if (doHue) {
+            const nr = r * m0 + g * m1 + b * m2;
+            const ng = r * m3 + g * m4 + b * m5;
+            const nb = r * m6 + g * m7 + b * m8;
+            r = nr; g = ng; b = nb;
+          }
+          if (doSat) {
+            const l = r * .299 + g * .587 + b * .114;
+            r = l + (r - l) * (1 + sat); g = l + (g - l) * (1 + sat); b = l + (b - l) * (1 + sat);
+          }
+          if (doBr) { r *= br; g *= br; b *= br; }
+          if (doInv) { r += (255 - r - r) * inv; g += (255 - g - g) * inv; b += (255 - b - b) * inv; }
+          if (doFlash) { r += (fc[0] - r) * flash; g += (fc[1] - g) * flash; b += (fc[2] - b) * flash; }
+          if (scanMul !== 1) { r *= scanMul; g *= scanMul; b *= scanMul; }
+          if (doVig) {
+            const dxv = x - cx;
+            const k = 1 - vig * ((dxv * dxv + dyv2) / maxR2) * 1.15;
+            r *= k; g *= k; b *= k;
+          }
+          if (levels) {
+            r = Math.round(r / step) * step; g = Math.round(g / step) * step; b = Math.round(b / step) * step;
+          }
+          r = r < 0 ? 0 : r > 255 ? 255 : r;
+          g = g < 0 ? 0 : g > 255 ? 255 : g;
+          b = b < 0 ? 0 : b > 255 ? 255 : b;
+        }
+
+        /* --- 残像 --- */
+        if (doTrail) {
+          const pr = H[di] * tDecay, pg = H[di + 1] * tDecay, pb = H[di + 2] * tDecay;
+          if (pr > r) r += (pr - r) * tK;
+          if (pg > g) g += (pg - g) * tK;
+          if (pb > b) b += (pb - b) * tK;
+          H[di] = r; H[di + 1] = g; H[di + 2] = b;
+        }
+
+        D[di] = r; D[di + 1] = g; D[di + 2] = b; D[di + 3] = 255;
+      }
+    }
+  }
+
+  clearHistory() { if (this.hist) this.hist.fill(0); }
+}
+
+PX.Pixel = Pixel;
+})(window.PX);
+
+;
+/* ===== src/audio.js ===== */
+/* =====================================================================
+   audio.js — WebAudio 音楽エンジン + Conductor(音楽時計)
+   ---------------------------------------------------------------------
+   ・完成楽曲がまだ無いので、TrackDef からプロシージャルに演奏する。
+   ・TrackDef.audioUrl を指定すれば実楽曲に差し替わり、
+     Conductor は音源の currentTime から拍を割り出す（合成音は自動で停止）。
+   ・ドラムグリッド(kick/snare/hat/bass)は視覚側のエンベロープ源も兼ねる。
+     → 実曲を入れる場合もグリッドだけ書けば世界が同期する。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M;
+
+/* --------------------------------------------------------- Conductor */
+class Conductor {
+  constructor(track) {
+    this.track = track;
+    this.bpm = track.bpm;
+    this.spb = 60 / track.bpm;              // seconds per beat
+    this.bpBar = track.beatsPerBar || 4;
+    this.time = 0;      // 曲頭からの秒数
+    this.beat = 0;      // 拍（小数）
+    this.bar = 0;
+    this.beatPhase = 0; this.barPhase = 0;
+    this.beatIndex = -1; this.barIndex = -1;
+    this.step = 0; this.stepIndex = -1;     // 16分
+    this.section = track.sections[0];
+    this.sectionIndex = 0;
+    this.sectionT = 0;                       // セクション内進行 0..1
+    this.energy = 0;
+    this.onBeat = false; this.onBar = false; this.onStep = false;
+    this.env = { kick: 0, snare: 0, hat: 0, bass: 0, chord: 0 };
+    this.pulse = 0;      // 総合的な「ドン」感 0..1
+    this.swing = track.swing || 0;
+  }
+  set(time) {
+    const t = this.time = time;
+    const b = this.beat = t / this.spb;
+    this.bar = b / this.bpBar;
+    const bi = Math.floor(b), bri = Math.floor(this.bar);
+    this.onBeat = bi !== this.beatIndex; this.beatIndex = bi;
+    this.onBar = bri !== this.barIndex; this.barIndex = bri;
+    this.beatPhase = b - bi;
+    this.barPhase = this.bar - bri;
+    const st = this.step = b * 4;
+    const sti = Math.floor(st);
+    this.onStep = sti !== this.stepIndex; this.stepIndex = sti;
+
+    // section 解決
+    const secs = this.track.sections;
+    let si = 0;
+    for (let i = 0; i < secs.length; i++) if (this.bar >= secs[i].bar) si = i;
+    this.sectionIndex = si;
+    this.section = secs[si];
+    const nextBar = (si + 1 < secs.length) ? secs[si + 1].bar : secs[si].bar + 8;
+    this.sectionT = M.sat((this.bar - secs[si].bar) / Math.max(.001, nextBar - secs[si].bar));
+    this.energy = secs[si].energy === undefined ? .5 : secs[si].energy;
+
+    // 打楽器エンベロープ（グリッドから逆算 = 音声解析不要）
+    const pat = PX.Track.patternFor(this.track, this.section);
+    const E = this.env;
+    E.kick = this._envOf(pat.kick, st, 7.5);
+    E.snare = this._envOf(pat.snare, st, 9.0);
+    E.hat = this._envOf(pat.hat, st, 22.0);
+    E.bass = this._envOf(pat.bass, st, 5.0);
+    E.chord = this._envOf(pat.skank, st, 8.0);
+    this.pulse = M.sat(E.kick * .85 + E.snare * .5 + E.bass * .35);
+  }
+  _envOf(grid, stepF, decay) {
+    if (!grid || !grid.length) return 0;
+    const L = grid.length;
+    let best = 99;
+    const s = Math.floor(stepF);
+    for (let back = 0; back < 8; back++) {
+      const idx = M.mod(s - back, L);
+      if (grid[idx]) { best = (stepF - Math.floor(stepF)) + back; break; }
+    }
+    if (best > 8) return 0;
+    const secs = best * (this.spb / 4);
+    return Math.exp(-secs * decay);
+  }
+}
+PX.Conductor = Conductor;
+
+/* ------------------------------------------------------------- Track */
+PX.Track = {
+  patternFor(track, section) {
+    const key = section && section.pattern ? section.pattern : 'basic';
+    return track.patterns[key] || track.patterns.basic;
+  },
+  /* section 名から現在の bar を秒に変換 */
+  barToTime(track, bar) { return bar * (track.beatsPerBar || 4) * 60 / track.bpm; },
+  timeToBar(track, t) { return t / ((track.beatsPerBar || 4) * 60 / track.bpm); },
+  duration(track) {
+    const last = track.sections[track.sections.length - 1];
+    return PX.Track.barToTime(track, last.bar + (last.bars || 8));
+  }
+};
+
+/* ------------------------------------------------------------- Audio */
+const Audio = PX.Audio = {
+  ctx: null, ready: false, playing: false,
+  track: null,
+  startAt: 0,
+  master: null, musicGain: null, delay: null, fb: null, sfxGain: null,
+  engineNodes: null,
+  _lookahead: .18, _timer: null, _nextStep: 0, _stepTime: 0,
+  volume: .9,
+  externalSource: null, externalBuffer: null,
+  muted: false,
+
+  init() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return true; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    const ctx = this.ctx = new AC();
+    const master = this.master = ctx.createGain();
+    master.gain.value = this.volume;
+    let out = master;
+    if (ctx.createDynamicsCompressor) {
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -12; comp.knee.value = 24; comp.ratio.value = 4;
+      comp.attack.value = .004; comp.release.value = .18;
+      master.connect(comp); comp.connect(ctx.destination);
+      out = comp;
+    } else master.connect(ctx.destination);
+
+    this.musicGain = ctx.createGain(); this.musicGain.gain.value = 1; this.musicGain.connect(master);
+    this.sfxGain = ctx.createGain(); this.sfxGain.gain.value = .8; this.sfxGain.connect(master);
+
+    // dub delay
+    const d = this.delay = ctx.createDelay(2.0);
+    d.delayTime.value = .38;
+    const fb = this.fb = ctx.createGain(); fb.gain.value = .38;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
+    const dOut = this.delayOut = ctx.createGain(); dOut.gain.value = .5;
+    d.connect(lp); lp.connect(fb); fb.connect(d); lp.connect(dOut); dOut.connect(master);
+
+    this.noiseBuf = this._makeNoise(2.0);
+    this.ready = true;
+    return true;
+  },
+
+  _makeNoise(sec) {
+    const ctx = this.ctx, n = Math.floor(ctx.sampleRate * sec);
+    const b = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  },
+
+  setTrack(track) {
+    this.track = track;
+    if (this.delay && track.bpm) this.delay.delayTime.value = (60 / track.bpm) * (track.delayBeats || .75);
+  },
+
+  /* 実楽曲の差し替え: track.audioUrl があればそれを再生 */
+  async loadExternal(url) {
+    if (!this.ctx) this.init();
+    const res = await fetch(url);
+    const ab = await res.arrayBuffer();
+    this.externalBuffer = await this.ctx.decodeAudioData(ab);
+    return this.externalBuffer;
+  },
+
+  play(offset) {
+    if (!this.ready) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    offset = offset || 0;
+    this.startAt = this.ctx.currentTime - offset;
+    this.playing = true;
+    if (this.externalBuffer) {
+      const s = this.ctx.createBufferSource();
+      s.buffer = this.externalBuffer;
+      s.connect(this.musicGain);
+      s.start(this.ctx.currentTime, offset);
+      this.externalSource = s;
+    } else {
+      this._nextStep = Math.floor(offset / (60 / this.track.bpm / 4));
+      this._scheduler();
+    }
+  },
+
+  stop(fade) {
+    this.playing = false;
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    if (this.externalSource) { try { this.externalSource.stop(); } catch (e) {} this.externalSource = null; }
+    if (this.musicGain && fade) {
+      const g = this.musicGain.gain, t = this.ctx.currentTime;
+      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(0, t + fade);
+    }
+  },
+
+  fadeMusic(v, sec) {
+    if (!this.musicGain) return;
+    const g = this.musicGain.gain, t = this.ctx.currentTime;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(v, t + (sec || .5));
+  },
+
+  now() { return this.ctx ? this.ctx.currentTime - this.startAt : 0; },
+
+  /* ---------------------------------------------------- 16分スケジューラ */
+  _scheduler() {
+    if (!this.playing || this.externalBuffer) return;
+    const ctx = this.ctx, tr = this.track;
+    const stepDur = (60 / tr.bpm) / 4;
+    const until = ctx.currentTime + this._lookahead;
+    let guard = 0;
+    while (this.startAt + this._nextStep * stepDur < until && guard++ < 64) {
+      const t = this.startAt + this._nextStep * stepDur;
+      if (t >= ctx.currentTime - .05) this._playStep(this._nextStep, t, stepDur);
+      this._nextStep++;
+    }
+    this._timer = setTimeout(() => this._scheduler(), 25);
+  },
+
+  _playStep(step, t, stepDur) {
+    const tr = this.track;
+    const bar = Math.floor(step / (tr.beatsPerBar * 4));
+    let sec = tr.sections[0], si = 0;
+    for (let i = 0; i < tr.sections.length; i++) if (bar >= tr.sections[i].bar) { sec = tr.sections[i]; si = i; }
+    const pat = PX.Track.patternFor(tr, sec);
+    const L = pat.kick.length;
+    const s = M.mod(step, L);
+    const energy = sec.energy === undefined ? .5 : sec.energy;
+    const swing = (s % 2 === 1) ? stepDur * (tr.swing || 0) * .5 : 0;
+    const tt = t + swing;
+    const mute = sec.mute || {};
+
+    if (pat.kick[s] && !mute.drums) this.kick(tt, .9 * pat.kick[s]);
+    if (pat.snare[s] && !mute.drums) this.snare(tt, .55 * pat.snare[s], sec.dub ? .5 : .12);
+    if (pat.hat[s] && !mute.drums) this.hat(tt, .30 * pat.hat[s], s % 4 === 2);
+    if (pat.perc && pat.perc[s] && !mute.drums) this.perc(tt, .35 * pat.perc[s], 300 + 900 * M.hash(step * .37));
+    if (pat.bass[s] && !mute.bass) {
+      const note = pat.bassNotes ? pat.bassNotes[M.mod(Math.floor(step / 4), pat.bassNotes.length)] : 0;
+      this.bass(tt, tr.root * Math.pow(2, note / 12), stepDur * (pat.bassLen || 2.4), .85);
+    }
+    if (pat.skank[s] && !mute.chord) {
+      const ci = M.mod(Math.floor(step / (tr.beatsPerBar * 4)), (pat.chords || [[0, 3, 7]]).length);
+      const ch = (pat.chords || [[0, 3, 7]])[ci];
+      this.skank(tt, tr.root * 4, ch, stepDur * 1.1, .17 * (sec.dub ? 1.3 : 1), sec.dub ? .55 : .2);
+    }
+    if (pat.lead && pat.lead[s] && !mute.lead) {
+      const ln = pat.leadNotes ? pat.leadNotes[M.mod(step, pat.leadNotes.length)] : 12;
+      this.lead(tt, tr.root * 4 * Math.pow(2, ln / 12), stepDur * 1.8, .13 * energy);
+    }
+    if (pat.pad && pat.pad[s] && !mute.pad) {
+      const ci = M.mod(Math.floor(step / (tr.beatsPerBar * 4)), (pat.chords || [[0, 3, 7]]).length);
+      this.pad(tt, tr.root * 2, (pat.chords || [[0, 3, 7]])[ci], stepDur * 14, .075 * energy);
+    }
+    if (pat.sweep && pat.sweep[s]) this.sweep(tt, stepDur * 16, .22);
+  },
+
+  /* ------------------------------------------------------------ 音源群 */
+  kick(t, v) {
+    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(135, t);
+    o.frequency.exponentialRampToValueAtTime(42, t + .11);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(v, t + .004);
+    g.gain.exponentialRampToValueAtTime(.001, t + .34);
+    o.connect(g); g.connect(this.musicGain);
+    o.start(t); o.stop(t + .38);
+    // クリック成分
+    const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+    const ng = c.createGain(); ng.gain.setValueAtTime(v * .22, t); ng.gain.exponentialRampToValueAtTime(.001, t + .03);
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+    n.connect(f); f.connect(ng); ng.connect(this.musicGain);
+    n.start(t); n.stop(t + .05);
+  },
+  snare(t, v, send) {
+    const c = this.ctx;
+    const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+    n.playbackRate.value = 1 + Math.random() * .1;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1900; f.Q.value = .8;
+    const g = c.createGain();
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.001, t + .16);
+    n.connect(f); f.connect(g); g.connect(this.musicGain);
+    if (send) { const s = c.createGain(); s.gain.value = send; g.connect(s); s.connect(this.delay); }
+    n.start(t); n.stop(t + .2);
+    const o = c.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(210, t);
+    const og = c.createGain(); og.gain.setValueAtTime(v * .5, t); og.gain.exponentialRampToValueAtTime(.001, t + .09);
+    o.connect(og); og.connect(this.musicGain); o.start(t); o.stop(t + .1);
+  },
+  hat(t, v, open) {
+    const c = this.ctx;
+    const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+    n.playbackRate.value = 1.7;
+    const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7200;
+    const g = c.createGain();
+    g.gain.setValueAtTime(v, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + (open ? .13 : .045));
+    n.connect(f); f.connect(g); g.connect(this.musicGain);
+    n.start(t); n.stop(t + .16);
+  },
+  perc(t, v, freq) {
+    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(freq, t);
+    o.frequency.exponentialRampToValueAtTime(freq * .6, t + .07);
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.001, t + .09);
+    const s = c.createGain(); s.gain.value = .3;
+    o.connect(g); g.connect(this.musicGain); g.connect(s); s.connect(this.delay);
+    o.start(t); o.stop(t + .1);
+  },
+  bass(t, freq, dur, v) {
+    const c = this.ctx, o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(freq, t);
+    o2.type = 'triangle'; o2.frequency.setValueAtTime(freq * 2.005, t);
+    const f = c.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(420, t); f.frequency.exponentialRampToValueAtTime(180, t + dur);
+    f.Q.value = 6;
+    const g2 = c.createGain(); g2.gain.value = .25;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(v, t + .02);
+    g.gain.setValueAtTime(v, t + dur * .6);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(f); o2.connect(g2); g2.connect(f); f.connect(g); g.connect(this.musicGain);
+    o.start(t); o.stop(t + dur + .05); o2.start(t); o2.stop(t + dur + .05);
+  },
+  skank(t, root, chord, dur, v, send) {
+    const c = this.ctx;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(v, t + .008);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 3200; f.Q.value = 1;
+    for (let i = 0; i < chord.length; i++) {
+      const o = c.createOscillator();
+      o.type = i === 0 ? 'square' : 'sawtooth';
+      o.frequency.setValueAtTime(root * Math.pow(2, chord[i] / 12), t);
+      o.detune.value = (i - 1) * 6;
+      o.connect(f); o.start(t); o.stop(t + dur + .05);
+    }
+    f.connect(g); g.connect(this.musicGain);
+    if (send) { const s = c.createGain(); s.gain.value = send; g.connect(s); s.connect(this.delay); }
+  },
+  lead(t, freq, dur, v) {
+    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(freq, t);
+    const f = c.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(2600, t); f.frequency.exponentialRampToValueAtTime(900, t + dur);
+    f.Q.value = 8;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .01);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(f); f.connect(g); g.connect(this.musicGain);
+    const s = c.createGain(); s.gain.value = .45; g.connect(s); s.connect(this.delay);
+    o.start(t); o.stop(t + dur + .05);
+  },
+  pad(t, root, chord, dur, v) {
+    const c = this.ctx;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(v, t + dur * .25);
+    g.gain.linearRampToValueAtTime(v * .8, t + dur * .7);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1500;
+    const lfo = c.createOscillator(); lfo.frequency.value = .17;
+    const lg = c.createGain(); lg.gain.value = 600;
+    lfo.connect(lg); lg.connect(f.frequency); lfo.start(t); lfo.stop(t + dur);
+    for (let i = 0; i < chord.length; i++) {
+      for (let d = -1; d <= 1; d += 2) {
+        const o = c.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(root * Math.pow(2, chord[i] / 12), t);
+        o.detune.value = d * 7;
+        o.connect(f); o.start(t); o.stop(t + dur + .1);
+      }
+    }
+    f.connect(g); g.connect(this.musicGain);
+  },
+  sweep(t, dur, v) {
+    const c = this.ctx;
+    const n = c.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 3;
+    f.frequency.setValueAtTime(200, t);
+    f.frequency.exponentialRampToValueAtTime(9000, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + dur * .8);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    n.connect(f); f.connect(g); g.connect(this.musicGain);
+    n.start(t); n.stop(t + dur + .05);
+  },
+
+  /* --------------------------------------------------------- エンジン音 */
+  startEngine() {
+    if (!this.ready || this.engineNodes) return;
+    const c = this.ctx;
+    const n = c.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true;
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 240; f.Q.value = 3;
+    const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 62;
+    const of_ = c.createBiquadFilter(); of_.type = 'lowpass'; of_.frequency.value = 320;
+    const g = c.createGain(); g.gain.value = 0;
+    n.connect(f); f.connect(g); o.connect(of_); of_.connect(g);
+    g.connect(this.master);
+    n.start(); o.start();
+    g.gain.linearRampToValueAtTime(.12, c.currentTime + 1.2);
+    this.engineNodes = { n, o, f, g, of: of_ };
+  },
+  setEngine(rpm, level) {
+    if (!this.engineNodes) return;
+    const c = this.ctx, e = this.engineNodes, t = c.currentTime;
+    e.o.frequency.setTargetAtTime(46 + rpm * 90, t, .12);
+    e.f.frequency.setTargetAtTime(180 + rpm * 420, t, .12);
+    e.g.gain.setTargetAtTime(level === undefined ? .12 : level, t, .25);
+  },
+  stopEngine(fade) {
+    if (!this.engineNodes) return;
+    const e = this.engineNodes, t = this.ctx.currentTime;
+    e.g.gain.setTargetAtTime(0, t, (fade || 1) * .4);
+    const nodes = e; this.engineNodes = null;
+    setTimeout(() => { try { nodes.n.stop(); nodes.o.stop(); } catch (err) {} }, (fade || 1) * 2000);
+  },
+
+  /* -------------------------------------------------------------- SFX */
+  sfx(name, param) {
+    if (!this.ready) return;
+    const c = this.ctx, t = c.currentTime;
+    switch (name) {
+      case 'perfect': {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'triangle';
+        const f0 = 900 + (param || 0) * 120;
+        o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 1.5, t + .07);
+        g.gain.setValueAtTime(.10, t); g.gain.exponentialRampToValueAtTime(.001, t + .1);
+        o.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .12);
+        break;
+      }
+      case 'miss': {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(90, t + .22);
+        const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700;
+        g.gain.setValueAtTime(.09, t); g.gain.exponentialRampToValueAtTime(.001, t + .25);
+        o.connect(f); f.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .28);
+        break;
+      }
+      case 'eat': {
+        const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+        const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 500; f.Q.value = 1.5;
+        const g = c.createGain(); g.gain.setValueAtTime(.22, t); g.gain.exponentialRampToValueAtTime(.001, t + .35);
+        f.frequency.setValueAtTime(700, t); f.frequency.exponentialRampToValueAtTime(240, t + .3);
+        n.connect(f); f.connect(g); g.connect(this.sfxGain); n.start(t); n.stop(t + .4);
+        break;
+      }
+      case 'door': {
+        const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+        const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1200;
+        const g = c.createGain(); g.gain.setValueAtTime(.2, t); g.gain.exponentialRampToValueAtTime(.001, t + .18);
+        n.connect(f); f.connect(g); g.connect(this.sfxGain); n.start(t); n.stop(t + .2);
+        break;
+      }
+      case 'ignition': {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(30, t);
+        o.frequency.linearRampToValueAtTime(140, t + .55);
+        o.frequency.linearRampToValueAtTime(72, t + 1.1);
+        const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420;
+        g.gain.setValueAtTime(.001, t); g.gain.linearRampToValueAtTime(.18, t + .12);
+        g.gain.linearRampToValueAtTime(.10, t + 1.2);
+        g.gain.exponentialRampToValueAtTime(.001, t + 1.5);
+        o.connect(f); f.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + 1.6);
+        break;
+      }
+      case 'whoosh': {
+        const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+        const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2;
+        f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(4000, t + .7);
+        const g = c.createGain(); g.gain.setValueAtTime(.001, t);
+        g.gain.linearRampToValueAtTime(.16, t + .3); g.gain.exponentialRampToValueAtTime(.001, t + .9);
+        n.connect(f); f.connect(g); g.connect(this.sfxGain); n.start(t); n.stop(t + 1);
+        break;
+      }
+      case 'shimmer': {
+        for (let i = 0; i < 5; i++) {
+          const o = c.createOscillator(), g = c.createGain();
+          o.type = 'sine'; o.frequency.value = 700 * Math.pow(1.5, i) * (1 + (param || 0) * .1);
+          g.gain.setValueAtTime(0, t + i * .03);
+          g.gain.linearRampToValueAtTime(.05 / (i + 1), t + i * .03 + .02);
+          g.gain.exponentialRampToValueAtTime(.001, t + i * .03 + 1.2);
+          o.connect(g); g.connect(this.sfxGain); o.start(t + i * .03); o.stop(t + i * .03 + 1.3);
+        }
+        break;
+      }
+    }
+  }
+};
+
+})(window.PX);
+
+;
+/* ===== src/input.js ===== */
+/* =====================================================================
+   input.js — 片手ドラッグステアリング / タップ / ジャイロ(オプション)
+   ---------------------------------------------------------------------
+   ・画面のどこを触っても良いが、下部 45% は「ハンドル領域」として扱い
+     指の横移動量がそのままステアリングに乗る（実車シムではなく音ゲー感）。
+   ・タップ（短時間・小移動）は tap イベントとして通知（キノコ等）。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M;
+
+class Input {
+  constructor(el, pixel) {
+    this.el = el; this.pixel = pixel;
+    this.raw = 0;          // -1..1 目標ステア
+    this.steer = 0;        // 平滑化後
+    this.vel = 0;
+    this.active = false;
+    this.touchX = 0; this.touchY = 0;
+    this.startX = 0; this.startY = 0; this.startT = 0;
+    this.anchor = 0;
+    this.taps = [];        // {x,y} 内部解像度座標
+    this.gyro = false; this.gyroBase = null; this.gyroVal = 0;
+    this.sensitivity = 1.55;
+    this.lastMoveT = 0;
+    this.wheelKick = 0;    // 演出用: 急な操作量
+
+    const opts = { passive: false };
+    el.addEventListener('touchstart', e => this._down(e.changedTouches[0], e), opts);
+    el.addEventListener('touchmove', e => this._move(e.changedTouches[0], e), opts);
+    el.addEventListener('touchend', e => this._up(e.changedTouches[0], e), opts);
+    el.addEventListener('touchcancel', e => this._up(e.changedTouches[0], e), opts);
+    el.addEventListener('mousedown', e => this._down(e, e));
+    window.addEventListener('mousemove', e => { if (this.active) this._move(e, e); });
+    window.addEventListener('mouseup', e => this._up(e, e));
+    window.addEventListener('keydown', e => this._key(e, 1));
+    window.addEventListener('keyup', e => this._key(e, 0));
+    this.keyL = 0; this.keyR = 0;
+  }
+
+  _pt(t) {
+    const r = this.el.getBoundingClientRect();
+    return {
+      x: (t.clientX - r.left) / r.width * this.pixel.w,
+      y: (t.clientY - r.top) / r.height * this.pixel.h
+    };
+  }
+
+  _down(t, e) {
+    if (e.preventDefault) e.preventDefault();
+    const p = this._pt(t);
+    this.active = true;
+    this.touchX = p.x; this.touchY = p.y;
+    this.startX = p.x; this.startY = p.y;
+    this.startT = performance.now();
+    this.anchor = p.x - this.raw * (this.pixel.w * .34);
+  }
+
+  _move(t, e) {
+    if (e.preventDefault) e.preventDefault();
+    if (!this.active) return;
+    const p = this._pt(t);
+    this.touchX = p.x; this.touchY = p.y;
+    const prev = this.raw;
+    // アンカー相対 + 絶対位置のブレンド → どこを持っても直感的
+    const rel = (p.x - this.anchor) / (this.pixel.w * .34);
+    const abs = (p.x - this.pixel.w * .5) / (this.pixel.w * .42);
+    this.raw = M.clamp(M.lerp(rel, abs, .35) * this.sensitivity, -1.35, 1.35);
+    const d = Math.abs(this.raw - prev);
+    if (d > .09) this.wheelKick = Math.min(1, this.wheelKick + d);
+    this.lastMoveT = performance.now();
+  }
+
+  _up(t, e) {
+    if (!this.active) return;
+    if (e.preventDefault) e.preventDefault();
+    const p = this._pt(t);
+    const dt = performance.now() - this.startT;
+    const dist = Math.hypot(p.x - this.startX, p.y - this.startY);
+    if (dt < 320 && dist < 6) this.taps.push({ x: p.x, y: p.y });
+    this.active = false;
+  }
+
+  _key(e, v) {
+    if (e.key === 'ArrowLeft' || e.key === 'a') { this.keyL = v; e.preventDefault(); }
+    if (e.key === 'ArrowRight' || e.key === 'd') { this.keyR = v; e.preventDefault(); }
+    if (v && (e.key === ' ' || e.key === 'Enter')) this.taps.push({ x: this.pixel.w / 2, y: this.pixel.h / 2 });
+  }
+
+  enableGyro() {
+    const start = () => {
+      this.gyro = true;
+      window.addEventListener('deviceorientation', ev => {
+        if (ev.gamma == null) return;
+        if (this.gyroBase === null) this.gyroBase = ev.gamma;
+        this.gyroVal = M.clamp((ev.gamma - this.gyroBase) / 22, -1.2, 1.2);
+      });
+    };
+    const DOE = window.DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === 'function') {
+      DOE.requestPermission().then(r => { if (r === 'granted') start(); }).catch(() => {});
+    } else if (DOE) start();
+  }
+  disableGyro() { this.gyro = false; this.gyroBase = null; }
+
+  takeTaps() { const t = this.taps; this.taps = []; return t; }
+
+  update(dt) {
+    let target = this.raw;
+    if (this.keyL || this.keyR) target = M.clamp(target + (this.keyR - this.keyL) * 1.15, -1.2, 1.2);
+    if (this.gyro) target = M.clamp(target + this.gyroVal, -1.3, 1.3);
+    if (!this.active && !this.keyL && !this.keyR && !this.gyro) {
+      // 指を離したら緩やかにセンターへ（完全には戻さない = 音ゲー的追従）
+      this.raw = M.approach(this.raw, 0, 1.1, dt);
+      target = this.raw;
+    }
+    const prev = this.steer;
+    this.steer = M.approach(this.steer, M.clamp(target, -1.15, 1.15), 17, dt);
+    this.vel = (this.steer - prev) / Math.max(.0001, dt);
+    this.wheelKick = M.approach(this.wheelKick, 0, 3.5, dt);
+  }
+}
+
+PX.Input = Input;
+})(window.PX);
+
+;
+/* ===== src/art.js ===== */
+/* =====================================================================
+   art.js — ドット絵アセット
+   ---------------------------------------------------------------------
+   [A] 文字列アートから生成するスプライト（生き物・小物）
+       + 色相バリアントを事前生成（サイケ化で世界の色が回っても馴染む）
+   [B] プロシージャル描画関数（木・建物・雲・波など）
+       こちらは「モーフィング引数」を持つ。
+       drawTree(m) の m を 0→1 に動かすと 街路樹 → ヤシの木 に連続変形する。
+       これが本作のトランジション（気づいたら別世界）の中核。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C;
+
+/* ------------------------------------------------- [A] sprite factory */
+function mkSprite(art) {
+  const rows = art.rows, h = rows.length;
+  let w = 0; for (const r of rows) w = Math.max(w, r.length);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  for (let y = 0; y < h; y++) {
+    const row = rows[y];
+    for (let x = 0; x < w; x++) {
+      const ch = row[x] || '.';
+      if (ch === '.' || ch === ' ') continue;
+      const hex = art.pal[ch];
+      if (!hex) continue;
+      const c = C.hex(hex);
+      const i = (y * w + x) * 4;
+      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const spr = { cv, w, h, hues: null };
+  spr.hues = makeHues(spr, 8);
+  return spr;
+}
+
+function makeHues(spr, n) {
+  const out = [];
+  const src = spr.cv.getContext('2d').getImageData(0, 0, spr.w, spr.h);
+  for (let k = 0; k < n; k++) {
+    const cv = document.createElement('canvas'); cv.width = spr.w; cv.height = spr.h;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(spr.w, spr.h);
+    const s = src.data, d = img.data;
+    const ang = k / n;
+    for (let i = 0; i < s.length; i += 4) {
+      if (!s[i + 3]) continue;
+      const c = C.rot([s[i], s[i + 1], s[i + 2]], ang);
+      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    out.push(cv);
+  }
+  return out;
+}
+PX.mkSprite = mkSprite;
+
+const A = PX.ART = {};
+
+/* ------- 猫（最初と最後に出る、この物語のしるし） --------------------- */
+A.cat = {
+  pal: { k: '#241a26', f: '#4a3a44', y: '#ffe070', p: '#ff8aa0', w: '#f0e4ea' },
+  rows: [
+    '.k.......k.',
+    '.kk.....kk.',
+    '.kfffffffk.',
+    '.kfyffffyk.',
+    '.kffkpkffk.',
+    '..fffffff..',
+    '..fffffff.k',
+    '..fffffffkk',
+    '..w.w.w.wk.'
+  ]
+};
+A.catSit = {
+  pal: { k: '#1c1420', f: '#3e2f3a', y: '#ffe070', p: '#ff8aa0' },
+  rows: [
+    '.k.....k...',
+    '.kk...kk...',
+    '.kfffffk...',
+    '.kfyfyfk...',
+    '.kffpffk..k',
+    '..fffff..kk',
+    '..fffff.kk.',
+    '.fffffff...',
+    '.ff...ff...'
+  ]
+};
+
+/* ------- フラダンサー（2 基本ポーズ、揺れは描画時に付与） ------------- */
+A.hula1 = {
+  pal: { h: '#2a1414', s: '#e8a878', d: '#c08050', l: '#ff5a8a', g: '#ffd24a', y: '#e8a83a', k: '#3a2018' },
+  rows: [
+    '....hhh....',
+    '...hhhhh...',
+    '...hsssh...',
+    '...hsssh...',
+    '....sss....',
+    's...lll...s',
+    '.s.lllll.s.',
+    '..ssdddss..',
+    '...ddddd...',
+    '...ddddd...',
+    '...ggggg...',
+    '..ggggggg..',
+    '..gygygyg..',
+    '...ggggg...',
+    '....d.d....',
+    '....d.d....',
+    '...kk.kk...'
+  ]
+};
+A.hula2 = {
+  pal: { h: '#2a1414', s: '#e8a878', d: '#c08050', l: '#ff5a8a', g: '#ffd24a', y: '#e8a83a', k: '#3a2018' },
+  rows: [
+    '....hhh....',
+    '...hhhhh...',
+    '...hsssh...',
+    '...hsssh...',
+    '....sss....',
+    '..s.lll.s..',
+    '..s.lll.s..',
+    '.ssddddds..',
+    '...ddddd...',
+    '...ddddd...',
+    '..ggggggg..',
+    '..gygygyg..',
+    '...ggggg...',
+    '...ggggg...',
+    '...d...d...',
+    '...d...d...',
+    '..kk...kk..'
+  ]
+};
+
+/* ------- 一般人（歩行 2 フレーム） ----------------------------------- */
+A.walk1 = {
+  pal: { h: '#2a1c14', s: '#e8b088', c: '#5a80c8', p: '#2a3a5a', k: '#181820' },
+  rows: ['.hhh.', 'hsssh', '.sss.', 'ccccc', 'ccccc', '.ccc.', '.ppp.', '.p.p.', '.p.p.', 'k...k']
+};
+A.walk2 = {
+  pal: { h: '#2a1c14', s: '#e8b088', c: '#5a80c8', p: '#2a3a5a', k: '#181820' },
+  rows: ['.hhh.', 'hsssh', '.sss.', 'ccccc', 'ccccc', '.ccc.', '.ppp.', 'pp.pp', 'p...p', 'k...k']
+};
+
+/* ------- 犬 / 自転車 / 対向車 ---------------------------------------- */
+A.dog = {
+  pal: { b: '#a8783a', d: '#7a5424', k: '#241810', w: '#f0e8d8' },
+  rows: ['..k......k.', '.bbb....bb.', 'bbbbbbbbbb.', 'bbbbbbbbbbk', 'wb.bb..bb..', '.d.d...d.d.']
+};
+A.bike = {
+  pal: { k: '#20202a', s: '#e8b088', c: '#d05a5a', m: '#8a8a9a' },
+  rows: [
+    '...ss..', '..scs..', '..ccc..', '.mcccm.', '..ccc..', '.m.c.m.',
+    'kkk.kkk', 'k.k.k.k', 'kkk.kkk'
+  ]
+};
+A.carOnc = {
+  pal: { b: '#c8483a', d: '#8a2a24', g: '#7ac0d8', y: '#fff0b0', k: '#181420', r: '#ff4a30' },
+  rows: [
+    '...ddddddd...',
+    '..dgggggggd..',
+    '.ddddddddddd.',
+    'dbbbbbbbbbbbd',
+    'ybbbbbbbbbbby',
+    'ybbbbbbbbbbby',
+    '.kk.......kk.'
+  ]
+};
+
+/* ------- 空を泳ぐ魚 / クジラ / UFO ----------------------------------- */
+A.fish = {
+  pal: { b: '#40e0d0', d: '#1a90a8', w: '#ffffff', k: '#0a2a3a' },
+  rows: ['..bbbb..b', '.bbbbbbbb', 'bwbbbbbbb', 'bkbbbbbbb', '.bbbbbbbb', '..bbbb..b']
+};
+A.fish2 = {
+  pal: { b: '#ff8ac0', d: '#c04a80', w: '#ffffff', k: '#3a0a2a' },
+  rows: ['..bbbb..b', '.bbbbbbbb', 'bwbbbbbbb', 'bkbbbbbbb', '.bbbbbbbb', '..bbbb..b']
+};
+A.whale = {
+  pal: { b: '#5a7ad0', d: '#3a548a', w: '#e8f0ff', k: '#141a30', p: '#a0c0ff' },
+  rows: [
+    '.....bbbbbbbbbb.......dd..',
+    '...bbbbbbbbbbbbbbb...dddd.',
+    '..bbbbbbbbbbbbbbbbbbddddd.',
+    '.bbbbbbbbbbbbbbbbbbbbdddd.',
+    'bbkbbbbbbbbbbbbbbbbbbbddd.',
+    'bbbbbbbbbbbbbbbbbbbbbbdd..',
+    '.wwwwwwwwwwwwwwwwwwwbb....',
+    '..wwwwwwwwwwwwwwwww.......',
+    '...wwwwwwwwwwwww..........'
+  ]
+};
+A.ufo = {
+  pal: { g: '#a0f0c0', m: '#8a90b0', d: '#4a5070', y: '#ffe070', c: '#70e0ff' },
+  rows: [
+    '....ggggg....',
+    '...gggggggg..',
+    '.mmmmmmmmmmm.',
+    'mmdmdmdmdmdmm',
+    '.mmmmmmmmmmm.',
+    '..y..y..y..y.'
+  ]
+};
+
+/* ------- キノコ（すべての始まり） ------------------------------------- */
+A.mushroom = {
+  pal: { r: '#d8484a', h: '#f06a68', w: '#f4ecd8', s: '#e8dcc0', k: '#2a1a1a', p: '#a83236' },
+  rows: [
+    '...hhhhh...',
+    '..hhwhhwhh.',
+    '.hhhhhhhhhh',
+    'rhwhhhhhwhr',
+    'rrhhhhhhhrr',
+    'prrrrrrrrrp',
+    '...sssss...',
+    '...swwss...',
+    '...sssss...',
+    '..sssssss..'
+  ]
+};
+
+/* ------- 巨大な目 / レコード / 手 ------------------------------------ */
+A.eye = {
+  pal: { w: '#f4f0ff', i: '#7a40e0', p: '#100818', k: '#2a1a4a', g: '#c0a0ff' },
+  rows: [
+    '.....kkkkkkkkk.....',
+    '..kkkwwwwwwwwwkkk..',
+    '.kwwwwwwwwwwwwwwwk.',
+    'kwwwwwiiiiiwwwwwwwk',
+    'kwwwwiiipiiiwwwwwwk',
+    'kwwwwiipppiiwwwwwwk',
+    'kwwwwiiipiiiwwwwwwk',
+    'kwwwwwiiiiiwwwwwwwk',
+    '.kwwwwwwwwwwwwwwwk.',
+    '..kkkwwwwwwwwwkkk..',
+    '.....kkkkkkkkk.....'
+  ]
+};
+A.record = {
+  pal: { k: '#181420', d: '#2a2438', l: '#e04a7a', w: '#f0e8ff' },
+  rows: [
+    '..kkkkk..',
+    '.kkdddkk.',
+    'kkdkkkdkk',
+    'kdkkllkkd',
+    'kdklwlkkd',
+    'kdkkllkkd',
+    'kkdkkkdkk',
+    '.kkdddkk.',
+    '..kkkkk..'
+  ]
+};
+
+/* ------- 太陽（サングラス）と月（こちらを見る） ----------------------- */
+A.sunGlasses = {
+  pal: { y: '#ffe45a', o: '#ff9a3a', k: '#241428', w: '#ffffff', p: '#ff5a8a' },
+  rows: [
+    '...oyyyyyyo...',
+    '..oyyyyyyyyo..',
+    '.oyyyyyyyyyyo.',
+    'oyyyyyyyyyyyyo',
+    'kkkkkkkkkkkkkk',
+    'kwkkkkkkkkwkkk',
+    'oykkyyyykkyyyo',
+    'oyyyyppyyyyyyo',
+    '.oyyypppyyyyo.',
+    '..oyyyyyyyyo..',
+    '...oyyyyyyo...'
+  ]
+};
+A.moonFace = {
+  pal: { w: '#f0ecd0', g: '#d8d0a8', k: '#3a3a2a', p: '#c8b890' },
+  rows: [
+    '..wwwwwww..',
+    '.wwwgwwwww.',
+    'wwwwwwwgwww',
+    'wwkwwwwwkww',
+    'wwwwwwwwwww',
+    'wwgwwwwwwww',
+    'wwwkwwwkwww',
+    'wwwwkkkwwww',
+    '.wwwwwwwgw.',
+    '..wwwwwww..'
+  ]
+};
+
+/* 生成 */
+const SPR = PX.SPR = {};
+PX.buildArt = function () {
+  for (const k in A) SPR[k] = mkSprite(A[k]);
+};
+
+/* =================================================== [B] procedural  */
+const P = PX.draw = {};
+
+/*
+  drawTree — 街路樹 ↔ ヤシの木 ↔ 星 のモーフィング
+  m : 0 = 広葉樹(住宅街) / 1 = ヤシ / 2 = 星化(先端が星になる)
+*/
+P.tree = function (p, x, base, hgt, m, sway, col, colB, alpha, hue) {
+  const palm = M.sat(m), star = M.sat(m - 1);
+  const trunkW = Math.max(1, Math.round(M.lerp(hgt * .11, hgt * .055, palm)));
+  const th = hgt * M.lerp(.55, .78, palm);
+  const trunkCol = C.mix(col, [120, 86, 54], .0);
+  const a = alpha === undefined ? 1 : alpha;
+  const ctx = p.ctx;
+  ctx.globalAlpha = a;
+
+  // 幹（ヤシほど反る）
+  let px_ = x, topX = x;
+  const seg = Math.max(3, Math.round(th / 2));
+  for (let i = 0; i < seg; i++) {
+    const t = i / (seg - 1);
+    const bend = Math.sin(t * 1.5) * palm * hgt * .14 + sway * t * t;
+    const y = base - th * t;
+    const w = M.lerp(trunkW, trunkW * M.lerp(1, .6, palm), t);
+    px_ = x + bend;
+    ctx.fillStyle = C.css(C.mix(trunkCol, colB, t * .25 * (1 - palm)));
+    ctx.fillRect(Math.round(px_ - w / 2), Math.round(y), Math.max(1, Math.round(w)), 2);
+    if (palm > .35 && i % 3 === 0) {
+      ctx.fillStyle = C.css(C.scale(trunkCol, .78));
+      ctx.fillRect(Math.round(px_ - w / 2), Math.round(y), Math.max(1, Math.round(w)), 1);
+    }
+    topX = px_;
+  }
+  const topY = base - th;
+
+  if (star < .999) {
+    if (palm < .5) {
+      // 広葉樹: 塊の葉
+      const r = hgt * M.lerp(.30, .16, palm * 2);
+      const k = 1 - palm * 2;
+      p.circle(topX, topY - r * .5, r * .95, C.css(col), a * k);
+      p.circle(topX - r * .6, topY - r * .1, r * .62, C.css(colB), a * k);
+      p.circle(topX + r * .62, topY - r * .18, r * .58, C.css(colB), a * k);
+      p.circle(topX + r * .1, topY - r * 1.1, r * .55, C.css(C.scale(col, 1.14)), a * k);
+    }
+    if (palm > .3) {
+      // ヤシ: 葉を放射状に
+      const k = M.sat((palm - .3) / .55) * (1 - star);
+      const n = 7;
+      const fl = hgt * .38;
+      for (let i = 0; i < n; i++) {
+        const ang = Math.PI + (i / (n - 1)) * Math.PI + Math.sin(i * 2.1) * .12;
+        const droop = .55 + M.hash(i * 3.1) * .4;
+        const c = i % 2 ? col : colB;
+        ctx.fillStyle = C.css(c);
+        let fx = topX, fy = topY;
+        const steps = Math.max(3, Math.round(fl / 1.6));
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          const aa = ang + t * droop * (Math.cos(ang) > 0 ? .9 : -.9);
+          fx += Math.cos(aa) * 1.7;
+          fy += Math.sin(aa) * 1.7 * .9;
+          const w = Math.max(1, Math.round(M.lerp(3, 1, t) * k));
+          ctx.globalAlpha = a * k;
+          ctx.fillRect(Math.round(fx), Math.round(fy - w / 2), 2, w);
+        }
+      }
+      ctx.globalAlpha = a;
+      // ココナッツ
+      if (k > .6) { p.circle(topX - 2, topY + 2, 1.6, C.css([90, 60, 30]), a); p.circle(topX + 2, topY + 3, 1.4, C.css([90, 60, 30]), a); }
+    }
+  }
+  if (star > .01) {
+    // 先端が星になる（宇宙への入口）
+    const r = hgt * .18 * star;
+    P.star(p, topX, topY - r * .4, r, C.css([255, 255, 240]), a * star);
+    p.circle(topX, topY - r * .4, r * .35, '#ffffff', a * star);
+  }
+  ctx.globalAlpha = 1;
+};
+
+/* 4方向の星 */
+P.star = function (p, x, y, r, col, a) {
+  const ctx = p.ctx;
+  ctx.globalAlpha = a === undefined ? 1 : a;
+  ctx.fillStyle = typeof col === 'string' ? col : C.css(col);
+  x = Math.round(x); y = Math.round(y); r = Math.max(1, Math.round(r));
+  for (let i = -r; i <= r; i++) {
+    const w = Math.max(1, Math.round((1 - Math.abs(i) / r) * 2.2));
+    ctx.fillRect(x - Math.round(w / 2), y + i, w, 1);
+    ctx.fillRect(x + i, y - Math.round(w / 2), 1, w);
+  }
+  ctx.globalAlpha = 1;
+};
+
+/*
+  drawBuilding — 家 ↔ ビル ↔ 溶ける ↔ 木 のモーフ
+  m : 0 = 一軒家 / 1 = 高層ビル
+  melt : 溶け具合 (窓が星になる → 宇宙へ)
+*/
+P.building = function (p, x, base, w, h, m, opt) {
+  opt = opt || {};
+  const ctx = p.ctx;
+  const a = opt.alpha === undefined ? 1 : opt.alpha;
+  if (a <= .01) return;
+  ctx.globalAlpha = a;
+  const body = opt.body || [40, 36, 60];
+  const roof = opt.roof || [70, 40, 50];
+  const winOn = opt.win || [255, 214, 140];
+  const winOff = opt.winOff || [40, 40, 60];
+  const tall = M.sat(m);
+  const melt = M.sat(opt.melt || 0);
+  const breathe = opt.breathe || 0;
+  const bw = Math.max(3, Math.round(w * (1 + breathe * .06)));
+  const bh = Math.max(4, Math.round(h * (1 + breathe * .04)));
+  const x0 = Math.round(x - bw / 2), y0 = Math.round(base - bh);
+
+  // 屋根（低層のみ三角屋根）
+  if (tall < .7) {
+    const rh = Math.round(bh * .28 * (1 - tall));
+    ctx.fillStyle = C.css(roof);
+    for (let i = 0; i < rh; i++) {
+      const t = i / Math.max(1, rh - 1);
+      const ww = Math.round(bw * (0.15 + .85 * t)) + 2;
+      ctx.fillRect(Math.round(x - ww / 2), y0 - rh + i, ww, 1);
+    }
+  } else {
+    ctx.fillStyle = C.css(C.scale(body, 1.25));
+    ctx.fillRect(x0, y0 - 2, bw, 2);
+    // アンテナ
+    ctx.fillStyle = C.css(opt.antenna || [255, 60, 90]);
+    ctx.fillRect(Math.round(x), y0 - 7, 1, 6);
+    if (opt.blink) ctx.fillRect(Math.round(x) - 1, y0 - 8, 3, 2);
+  }
+
+  ctx.fillStyle = C.css(body);
+  ctx.fillRect(x0, y0, bw, bh);
+
+  // 窓（音楽で明滅 / 目のようにまばたき / 星化）
+  const cols = Math.max(1, Math.floor(bw / 4));
+  const rowsN = Math.max(1, Math.floor(bh / 5));
+  const seed = opt.seed || 1;
+  for (let r = 0; r < rowsN; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wx = x0 + 2 + c * 4, wy = y0 + 3 + r * 5;
+      if (wy + 2 > base - 1) continue;
+      const hsh = M.hash2(c + seed * 7.3, r + seed * 2.1);
+      let on = hsh > .38;
+      if (opt.beatWin !== undefined) on = hsh > .38 - opt.beatWin * .35;
+      const blink = opt.blink && M.hash2(c * 3.1 + seed, r * 1.7) < opt.blink;
+      const col = on ? winOn : winOff;
+      if (melt > .3 && hsh > .55) {
+        // 窓が星になる
+        P.star(p, wx + 1, wy + 1, 1 + melt * 2, '#ffffff', a * M.sat((melt - .3) / .5));
+        continue;
+      }
+      ctx.fillStyle = C.css(col);
+      if (blink) ctx.fillRect(wx, wy + 1, 2, 1);
+      else ctx.fillRect(wx, wy, 2, 3);
+    }
+  }
+  ctx.globalAlpha = 1;
+};
+
+/* 街灯（ビートで明滅する） */
+P.streetlight = function (p, x, base, h, col, glow, glowAmt) {
+  const ctx = p.ctx;
+  ctx.fillStyle = C.css(col);
+  ctx.fillRect(Math.round(x), Math.round(base - h), 1, Math.round(h));
+  const armDir = x < p.w / 2 ? 1 : -1;
+  ctx.fillRect(Math.round(x), Math.round(base - h), armDir > 0 ? 4 : -4 + 1, 1);
+  const lx = x + armDir * 3.5, ly = base - h + 1;
+  if (glowAmt > .02) {
+    p.circle(lx, ly + 1, 1.5 + glowAmt * 3.2, C.cssa(glow, .30 + glowAmt * .5));
+    p.circle(lx, ly + 1, 1 + glowAmt, C.css(glow));
+  }
+};
+
+/* 電柱 */
+P.pole = function (p, x, base, h, col, breathe) {
+  const ctx = p.ctx;
+  const w = 1 + (breathe > .5 ? 1 : 0);
+  ctx.fillStyle = C.css(col);
+  ctx.fillRect(Math.round(x), Math.round(base - h), w, Math.round(h));
+  ctx.fillRect(Math.round(x - 3), Math.round(base - h + 3), 7, 1);
+  ctx.fillRect(Math.round(x - 2), Math.round(base - h + 6), 5, 1);
+};
+
+/* 標識（文字が化ける） */
+P.sign = function (p, x, base, h, text, colBg, colFg, colPole) {
+  const ctx = p.ctx;
+  ctx.fillStyle = C.css(colPole);
+  ctx.fillRect(Math.round(x), Math.round(base - h), 1, Math.round(h));
+  const w = PX.textWidth(text, 1, 1) + 4;
+  const bx = Math.round(x - w / 2), by = Math.round(base - h - 9);
+  ctx.fillStyle = C.css(colBg);
+  ctx.fillRect(bx, by, w, 9);
+  ctx.fillStyle = C.css(colFg);
+  ctx.fillRect(bx, by, w, 1); ctx.fillRect(bx, by + 8, w, 1);
+  ctx.fillRect(bx, by, 1, 9); ctx.fillRect(bx + w - 1, by, 1, 9);
+  p.text(text, bx + 2, by + 2, colFg, 1, 1);
+};
+
+/* 雲（巨大な顔になれる） */
+P.cloud = function (p, x, y, w, h, col, face, alpha) {
+  const a = alpha === undefined ? 1 : alpha;
+  p.circle(x, y, h, C.css(col), a);
+  p.circle(x - w * .32, y + h * .22, h * .72, C.css(col), a);
+  p.circle(x + w * .34, y + h * .18, h * .78, C.css(col), a);
+  p.circle(x - w * .12, y - h * .35, h * .66, C.css(col), a);
+  p.circle(x + w * .14, y - h * .3, h * .6, C.css(col), a);
+  const ctx = p.ctx;
+  ctx.globalAlpha = a;
+  ctx.fillStyle = C.css(C.scale(col, .82));
+  ctx.fillRect(Math.round(x - w * .5), Math.round(y + h * .55), Math.round(w), 1);
+  ctx.globalAlpha = 1;
+  if (face > .01) {
+    const dark = C.scale(col, .35);
+    const ey = y - h * .12, ex = w * .26;
+    p.circle(x - ex, ey, h * .17, C.cssa(dark, face));
+    p.circle(x + ex, ey, h * .17, C.cssa(dark, face));
+    // 口
+    const my = y + h * .28;
+    ctx.globalAlpha = face;
+    ctx.fillStyle = C.css(dark);
+    for (let i = -3; i <= 3; i++) {
+      const yy = my + Math.round(Math.cos(i / 3 * 1.4) * -h * .1 + h * .1);
+      ctx.fillRect(Math.round(x + i * w * .07), Math.round(yy), 2, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+};
+
+/* 水面のきらめき（帯状） */
+P.water = function (p, y0, y1, cx, colA, colB, t, amp) {
+  const ctx = p.ctx;
+  for (let y = y0; y < y1; y++) {
+    const d = (y - y0) / Math.max(1, y1 - y0);
+    const c = C.mix(colA, colB, d);
+    ctx.fillStyle = C.css(c);
+    ctx.fillRect(0, y, p.w, 1);
+    // ハイライト
+    const n = 3 + Math.floor(d * 8);
+    ctx.fillStyle = C.css(C.scale(c, 1.5));
+    for (let i = 0; i < n; i++) {
+      const ph = M.hash2(y * .7, i * 3.3);
+      const x = M.mod(ph * p.w + Math.sin(t * (0.6 + ph) + y * .3) * (6 + amp * 14), p.w);
+      const w = 1 + Math.round(d * 3);
+      ctx.fillRect(Math.round(x), y, w, 1);
+    }
+  }
+};
+
+/* 山脈シルエット */
+P.mountains = function (p, y, h, col, seed, scroll, alpha) {
+  const ctx = p.ctx;
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  ctx.fillStyle = C.css(col);
+  for (let x = 0; x < p.w; x++) {
+    const u = (x + scroll) * .035;
+    const e = (M.fbm(u + seed, 3) * .8 + M.fbm(u * 2.7 + seed * 3, 2) * .2);
+    const hh = Math.round(e * h);
+    ctx.fillRect(x, y - hh, 1, hh + 2);
+  }
+  ctx.globalAlpha = 1;
+};
+
+/* ヤシ以外の「踊る植物」（ジャングル用シダ） */
+P.fern = function (p, x, base, h, sway, colA, colB, alpha) {
+  const ctx = p.ctx;
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  const n = 6;
+  for (let i = 0; i < n; i++) {
+    const ang = -Math.PI / 2 + (i / (n - 1) - .5) * 1.9;
+    let fx = x, fy = base;
+    const steps = Math.round(h / 1.8);
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const aa = ang + Math.sin(t * 2.2) * .5 * (ang < -Math.PI / 2 ? -1 : 1) + sway * t * .06;
+      fx += Math.cos(aa) * 1.8;
+      fy += Math.sin(aa) * 1.8;
+      ctx.fillStyle = C.css(i % 2 ? colA : colB);
+      const w = Math.max(1, Math.round(M.lerp(2.6, 1, t)));
+      ctx.fillRect(Math.round(fx), Math.round(fy), w, w);
+    }
+  }
+  ctx.globalAlpha = 1;
+};
+
+/* 浮遊島 */
+P.island = function (p, x, y, w, colTop, colRock, alpha) {
+  const ctx = p.ctx;
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  const h = w * .35;
+  ctx.fillStyle = C.css(colTop);
+  ctx.fillRect(Math.round(x - w / 2), Math.round(y), Math.round(w), 2);
+  ctx.fillStyle = C.css(colRock);
+  for (let i = 0; i < h; i++) {
+    const t = i / h;
+    const ww = Math.round(w * (1 - t * t) * (1 - t * .3));
+    ctx.fillRect(Math.round(x - ww / 2), Math.round(y + 2 + i), Math.max(1, ww), 1);
+  }
+  ctx.globalAlpha = 1;
+};
+
+})(window.PX);
+
+;
+/* ===== src/world.js ===== */
+/* =====================================================================
+   world.js — ワールド重みブレンド / 多重パララックス背景 / 路肩オブジェクト
+   ---------------------------------------------------------------------
+   ワールドは「切り替える」のではなく「重みを移す」。
+   ・パレットは重み平均 → 色が連続的に溶ける
+   ・背景レイヤーは重みをアルファに → 山が溶けてビル群が浮かぶ
+   ・路肩オブジェクトは "kind" だけ持ち、見た目は毎フレーム現在の重みから
+     決まる → すでに生えている街路樹がその場でヤシの木になる
+   これが「気づいたら別世界」の正体。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C, D = PX.draw;
+
+const MAX_DRAW = 200;   // 1フレームに描く路肩オブジェクトの上限
+
+const WORLDS = ['suburb', 'night', 'weird', 'tropical', 'space', 'city', 'jungle', 'ocean', 'abstract', 'climax', 'white'];
+
+/* 各ワールドの路肩オブジェクト出現テーブル（kind: 重み） */
+const SPAWN = {
+  suburb:   { house: 34, flora: 26, pole: 16, light: 14, sign: 6, figure: 4 },
+  night:    { house: 36, flora: 24, pole: 16, light: 18, sign: 4, figure: 2 },
+  weird:    { house: 28, flora: 26, pole: 14, light: 16, sign: 10, figure: 6 },
+  tropical: { flora: 34, figure: 46, rock: 8, sign: 4, light: 8 },
+  space:    { crystal: 34, flora: 16, island: 22, figure: 14, monolith: 14 },
+  city:     { house: 52, light: 16, sign: 10, figure: 12, crystal: 10 },
+  jungle:   { flora: 54, figure: 14, rock: 14, monolith: 18 },
+  ocean:    { coral: 46, flora: 18, rock: 18, figure: 18 },
+  abstract: { monolith: 30, crystal: 28, figure: 22, flora: 20 },
+  climax:   { figure: 44, flora: 20, crystal: 14, house: 10, island: 12 },
+  white:    { flora: 40, house: 40, light: 20 }
+};
+
+class World {
+  constructor(road) {
+    this.road = road;
+    this.w = {}; this.target = {};
+    for (const k of WORLDS) { this.w[k] = 0; this.target[k] = 0; }
+    this.w.suburb = 1; this.target.suburb = 1;
+    this.objects = [];
+    this.nextZ = 6;
+    this.spawnGap = 5.0;
+    this.density = 1;          // グルーヴで増える（フラダンサーが増殖する）
+    this.time = 0;
+    this.props = [];           // 空を漂うもの
+    this.rng = M.rng(7331);
+    this.starField = [];
+    for (let i = 0; i < 220; i++) {
+      this.starField.push({
+        x: this.rng(), y: this.rng(), s: this.rng(), p: this.rng()
+      });
+    }
+    this.clouds = [];
+    for (let i = 0; i < 7; i++) this.clouds.push({ x: this.rng() * 1.4 - .2, y: .08 + this.rng() * .26, s: .5 + this.rng() * .9, v: .004 + this.rng() * .01 });
+    this.pendingForced = [];
+    this.crowdRows = 0;
+    this.moonFace = 0;
+    this.sunGlasses = 0;
+  }
+
+  setTarget(weights) {
+    for (const k of WORLDS) this.target[k] = weights[k] || 0;
+  }
+  weight(k) { return this.w[k] || 0; }
+  normWeights() {
+    let s = 0; for (const k of WORLDS) s += this.w[k];
+    if (s <= 0) return { suburb: 1 };
+    const o = {}; for (const k of WORLDS) if (this.w[k] > .001) o[k] = this.w[k] / s;
+    return o;
+  }
+
+  forceSpawn(kind, dz, side, extra) {
+    this.pendingForced.push({ kind, z: this.road.z + dz, side, extra: extra || {} });
+  }
+
+  update(dt, cond, trip) {
+    this.time += dt;
+    const rate = 0.55;
+    for (const k of WORLDS) this.w[k] = M.approach(this.w[k], this.target[k], rate, dt);
+
+    // 密度: トリップ強度とグルーヴで路肩が賑やかになる
+    this.density = M.lerp(1, 3.4, M.sat(trip.level / 10)) * M.lerp(.75, 1.75, trip.groove);
+    this.spawnGap = M.lerp(5.2, 1.5, M.sat((this.density - 1) / 3.4));
+
+    // スポーン
+    const ahead = this.road.z + 90;
+    let guard = 0;
+    while (this.nextZ < ahead && guard++ < 40) {
+      this._spawnAt(this.nextZ);
+      this.nextZ += this.spawnGap * (0.75 + this.rng() * .5);
+    }
+    for (const f of this.pendingForced) {
+      this.objects.push(this._mk(f.kind, f.z, f.side, f.extra));
+    }
+    this.pendingForced.length = 0;
+
+    // 掃除
+    const back = this.road.z - 6;
+    if (this.objects.length && this.objects[0].z < back) {
+      let i = 0; while (i < this.objects.length && this.objects[i].z < back) i++;
+      this.objects.splice(0, i);
+    }
+    this.objects.sort((a, b) => a.z - b.z);
+
+    // 空の漂流物
+    this._updateProps(dt, trip);
+  }
+
+  _pickKind() {
+    const tbl = {};
+    let tot = 0;
+    for (const wname of WORLDS) {
+      const ww = this.w[wname];
+      if (ww < .02) continue;
+      const t = SPAWN[wname];
+      for (const k in t) { tbl[k] = (tbl[k] || 0) + t[k] * ww; tot += t[k] * ww; }
+    }
+    if (tot <= 0) return 'flora';
+    let r = this.rng() * tot;
+    for (const k in tbl) { r -= tbl[k]; if (r <= 0) return k; }
+    return 'flora';
+  }
+
+  _mk(kind, z, side, extra) {
+    return {
+      kind, z, side,
+      seed: this.rng() * 1000,
+      sc: .8 + this.rng() * .5,
+      phase: this.rng(),
+      extra: extra || {}
+    };
+  }
+
+  _spawnAt(z) {
+    // 両サイド
+    for (let s = -1; s <= 1; s += 2) {
+      if (this.rng() > .92) continue;
+      const kind = this._pickKind();
+      const near = 1.05 + this.rng() * 1.35;
+      const o = this._mk(kind, z + this.rng() * 1.5, s * near);
+      this.objects.push(o);
+      // 群衆: figure は密度に応じて横一列に増える（10人→100人）
+      if (kind === 'figure') {
+        const extra = Math.floor(M.lerp(0, 5, M.sat((this.density - 1) / 2.6)) + this.rng() * 2);
+        for (let i = 1; i <= extra; i++) {
+          const o2 = this._mk('figure', z + this.rng() * 2.2, s * (near + i * (.62 + this.rng() * .4)));
+          o2.sc *= .96;
+          this.objects.push(o2);
+        }
+      }
+    }
+  }
+
+  /* ------------------------------------------------- 空を漂うものたち */
+  _updateProps(dt, trip) {
+    const want = [];
+    const t = this.w.tropical, sp = this.w.space, ab = this.w.abstract, cl = this.w.climax, oc = this.w.ocean, ci = this.w.city;
+    if (t > .12 || oc > .12 || cl > .1) want.push('fish', 'fish', 'fish');
+    if (t > .25 || sp > .2 || cl > .2) want.push('whale');
+    if (sp > .2 || ab > .2 || cl > .2) want.push('ufo');
+    if (ab > .25 || cl > .3) want.push('eye');
+    if (cl > .3 || ab > .3) want.push('record', 'record');
+    if (sp > .25 || ab > .2) want.push('island', 'island');
+
+    // 足りない分を足す
+    const counts = {};
+    for (const p of this.props) counts[p.kind] = (counts[p.kind] || 0) + 1;
+    const need = {};
+    for (const k of want) need[k] = (need[k] || 0) + 1;
+    for (const k in need) {
+      while ((counts[k] || 0) < need[k]) {
+        this.props.push({
+          kind: k,
+          x: this.rng() * 1.3 - .15,
+          y: .06 + this.rng() * .34,
+          v: (this.rng() < .5 ? -1 : 1) * (.012 + this.rng() * .035),
+          s: .7 + this.rng() * .9,
+          ph: this.rng(),
+          life: 0
+        });
+        counts[k] = (counts[k] || 0) + 1;
+      }
+    }
+    for (let i = this.props.length - 1; i >= 0; i--) {
+      const p = this.props[i];
+      p.life += dt;
+      p.x += p.v * dt;
+      p.y += Math.sin(this.time * .5 + p.ph * 9) * .00035;
+      if (p.x < -.35 || p.x > 1.35) { p.x = p.v > 0 ? -.3 : 1.3; p.y = .05 + this.rng() * .35; }
+      if (!need[p.kind]) { if (this.rng() < dt * .5) this.props.splice(i, 1); }
+    }
+  }
+
+  /* ================================================== 背景レンダリング */
+  render(p, pal, cond, trip, road) {
+    const hz = road.horizonY(p);
+    this._sky(p, pal, cond, trip, hz, road);
+    this._farLayer(p, pal, cond, trip, hz, road);
+    this._midLayer(p, pal, cond, trip, hz, road);
+    this._props(p, pal, cond, trip, hz);
+  }
+
+  /* ------ 空 ------------------------------------------------------- */
+  _sky(p, pal, cond, trip, hz, road) {
+    const ctx = p.ctx;
+    const env = cond.env;
+    const skyH = Math.max(1, hz + 2);
+    // グラデーション（ビートで少しだけ持ち上がる）
+    const lift = env.kick * .06 * M.sat(trip.level / 4);
+    const top = C.mix(pal.skyTop, pal.skyMid, lift);
+    const bot = pal.skyLow;
+    p.vgrad(0, 0, p.w, skyH, top, bot, true);
+
+    // 星
+    const starA = M.sat(this.w.space * 1.2 + this.w.night * .8 + this.w.weird * .5 + this.w.climax * .5 + trip.starBoost);
+    if (starA > .02) {
+      const sc = road.z * .012;
+      for (let i = 0; i < this.starField.length; i++) {
+        const s = this.starField[i];
+        const x = M.mod(s.x + sc * (.2 + s.s * .5), 1) * p.w;
+        const y = s.y * skyH * .92;
+        const tw = .5 + .5 * Math.sin(this.time * (1 + s.p * 3) + s.p * 30 + cond.beat * Math.PI * (s.s > .7 ? 1 : .25));
+        const a = starA * (.35 + tw * .65) * (.4 + s.s * .6);
+        if (a < .05) continue;
+        const col = s.s > .85 ? pal.accentB : (s.s > .6 ? pal.accentA : [255, 255, 255]);
+        if (s.s > .93 && starA > .5) D.star(p, x, y, 1 + s.s * 2, C.css(col), a);
+        else { ctx.globalAlpha = a; ctx.fillStyle = C.css(col); ctx.fillRect(x | 0, y | 0, 1, 1); ctx.globalAlpha = 1; }
+      }
+    }
+
+    // 太陽 / 月
+    const sunA = M.sat(this.w.suburb + this.w.tropical + this.w.weird * .6);
+    const moonA = M.sat(this.w.night + this.w.weird * .5 + this.w.space * .5 + this.w.climax * .4);
+    const sx = p.w * .68, sy = hz - p.h * .10;
+    if (sunA > .03) {
+      const r = p.w * (.085 + this.w.tropical * .05) * (1 + env.kick * .05 * trip.level / 10);
+      if (this.sunGlasses > .5 && PX.SPR.sunGlasses) {
+        p.sprite(PX.SPR.sunGlasses, sx, sy + r, { scale: Math.max(1, Math.round(r / 5)), ax: .5, ay: .5, alpha: sunA });
+      } else {
+        p.circle(sx, sy, r * 1.5, C.cssa(pal.sun, .10 * sunA));
+        p.circle(sx, sy, r, C.cssa(pal.sun, sunA));
+        // レトロな横縞
+        ctx.globalAlpha = sunA * .6;
+        ctx.fillStyle = C.css(pal.skyLow);
+        for (let i = 0; i < 6; i++) {
+          const yy = sy + r * (i / 6) * 1.0;
+          ctx.fillRect(Math.round(sx - r), Math.round(yy), Math.round(r * 2), Math.max(1, Math.round(1 + i * .35)));
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+    if (moonA > .03) {
+      const mx = p.w * .26, my = hz - p.h * .22;
+      const r = p.w * (.055 + trip.moonSize * .05);
+      if (this.moonFace > .5 && PX.SPR.moonFace) {
+        p.sprite(PX.SPR.moonFace, mx, my + r, { scale: Math.max(1, Math.round(r / 5)), ax: .5, ay: .5, alpha: moonA, hue: trip.hueSpin });
+      } else {
+        p.circle(mx, my, r * 1.7, C.cssa(pal.lightGlow, .07 * moonA));
+        p.circle(mx, my, r, C.cssa(pal.sun, moonA));
+        p.circle(mx - r * .35, my - r * .2, r * .22, C.cssa(C.scale(pal.sun, .86), moonA));
+        p.circle(mx + r * .3, my + r * .3, r * .16, C.cssa(C.scale(pal.sun, .88), moonA));
+      }
+    }
+
+    // 雲（顔になる）
+    const cloudA = M.sat(this.w.suburb + this.w.tropical * 1.1 + this.w.weird + this.w.night * .5 + this.w.climax * .6);
+    if (cloudA > .03) {
+      for (const c of this.clouds) {
+        c.x += c.v * .016 + road.z * 0;
+        if (c.x > 1.3) c.x = -.3;
+        const face = M.sat(trip.cloudFace) * (c.s > .8 ? 1 : .3);
+        D.cloud(p, c.x * p.w, c.y * skyH, p.w * .22 * c.s, p.h * .028 * c.s,
+          C.mix(pal.cloud, pal.accentA, trip.level / 22), face, cloudA * .85);
+      }
+    }
+
+    // 万華鏡的な幾何オーバーレイ（抽象/クライマックス）
+    const geo = M.sat(this.w.abstract * 1.2 + this.w.climax * .8);
+    if (geo > .03) this._geoOverlay(p, pal, cond, trip, hz, geo);
+
+    // 逆さまの都市（抽象ゾーン）
+    if (this.w.abstract > .3) {
+      const a = M.sat((this.w.abstract - .3) / .5) * .5;
+      ctx.save();
+      ctx.globalAlpha = a;
+      for (let i = 0; i < 9; i++) {
+        const x = M.mod(i * 23 - road.z * .35, p.w + 40) - 20;
+        const h = 12 + M.hash(i * 5.3) * 26;
+        D.building(p, x, -1 + h, 9 + M.hash(i) * 6, h, 1,
+          { alpha: a, body: pal.near, win: pal.accentA, winOff: pal.mid, seed: i + 3, beatWin: cond.env.hat * .4 });
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  _geoOverlay(p, pal, cond, trip, hz, amt) {
+    const ctx = p.ctx;
+    const cx = p.w * .5, cy = hz * .62;
+    const n = 5;
+    ctx.globalAlpha = amt * (.18 + cond.env.kick * .22);
+    for (let i = 0; i < n; i++) {
+      const r = ((this.time * 26 + i * 40) % 190) * (.4 + trip.level / 22);
+      const col = C.rainbow(i * .17 + this.time * .12, .6);
+      p.ring(cx, cy, r, C.css(col), amt * (1 - r / 200) * .5, 1 + (i % 2));
+    }
+    // 六角の格子
+    ctx.globalAlpha = amt * .16;
+    const seg = 6;
+    for (let i = 0; i < seg; i++) {
+      const a = i / seg * Math.PI * 2 + this.time * .12;
+      const L = p.w * .8;
+      p.line(cx, cy, cx + Math.cos(a) * L, cy + Math.sin(a) * L, C.css(C.rainbow(i / seg + this.time * .2, .65)), amt * .3);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ------ 遠景 ---------------------------------------------------- */
+  _farLayer(p, pal, cond, trip, hz, road) {
+    const ctx = p.ctx;
+    const scroll = road.z * 1.1;
+    const wSub = this.w.suburb + this.w.night + this.w.weird;
+    const wTro = this.w.tropical, wCity = this.w.city, wJun = this.w.jungle,
+          wOc = this.w.ocean, wSp = this.w.space, wAb = this.w.abstract, wCl = this.w.climax;
+
+    // 海の水平線（南国/海底）
+    if (wTro + wOc > .04) {
+      const a = M.sat(wTro + wOc);
+      const y0 = hz - Math.round(p.h * .012);
+      ctx.globalAlpha = a;
+      D.water(p, y0, hz + 2, p.w / 2, C.mix(pal.far, pal.accentA, .25), pal.near, this.time, cond.env.bass);
+      ctx.globalAlpha = 1;
+    }
+    // 山（住宅街の遠景）
+    if (wSub > .04) D.mountains(p, hz + 1, p.h * .05, C.mix(pal.far, pal.fog, .4), 0, scroll * .05, M.sat(wSub) * .9);
+    // ジャングルの樹冠
+    if (wJun > .04) D.mountains(p, hz + 2, p.h * .085, C.mix(pal.far, [20, 60, 40], .3), 3.7, scroll * .07, M.sat(wJun));
+    // 巨大都市のスカイライン
+    if (wCity > .04) {
+      const a = M.sat(wCity);
+      for (let i = 0; i < 26; i++) {
+        const bx = M.mod(i * 15.5 - scroll * .06, p.w + 60) - 30;
+        const h = 10 + M.hash(i * 3.1) * p.h * .22;
+        D.building(p, bx, hz + 2, 8 + M.hash(i * 7.7) * 9, h, 1, {
+          alpha: a * .85, body: C.mix(pal.far, pal.fog, .35), win: pal.accentA, winOff: C.mix(pal.far, [0, 0, 0], .3),
+          seed: i + 1, beatWin: cond.env.hat * .5, blink: (i % 5 === 0) ? .1 : 0, antenna: pal.accentC
+        });
+      }
+    }
+    // 星雲（宇宙）
+    if (wSp > .05) {
+      const a = M.sat(wSp);
+      ctx.globalAlpha = a * .30;
+      for (let i = 0; i < 5; i++) {
+        const x = M.mod(i * 47 - scroll * .02, p.w + 90) - 45;
+        const y = hz * (.25 + M.hash(i * 2.7) * .5);
+        const r = 16 + M.hash(i * 5.1) * 26;
+        p.circle(x, y, r, C.cssa(C.rainbow(i * .21 + this.time * .03, .4), .10 * a));
+        p.circle(x + 4, y - 3, r * .6, C.cssa(C.rainbow(i * .21 + .3, .45), .10 * a));
+      }
+      ctx.globalAlpha = 1;
+    }
+    // 抽象: 巨大な目
+    if (wAb > .18 && PX.SPR.eye) {
+      const a = M.sat((wAb - .18) / .4);
+      const s = Math.max(1, Math.round(p.w / 60 + trip.level * .25));
+      const blink = (Math.sin(this.time * .7) > .96) ? .25 : 1;
+      p.sprite(PX.SPR.eye, p.w * .5, hz * .55, {
+        scale: s, ax: .5, ay: .5, alpha: a * .85, squash: blink, hue: trip.hueSpin
+      });
+    }
+    // クライマックス: 全部の地平線が重なる
+    if (wCl > .1) {
+      const a = M.sat(wCl);
+      D.mountains(p, hz + 1, p.h * .06, C.mix(pal.far, pal.accentB, .3), 1.3, scroll * .05, a * .5);
+      for (let i = 0; i < 16; i++) {
+        const bx = M.mod(i * 22 - scroll * .05, p.w + 50) - 25;
+        const h = 8 + M.hash(i * 4.4) * p.h * .16;
+        D.building(p, bx, hz + 2, 7 + M.hash(i * 2.2) * 7, h, 1,
+          { alpha: a * .45, body: C.mix(pal.mid, pal.accentC, .2), win: [255, 255, 255], winOff: pal.near, seed: i + 9, beatWin: cond.env.kick });
+      }
+    }
+  }
+
+  /* ------ 中景（地平線に沿う帯） ------------------------------------ */
+  _midLayer(p, pal, cond, trip, hz, road) {
+    const ctx = p.ctx;
+    const scroll = road.z * 2.6;
+    // 群衆バンド: 南国/クライマックスで地平線までフラダンサー
+    const crowd = M.sat((this.w.tropical + this.w.climax) * (0.4 + trip.groove * .9) * (trip.level / 6));
+    if (crowd > .06 && PX.SPR.hula1) {
+      const rows = 1 + Math.floor(crowd * 2.4);
+      for (let r = 0; r < rows; r++) {
+        const yy = hz + 1 + r * 2;
+        const sc = 1;
+        const a = crowd * (1 - r * .18);
+        const count = Math.floor(p.w / 6) + 3;
+        const beatOff = (cond.env.kick > .4 ? 1 : 0);
+        for (let i = 0; i < count; i++) {
+          const x = M.mod(i * 5 - scroll * (.02 + r * .004) + r * 2.5, p.w + 12) - 6;
+          const ph = M.hash2(i * 1.7, r * 3.1);
+          const f = (Math.floor(cond.beat * 2 + ph * 2) % 2) ? PX.SPR.hula2 : PX.SPR.hula1;
+          p.sprite(f, x, yy + 1 - beatOff, {
+            scale: sc, ax: .5, ay: 1, alpha: a * .9,
+            hue: trip.hueSpin + ph * .3, sway: Math.sin(cond.beat * Math.PI + ph * 6) * 1.2
+          });
+        }
+      }
+    }
+    // ヤシ並木のシルエット（地平線）
+    const tro = M.sat(this.w.tropical);
+    if (tro > .08) {
+      for (let i = 0; i < 14; i++) {
+        const x = M.mod(i * 17 - scroll * .012, p.w + 40) - 20;
+        const h = 14 + M.hash(i * 6.1) * 10;
+        D.tree(p, x, hz + 2, h, 1, Math.sin(this.time * 1.3 + i) * 1.6,
+          C.mix(pal.near, [0, 0, 0], .18), C.mix(pal.mid, [0, 0, 0], .12), tro * .8);
+      }
+    }
+  }
+
+  /* ------ 空の漂流物（魚・クジラ・UFO・レコード・浮島） -------------- */
+  _props(p, pal, cond, trip, hz) {
+    const S = PX.SPR;
+    for (const q of this.props) {
+      const x = q.x * p.w, y = q.y * hz;
+      const flip = q.v < 0;
+      const bob = Math.sin(this.time * 2 + q.ph * 12) * 2;
+      const hue = trip.hueSpin + q.ph * .25;
+      switch (q.kind) {
+        case 'fish':
+          p.sprite((q.ph > .5 ? S.fish2 : S.fish), x, y + bob, {
+            scale: Math.max(1, Math.round(1 + q.s)), ax: .5, ay: .5, flip, hue,
+            alpha: .9, sway: Math.sin(this.time * 6 + q.ph * 9) * 1.4
+          });
+          break;
+        case 'whale':
+          p.sprite(S.whale, x, y + bob * 1.6, {
+            scale: Math.max(1, Math.round(1 + q.s * 1.6)), ax: .5, ay: .5, flip, hue, alpha: .82,
+            sway: Math.sin(this.time * 1.2 + q.ph * 5) * 2
+          });
+          break;
+        case 'ufo': {
+          const s = Math.max(1, Math.round(1 + q.s));
+          p.sprite(S.ufo, x, y + bob, { scale: s, ax: .5, ay: .5, flip, hue, alpha: .9 });
+          if (cond.env.kick > .3) p.circle(x, y + 6 * s, 3 * s * cond.env.kick, C.cssa(pal.accentA, .18 * cond.env.kick));
+          break;
+        }
+        case 'record':
+          p.sprite(S.record, x, M.mod(q.life * 26 + q.ph * 200, hz + 30) - 10, {
+            scale: Math.max(1, Math.round(1 + q.s)), ax: .5, ay: .5, hue, alpha: .9,
+            squash: .6 + .4 * Math.abs(Math.sin(this.time * 4 + q.ph * 8))
+          });
+          break;
+        case 'island':
+          D.island(p, x, y, 14 + q.s * 22, C.mix(pal.accentA, pal.mid, .4), C.mix(pal.near, [0, 0, 0], .2), .8);
+          if (q.ph > .5) D.tree(p, x + 3, y + 1, 9 + q.s * 6, 1, Math.sin(this.time + q.ph * 7) * 1.2, pal.accentA, pal.accentC, .8);
+          break;
+        case 'eye':
+          p.sprite(S.eye, x, y, { scale: Math.max(1, Math.round(1 + q.s * 2)), ax: .5, ay: .5, hue, alpha: .7 });
+          break;
+      }
+    }
+  }
+
+  /* ================================================ 路肩オブジェクト */
+  renderObjects(p, pal, cond, trip, road) {
+    const S = PX.SPR;
+    const hz = road.horizonY(p);
+    const q = {};
+    const env = cond.env;
+    // objects は z 昇順（先頭が最も近い）。描画は近い順に上限を設けて打ち切る。
+    let end = 0;
+    const far = road.z + 86;
+    while (end < this.objects.length && this.objects[end].z <= far) end++;
+    if (end > MAX_DRAW) end = MAX_DRAW;
+    // 遠 → 近（ペインターズ）
+    for (let i = end - 1; i >= 0; i--) {
+      const o = this.objects[i];
+      const dz = o.z - road.z;
+      if (dz < .6) continue;
+      road.project(p, dz, o.side, q);
+      if (q.sy < hz - 60 || q.sy > p.h + 40) continue;
+      if (q.sx < -130 || q.sx > p.w + 130) continue;
+      const unit = q.sc * p.w * .58;               // 1 world unit あたりのピクセル数
+      if (unit < .6) continue;
+      const fade = M.sat((86 - dz) / 26) * M.sat((dz - .6) / 1.2);
+      const beat = env.kick, hat = env.hat;
+      const ph = o.phase;
+      const groove = trip.groove;
+      const dance = Math.sin(cond.beat * Math.PI + ph * 6.28) * (0.5 + groove) * M.sat(trip.level / 3);
+
+      this._drawObject(p, pal, cond, trip, o, q, unit, fade, dance, dz);
+    }
+  }
+
+  _drawObject(p, pal, cond, trip, o, q, unit, fade, dance, dz) {
+    const S = PX.SPR, env = cond.env;
+    const x = q.sx, base = q.sy;
+    const lvl = trip.level;
+    const hue = trip.hueSpin + o.phase * .2;
+    const breathe = M.sat(lvl / 4) * (0.5 + .5 * Math.sin(this.time * 2.2 + o.phase * 8));
+    const sway = dance * unit * .05;
+
+    switch (o.kind) {
+      case 'flora': {
+        // 街路樹 → ヤシ → 星（世界の重みで連続変形）
+        const palm = M.sat(this.w.tropical * 1.3 + this.w.climax * .6 + this.w.jungle * .4);
+        const star = M.sat(this.w.space * 1.4 + this.w.abstract * .8);
+        const m = palm + star;
+        const h = unit * (1.35 + o.sc * .75);
+        // 葉の色: サイケでない間はちゃんと緑にする（普通の街路樹に見せる）
+        const natural = 1 - M.sat(this.w.abstract + this.w.climax + this.w.space * .7);
+        const lit = M.sat((pal.skyLow[0] + pal.skyLow[1] + pal.skyLow[2]) / 520);
+        const colA = C.mix(C.mix(pal.accentA, pal.mid, .3), C.mix(C.scale([92, 162, 78], .42 + lit * .5), pal.fog, .22), natural * .88);
+        const colB = C.mix(C.mix(pal.accentC, pal.near, .3), C.mix(C.scale([52, 110, 58], .42 + lit * .5), pal.fog, .25), natural * .88);
+        if (this.w.jungle > .3 && o.seed % 2 < 1) {
+          D.fern(p, x, base, h * .8, sway * 2, C.mix(pal.accentA, [30, 120, 60], .5), C.mix(pal.accentC, [20, 90, 50], .5), fade);
+        } else {
+          D.tree(p, x, base, h, m, sway * (1 + palm), colA, colB, fade, hue);
+        }
+        break;
+      }
+      case 'house': {
+        const tall = M.sat(this.w.city * 1.4 + this.w.climax * .5);
+        const melt = M.sat(this.w.space * 1.2 + this.w.abstract * .9);
+        const w = unit * (.85 + o.sc * .5) * (1 + tall * .1);
+        const h = unit * (1.5 + o.sc * .8) * M.lerp(1, 3.2, tall);
+        D.building(p, x, base, w, h, tall, {
+          alpha: fade, melt,
+          body: C.mix(pal.near, pal.mid, .3),
+          roof: C.mix(pal.accentC, pal.near, .4),
+          win: C.mix(pal.lightGlow, pal.accentA, .3),
+          winOff: C.mix(pal.mid, [0, 0, 0], .35),
+          seed: o.seed,
+          beatWin: env.hat * .7 * M.sat(lvl / 3),
+          blink: M.sat((lvl - 2) / 5) * .35,      // 窓が目のようにまばたき
+          breathe: breathe * M.sat(lvl / 3),
+          antenna: pal.accentB
+        });
+        break;
+      }
+      case 'pole': {
+        const h = unit * (1.5 + o.sc * .5) * (1 + breathe * .04);
+        D.pole(p, x, base, h, C.mix(pal.near, pal.mid, .3), breathe);
+        break;
+      }
+      case 'light': {
+        const h = unit * (1.6 + o.sc * .4);
+        const g = M.sat(.35 + env.hat * .9 * M.sat(lvl / 2) + env.kick * .5);
+        D.streetlight(p, x, base, h, C.mix(pal.near, pal.mid, .2), pal.lightGlow, g * fade);
+        break;
+      }
+      case 'sign': {
+        const words = trip.signWords;
+        const w = words[Math.floor(M.mod(o.seed + Math.floor(this.time * .35), words.length))];
+        D.sign(p, x, base, unit * 1.0, w,
+          C.mix(pal.near, pal.accentC, .25 + trip.level * .04),
+          C.mix(pal.line, pal.accentA, trip.level * .06), pal.mid);
+        break;
+      }
+      case 'figure': {
+        // 住宅街では通行人、南国以降はフラダンサー
+        const hula = M.sat(this.w.tropical * 1.5 + this.w.climax * 1.2 + this.w.abstract * .6 + this.w.jungle * .4);
+        const s = Math.max(1, Math.round(unit * .027));
+        if (hula > .4) {
+          const f = (Math.floor(cond.beat * 2 + o.phase * 2) % 2) ? S.hula2 : S.hula1;
+          p.sprite(f, x, base, {
+            scale: s, ax: .5, ay: 1, alpha: fade, hue,
+            sway: dance * s * 1.5,
+            squash: 1 + Math.sin(cond.beat * Math.PI * 2 + o.phase * 6) * .07 * (0.4 + trip.groove)
+          });
+          // 手を振る（グルーヴが高いほど）
+          if (trip.groove > .72 && s > 1 && Math.sin(this.time * 3 + o.phase * 10) > .5) {
+            p.rect(x + s * 4, base - s * 12, s, s, C.css(pal.accentA));
+          }
+        } else {
+          const f = (Math.floor(this.time * 4 + o.phase * 3) % 2) ? S.walk2 : S.walk1;
+          p.sprite(f, x, base, { scale: s, ax: .5, ay: 1, alpha: fade, hue: trip.level > 3 ? hue : 0, flip: o.side > 0 });
+        }
+        break;
+      }
+      case 'rock': {
+        const w = unit * (.45 + o.sc * .3), h = unit * (.26 + o.sc * .2);
+        const col = C.mix(pal.near, pal.mid, .3);
+        p.ctx.globalAlpha = fade;
+        for (let i = 0; i < h; i++) {
+          const t = i / h;
+          const ww = w * (1 - t * t * .8);
+          p.ctx.fillStyle = C.css(C.mix(col, pal.accentC, t * .2));
+          p.ctx.fillRect(Math.round(x - ww / 2), Math.round(base - i), Math.max(1, Math.round(ww)), 1);
+        }
+        p.ctx.globalAlpha = 1;
+        break;
+      }
+      case 'coral': {
+        const h = unit * (.6 + o.sc * .45);
+        const c1 = C.mix(pal.accentB, pal.accentA, .3), c2 = pal.accentC;
+        D.fern(p, x, base, h, sway * 1.6 + Math.sin(this.time * 1.6 + o.phase * 6) * 2, c1, c2, fade);
+        break;
+      }
+      case 'crystal': {
+        const h = unit * (.9 + o.sc * .7);
+        const w = unit * (.26 + o.sc * .16);
+        const col = C.rainbow(o.phase + this.time * .1, .6);
+        const ctx = p.ctx;
+        ctx.globalAlpha = fade;
+        const steps = Math.max(3, Math.round(h));
+        for (let i = 0; i < steps; i++) {
+          const t = i / steps;
+          const ww = w * (1 - t) * (1 + Math.sin(t * 9 + this.time * 3) * .12);
+          ctx.fillStyle = C.css(C.mix(col, pal.lightGlow, t * .5 + env.kick * .2));
+          ctx.fillRect(Math.round(x - ww / 2 + sway * t), Math.round(base - i), Math.max(1, Math.round(ww)), 1);
+        }
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'monolith': {
+        const h = unit * (1.4 + o.sc * 1.0);
+        const w = unit * (.30 + o.sc * .2);
+        const ctx = p.ctx;
+        ctx.globalAlpha = fade;
+        ctx.fillStyle = C.css(C.mix(pal.near, [0, 0, 0], .45));
+        ctx.fillRect(Math.round(x - w / 2), Math.round(base - h), Math.max(1, Math.round(w)), Math.round(h));
+        // 表面に流れる幾何紋様
+        const gap = Math.max(2, Math.round(unit * .13));
+        const n = Math.max(2, Math.round(h / gap));
+        for (let i = 0; i < n; i++) {
+          const yy = base - h + i * gap + M.mod(this.time * gap * 2, gap);
+          if (yy > base) continue;
+          ctx.fillStyle = C.css(C.rainbow(i * .08 + this.time * .25, .55));
+          ctx.fillRect(Math.round(x - w / 2 + 1), Math.round(yy), Math.max(1, Math.round(w - 2)), Math.max(1, Math.round(gap * .45)));
+        }
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'island': {
+        D.island(p, x, base - unit * 1.3, unit * (.9 + o.sc * .6), C.mix(pal.accentA, pal.mid, .4), pal.near, fade);
+        break;
+      }
+      case 'cat': {
+        const s = Math.max(1, Math.round(unit * .022));
+        const spr = o.extra.sit ? S.catSit : S.cat;
+        const rainbow = o.extra.rainbow ? (Math.sin(this.time * 14) * .5 + .5) : 0;
+        p.sprite(spr, x, base, {
+          scale: s, ax: .5, ay: 1, alpha: fade,
+          hue: o.extra.rainbow ? this.time * .9 : (trip.level > 4 ? hue : 0),
+          flip: o.side > 0
+        });
+        if (rainbow > .5) {
+          p.circle(x, base - s * 4, s * 6, C.cssa(C.rainbow(this.time * 1.2, .6), .22));
+        }
+        break;
+      }
+    }
+  }
+}
+
+PX.World = World;
+PX.WORLD_LIST = WORLDS;
+})(window.PX);
+
+;
+/* ===== src/road.js ===== */
+/* =====================================================================
+   road.js — 譜面(Chart) + 擬似3D道路レンダラ + 判定
+   ---------------------------------------------------------------------
+   ★ 本作の中核アイデア ★
+   ノーツは降ってこない。「道路の曲線そのもの」が譜面である。
+   距離 dz 先の道路中心は「(dz / 速度) 秒後の譜面レーン値」で決まるので、
+   プレイヤーは前方の道路を見るだけで未来の譜面を読める。
+   ハンドルを曲線の中心に合わせ続ける = 正確に演奏する、になる。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C;
+
+/* ===================================================== Chart (譜面) */
+class Chart {
+  constructor(track) {
+    this.track = track;
+    this.notes = [];
+    this.build();
+    this.res = 8;                       // 1拍あたりのサンプル数
+    this.bake();
+    this.judgeWindow = .20;             // 拍単位
+    this.cursor = 0;
+    this.stats = { perfect: 0, groovy: 0, good: 0, miss: 0, total: 0 };
+  }
+
+  build() {
+    const tr = this.track;
+    if (tr.chart && tr.chart.length) { this.notes = tr.chart.slice(); }
+    else this.notes = PX.generateChart(tr);
+    this.notes.sort((a, b) => a.beat - b.beat);
+    for (const n of this.notes) { n.judged = false; n.bestErr = 9; n.seen = false; }
+  }
+
+  bake() {
+    const last = this.notes.length ? this.notes[this.notes.length - 1].beat : 0;
+    const total = Math.ceil(last + 32);
+    const n = total * this.res;
+    const arr = this.lane = new Float32Array(n + 2);
+    let idx = 0;
+    for (let i = 0; i <= n; i++) {
+      const beat = i / this.res;
+      arr[i] = this._laneRaw(beat, idx);
+      while (idx + 1 < this.notes.length && this.notes[idx + 1].beat <= beat) idx++;
+    }
+    this.maxBeat = total;
+  }
+
+  _laneRaw(beat) {
+    const N = this.notes;
+    if (!N.length) return 0;
+    if (beat <= N[0].beat) return N[0].lane * M.smooth(beat / Math.max(.001, N[0].beat));
+    let i = 0;
+    // 二分探索
+    let lo = 0, hi = N.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (N[mid].beat <= beat) lo = mid; else hi = mid - 1; }
+    i = lo;
+    const a = N[i], b = N[i + 1];
+    if (!b) return a.lane;
+    const t = M.sat((beat - a.beat) / Math.max(.0001, b.beat - a.beat));
+    switch (b.kind) {
+      case 'snap':  return M.lerp(a.lane, b.lane, M.smoother(M.sat((t - .55) / .45)));
+      case 'hold':  return M.lerp(a.lane, b.lane, M.smooth(M.sat((t - .72) / .28)));
+      case 'swing': return M.lerp(a.lane, b.lane, t < .5 ? M.smooth(t * 2) * .58 : .58 + M.smooth((t - .5) * 2) * .42);
+      default:      return M.lerp(a.lane, b.lane, M.smoother(t));
+    }
+  }
+
+  /* 拍位置のレーン値（ベイク済み配列を線形補間） */
+  laneAt(beat) {
+    if (beat < 0) return 0;
+    const f = beat * this.res;
+    const i = f | 0;
+    if (i >= this.lane.length - 1) return this.lane[this.lane.length - 1];
+    const t = f - i;
+    return this.lane[i] + (this.lane[i + 1] - this.lane[i]) * t;
+  }
+
+  /* 判定: 毎フレーム呼ぶ。確定した判定を配列で返す */
+  update(beat, steer) {
+    const out = [];
+    const W = this.judgeWindow;
+    for (let i = this.cursor; i < this.notes.length; i++) {
+      const n = this.notes[i];
+      if (n.beat - W > beat) break;
+      if (n.judged) { if (i === this.cursor) this.cursor++; continue; }
+      const d = beat - n.beat;
+      if (d >= -W && d <= W) {
+        const err = Math.abs(steer - n.lane);
+        if (err < n.bestErr) n.bestErr = err;
+      }
+      if (d > W) {
+        n.judged = true;
+        const e = n.bestErr;
+        let g;
+        if (e < .15) g = 'PERFECT';
+        else if (e < .27) g = 'GROOVY';
+        else if (e < .44) g = 'GOOD';
+        else g = 'MISS';
+        this.stats[g.toLowerCase()]++;
+        this.stats.total++;
+        out.push({ grade: g, note: n, err: e });
+        if (i === this.cursor) this.cursor++;
+      }
+    }
+    return out;
+  }
+}
+PX.Chart = Chart;
+
+/* 譜面自動生成（セクションの style / density から作る）
+   実楽曲を入れる時は track.chart に配列を渡せばこちらは使われない。   */
+PX.generateChart = function (track) {
+  const notes = [];
+  const bpb = track.beatsPerBar || 4;
+  const secs = track.sections;
+  for (let s = 0; s < secs.length; s++) {
+    const sec = secs[s];
+    const bars = (s + 1 < secs.length ? secs[s + 1].bar : sec.bar + (sec.bars || 8)) - sec.bar;
+    const rng = M.rng(1000 + s * 137 + (sec.seed || 0));
+    const style = sec.style || 'straight';
+    const amp = sec.amp === undefined ? .6 : sec.amp;
+    for (let b = 0; b < bars; b++) {
+      const bar0 = (sec.bar + b) * bpb;
+      const r = rng();
+      switch (style) {
+        case 'still':
+          if (b % 4 === 0) notes.push({ beat: bar0, lane: 0, kind: 'ease' });
+          break;
+        case 'straight':
+          notes.push({ beat: bar0, lane: (r < .5 ? -1 : 1) * amp * (.35 + rng() * .3), kind: 'ease' });
+          notes.push({ beat: bar0 + 2, lane: (r < .5 ? 1 : -1) * amp * (.35 + rng() * .3), kind: 'ease' });
+          break;
+        case 'sway': {
+          const s0 = r < .5 ? -1 : 1;
+          for (let k = 0; k < 4; k++)
+            notes.push({ beat: bar0 + k, lane: s0 * (k % 2 ? -1 : 1) * amp * (.55 + rng() * .35), kind: 'ease' });
+          break;
+        }
+        case 'skank': {
+          // 裏拍でクイッと寄せる（レゲエのスキャンク）
+          const s0 = r < .5 ? -1 : 1;
+          for (let k = 0; k < 4; k++) {
+            notes.push({ beat: bar0 + k + .5, lane: s0 * (k % 2 ? -1 : 1) * amp * .85, kind: 'snap' });
+            notes.push({ beat: bar0 + k + .99, lane: s0 * (k % 2 ? -1 : 1) * amp * .25, kind: 'ease' });
+          }
+          break;
+        }
+        case 'long': {
+          const s0 = r < .5 ? -1 : 1;
+          notes.push({ beat: bar0, lane: s0 * amp * .95, kind: 'hold' });
+          notes.push({ beat: bar0 + 2, lane: s0 * amp * .95, kind: 'hold' });
+          notes.push({ beat: bar0 + 3, lane: -s0 * amp * .5, kind: 'ease' });
+          break;
+        }
+        case 'scratch': {
+          for (let k = 0; k < 8; k++) {
+            const l = (k % 2 ? 1 : -1) * amp * (.6 + rng() * .4);
+            notes.push({ beat: bar0 + k * .5, lane: l, kind: 'snap' });
+          }
+          break;
+        }
+        case 'wave': {
+          for (let k = 0; k < 8; k++)
+            notes.push({ beat: bar0 + k * .5, lane: Math.sin((b * 8 + k) * .55) * amp, kind: 'swing' });
+          break;
+        }
+        case 'wild': {
+          const n = 4 + Math.floor(rng() * 5);
+          for (let k = 0; k < n; k++) {
+            const bt = bar0 + (k / n) * bpb;
+            notes.push({ beat: bt, lane: (rng() * 2 - 1) * amp, kind: rng() < .4 ? 'snap' : 'ease' });
+          }
+          break;
+        }
+        case 'climax': {
+          for (let k = 0; k < 8; k++) {
+            const l = Math.sin((b * 8 + k) * .8) * amp * (.7 + .3 * Math.sin(k * 1.7));
+            notes.push({ beat: bar0 + k * .5, lane: l, kind: k % 4 === 0 ? 'snap' : 'swing' });
+          }
+          break;
+        }
+      }
+    }
+  }
+  return notes;
+};
+
+/* ======================================================== Road ===== */
+const SEGLEN = 1.7;        // 縞 1 本の長さ（world units）
+const LANE_AMP = 0.62;     // レーン値 1.0 が何 world unit 横に相当するか
+const CAM_H = 1.20;        // 視点高（高いほど道路の奥行きが見える）
+const CAM_D = 1.75;
+const ROAD_HALF = 0.92;
+
+class Road {
+  constructor(chart) {
+    this.chart = chart;
+    this.z = 0;                 // 走行距離
+    this.speed = 30;            // world units / sec
+    this.carX = 0;              // 車の横位置 (world units)
+    this.offRoad = 0;           // MISS で外れた量 0..1
+    this.horizon = .44;         // 画面比
+    this.pitch = 0;             // 上下カメラ
+    this.roll = 0;
+    this.warp = {
+      sky: 0,      // 道路が空へ曲がる
+      spiral: 0,   // 螺旋
+      wave: 0,     // 上下のうねり
+      snake: 0,    // 横うねり(蛇)
+      loop: 0,     // 無限ループ
+      breathe: 0,  // 幅の脈動
+      rainbow: 0,  // 虹色化
+      glow: 0,     // 白線の発光
+      keys: 0,     // 鍵盤化
+      tongue: 0,   // 舌化（縁が丸くなる）
+      liquid: 0,   // 波形化（音の波として動く）
+      widen: 1     // 幅倍率
+    };
+    this.N = 150;
+    this.pts = new Array(this.N + 1);
+    for (let i = 0; i <= this.N; i++) this.pts[i] = { dz: 0, sx: 0, sy: 0, sw: 0, sc: 0, seg: 0 };
+    this.beatsPerUnit = 0;
+    this.time = 0;
+  }
+
+  /* 距離 → 拍（前方の道路 = 未来の譜面） */
+  setTiming(bpm, beat) {
+    this.bpm = bpm;
+    this.beat = beat;
+    this.beatsPerUnit = (bpm / 60) / this.speed;
+  }
+  laneAtDz(dz) { return this.chart.laneAt(this.beat + dz * this.beatsPerUnit) * LANE_AMP; }
+
+  /* 車の目標位置（＝プレイヤーのステア） */
+  update(dt, steer, conductor) {
+    this.time += dt;
+    this.z += this.speed * dt;
+    const target = steer * LANE_AMP;
+    this.carX = M.approach(this.carX, target + this.offRoad * .55 * (this.offSide || 1), 22, dt);
+    this.offRoad = M.approach(this.offRoad, 0, 1.3, dt);
+  }
+
+  kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .8); this.offSide = side; }
+
+  horizonY(p) { return Math.round(p.h * this.horizon + this.pitch); }
+
+  /* 距離 dz、横オフセット side(world) の点をスクリーンへ投影 */
+  project(p, dz, side, out) {
+    out = out || {};
+    dz = Math.max(.35, dz);
+    const K = p.w * .58;
+    const sc = CAM_D / dz;
+    const lane = this.laneAtDz(dz);
+    let sx = p.w * .5 + sc * ((lane + (side || 0)) - this.carX) * K;
+    let sy = this.horizonY(p) + sc * CAM_H * K;
+    const W = this.warp, t = this.time;
+
+    if (W.wave) sy -= Math.sin((this.z + dz) * .13 - t * 2.2) * W.wave * sc * K * .55;
+    if (W.snake) sx += Math.sin((this.z + dz) * .09 - t * 1.5) * W.snake * sc * K * .5;
+    if (W.sky) {
+      // 遠くほど上へ（道路が空へ立ち上がる）
+      const k = Math.min(1, dz / 42);
+      sy -= k * k * W.sky * p.h * .85;
+    }
+    if (W.loop) {
+      const k = Math.min(1, dz / 38);
+      sy -= Math.sin(k * Math.PI * 2 * W.loop) * p.h * .30 * Math.min(1, W.loop);
+    }
+    if (W.spiral) {
+      const ang = (dz * .045 + t * .5) * W.spiral;
+      const vx = p.w * .5, vy = this.horizonY(p);
+      const dx = sx - vx, dy = sy - vy;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      sx = vx + dx * ca - dy * sa;
+      sy = vy + dx * sa + dy * ca;
+    }
+    if (this.roll) {
+      const vx = p.w * .5, vy = this.horizonY(p);
+      const dx = sx - vx, dy = sy - vy;
+      const ca = Math.cos(this.roll), sa = Math.sin(this.roll);
+      sx = vx + dx * ca - dy * sa;
+      sy = vy + dx * sa + dy * ca;
+    }
+    out.sx = sx; out.sy = sy; out.sc = sc;
+    out.sw = sc * ROAD_HALF * K * this.warp.widen;
+    return out;
+  }
+
+  /* 前方の道路を投影 */
+  buildPoints(p) {
+    const N = this.N;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const dz = .5 + Math.pow(t, 1.9) * 78;   // 近くを密に
+      const q = this.pts[i];
+      this.project(p, dz, 0, q);
+      q.dz = dz;
+      q.seg = Math.floor((this.z + dz) / SEGLEN);
+    }
+  }
+
+  /* 道路本体を描画（遠→近のペインターズアルゴリズム） */
+  render(p, pal, env, trip) {
+    this.buildPoints(p);
+    const ctx = p.ctx;
+    const W = this.warp;
+    const hz = this.horizonY(p);
+    const beatPulse = env ? env.kick : 0;
+    const bassPulse = env ? env.bass : 0;
+    const fog = pal.fog;
+    const rb = W.rainbow;
+
+    for (let i = this.N - 1; i >= 0; i--) {
+      const a = this.pts[i], b = this.pts[i + 1];
+      let y0 = Math.ceil(b.sy), y1 = Math.ceil(a.sy);
+      if (y1 <= hz - 6) continue;
+      if (y0 < hz - 40) y0 = hz - 40;
+      if (y0 >= p.h) continue;
+      if (y1 > p.h) y1 = p.h;
+      if (y1 <= y0) continue;
+
+      const segEven = (a.seg & 1) === 0;
+      const depth = M.sat(1 - a.dz / 62);
+      const fogT = Math.pow(1 - depth, 2.1);
+
+      for (let y = y0; y < y1; y++) {
+        const t = (y - b.sy) / Math.max(.001, a.sy - b.sy);
+        const sx = M.lerp(b.sx, a.sx, t);
+        let sw = M.lerp(b.sw, a.sw, t);
+        sw *= 1 + beatPulse * .05 * (1 + W.breathe * 3);
+        if (W.liquid) sw *= 1 + Math.sin(y * .35 - this.time * 7) * .14 * W.liquid;
+
+        // --- 地面（路面より必ず暗く保つ = 道が消えない）
+        let g = segEven ? pal.ground : pal.groundAlt;
+        if (rb > .01) g = C.mix(g, C.rainbow(a.seg * .017 + y * .003 + this.time * .05 + .5, .20), rb * .8);
+        g = C.mix(g, [0, 0, 0], .10 + rb * .14);
+        g = C.mix(g, fog, fogT * .8);
+        ctx.fillStyle = C.css(g);
+        ctx.fillRect(0, y, p.w, 1);
+
+        // --- ランブル（路肩）
+        let rum = segEven ? pal.rumble : pal.rumbleAlt;
+        if (rb > .01) rum = C.mix(rum, C.rainbow(a.seg * .05 + this.time * .5, .68), rb);
+        rum = C.mix(rum, fog, fogT * .6);
+        const rw = Math.max(1, sw * .16);
+        // 路肩のさらに外側に暗い縁 → 道路の輪郭が常に立つ
+        ctx.fillStyle = C.css(C.mix(g, [0, 0, 0], .35));
+        ctx.fillRect(Math.round(sx - sw - rw * 2.1), y, Math.max(1, Math.round(rw * 1.2)), 1);
+        ctx.fillRect(Math.round(sx + sw + rw * .9), y, Math.max(1, Math.round(rw * 1.2)), 1);
+        ctx.fillStyle = C.css(rum);
+        ctx.fillRect(Math.round(sx - sw - rw), y, Math.max(1, Math.round(sw * 2 + rw * 2)), 1);
+
+        // --- 路面
+        let rd = segEven ? pal.road : pal.roadAlt;
+        if (rb > .01) rd = C.mix(rd, C.rainbow(a.seg * .030 + y * .0055 - this.time * .12, segEven ? .56 : .47), rb);
+        if (W.keys > .01) {
+          // 鍵盤化: 横方向を白鍵/黒鍵に割る
+          const kk = Math.floor(M.mod(a.seg, 7));
+          const black = (kk === 1 || kk === 3 || kk === 5);
+          rd = C.mix(rd, black ? [20, 16, 30] : [242, 240, 235], W.keys);
+        }
+        rd = C.mix(rd, fog, fogT * .75);
+        ctx.fillStyle = C.css(rd);
+        const rx0 = Math.round(sx - sw), rww = Math.max(1, Math.round(sw * 2));
+        ctx.fillRect(rx0, y, rww, 1);
+
+        // --- 白線（センター/サイド）
+        if (sw > 1.2) {
+          let lc = pal.line;
+          if (W.glow > .01) lc = C.mix(lc, [255, 255, 255], W.glow * .8);
+          if (rb > .01) lc = C.mix(lc, C.rainbow(a.seg * .05 + this.time * .3, .72), rb * .8);
+          lc = C.mix(lc, fog, fogT * .55);
+          ctx.fillStyle = C.css(lc);
+          const lw = Math.max(1, Math.round(sw * (.06 + W.glow * .03)));
+          // 外側の線
+          ctx.fillRect(Math.round(sx - sw + sw * .04), y, lw, 1);
+          ctx.fillRect(Math.round(sx + sw - sw * .04 - lw), y, lw, 1);
+          // センターの破線
+          if (a.seg % 2 === 0 && sw > 2) {
+            const cw = Math.max(1, Math.round(sw * .05));
+            ctx.fillRect(Math.round(sx - cw / 2), y, cw, 1);
+          }
+          if (W.glow > .2) {
+            ctx.globalAlpha = W.glow * .35 * (0.4 + beatPulse * .6);
+            ctx.fillStyle = C.css(pal.lightGlow);
+            ctx.fillRect(rx0, y, rww, 1);
+            ctx.globalAlpha = 1;
+          }
+        }
+
+        // 低音で路面が上下に揺れる（帯を重ねて表現）
+        if (bassPulse > .25 && (a.seg % 4 === 0)) {
+          ctx.globalAlpha = (bassPulse - .25) * .5;
+          ctx.fillStyle = C.css(pal.accentA);
+          ctx.fillRect(rx0, y, rww, 1);
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+  }
+
+  /* 判定ライン付近の「今なぞるべき点」を淡く示す（UI ではなく world 内表現） */
+  renderGuide(p, pal, strength, env) {
+    if (strength <= .01) return;
+    const q = this.project(p, 3.2, 0, {});
+    const ctx = p.ctx;
+    const a = strength * (.35 + (env ? env.kick : 0) * .5);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = C.css(pal.lightGlow);
+    const w = Math.max(2, q.sw * .10);
+    ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy) - 2, Math.round(w), 3);
+    ctx.globalAlpha = 1;
+  }
+}
+PX.Road = Road;
+PX.ROAD_CONST = { SEGLEN, LANE_AMP, CAM_H, CAM_D, ROAD_HALF };
+
+})(window.PX);
+
+;
+/* ===== src/scenes.js ===== */
+/* =====================================================================
+   scenes.js — 導入(家) と 終幕(帰宅)
+   ---------------------------------------------------------------------
+   ここでは「これからサイケが始まります」という演出を一切しない。
+   ただの夕方の家。キノコをタップして食べ、数秒何も起きず、家を出て、
+   車に乗り、エンジンをかける。それだけ。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C, D = PX.draw;
+
+/* 室内・屋外で共有する簡易パレット取得 */
+function pal(name) { return PX.PALETTES[name]; }
+
+/* ------------------------------------------------------- 屋外の描画 */
+function drawExterior(p, o) {
+  // o: {t, night, carX, doorOpen, headlights, personX, personFrame, catRainbow}
+  const P = o.night ? pal('night') : pal('suburb');
+  const hz = Math.round(p.h * .40);
+  const yardY = Math.round(p.h * .60);   // 家が建つ地面
+  const walkY = yardY + 12;              // 歩道
+  const roadY = walkY + 4;               // 車道の始まり
+  const roadH = Math.round(p.h * .17);
+  const curbY = roadY + roadH;
+
+  /* 空 */
+  p.vgrad(0, 0, p.w, hz + 2, P.skyTop, P.skyLow, true);
+  if (o.night) {
+    for (let i = 0; i < 90; i++) {
+      const x = M.hash(i * 3.1) * p.w, y = M.hash(i * 7.7) * hz * .92;
+      p.rectA(x, y, 1, 1, [255, 255, 240], .2 + .6 * M.hash(i * 1.3) * (.6 + .4 * Math.sin(o.t * 2 + i)));
+    }
+    p.circle(p.w * .74, hz * .30, 9, C.cssa(P.sun, .95));
+    p.circle(p.w * .70, hz * .27, 2, C.cssa(C.scale(P.sun, .86), .95));
+    p.circle(p.w * .74, hz * .30, 17, C.cssa(P.sun, .06));
+  } else {
+    p.circle(p.w * .76, hz - 16, 15, C.cssa(P.sun, .95));
+    p.circle(p.w * .76, hz - 16, 26, C.cssa(P.sun, .09));
+    for (let i = 0; i < 5; i++) {
+      D.cloud(p, M.mod(i * 47 + o.t * 1.6, p.w + 70) - 35, hz * (.24 + i * .13), 30, 3.4, P.cloud, 0, .8);
+    }
+  }
+
+  /* 遠景の家並み（不揃いに、隙間を空けて） */
+  for (let i = 0; i < 12; i++) {
+    const x = i * 18 - 6 + M.hash(i * 2.3) * 5;
+    if (M.hash(i * 9.1) < .12) continue;
+    const w2 = 13 + M.hash(i * 5.5) * 7;
+    const h2 = 12 + M.hash(i * 3.3) * 11;
+    D.building(p, x, hz + 3, w2, h2, 0, {
+      alpha: 1, body: C.mix(P.mid, P.far, .45), roof: C.mix(P.accentC, P.mid, .55),
+      win: o.night ? P.lightGlow : C.mix(P.lightGlow, P.mid, .55),
+      winOff: C.mix(P.mid, [0, 0, 0], .45), seed: i + 2
+    });
+  }
+  /* 遠景の木 */
+  for (let i = 0; i < 7; i++) {
+    const x = 10 + i * 30 + M.hash(i * 4.1) * 12;
+    D.tree(p, x, hz + 3, 13 + M.hash(i * 6.6) * 6, 0, Math.sin(o.t * .6 + i) * .8,
+      C.mix(P.mid, [58, 92, 60], .55), C.mix(P.far, [40, 68, 46], .55), .95);
+  }
+
+  /* 芝生 → 歩道 → 車道 → 手前の芝生 */
+  const lawn = C.mix(P.ground, [56, 74, 52], o.night ? .18 : .35);
+  p.vgrad(0, hz + 2, p.w, yardY - hz, C.mix(lawn, P.fog, .35), lawn, true);
+  p.rect(0, yardY, p.w, walkY - yardY, C.mix(P.ground, [130, 128, 122], .45));
+  p.rect(0, yardY, p.w, 1, C.mix(P.ground, [160, 158, 150], .5));
+  for (let x = 0; x < p.w; x += 13) p.rect(x, yardY + 1, 1, walkY - yardY - 1, C.mix(P.ground, [96, 94, 90], .4));
+  p.rect(0, walkY, p.w, roadY - walkY, C.mix(P.rumble, P.ground, .4));
+  p.rect(0, roadY, p.w, roadH, P.road);
+  p.rect(0, roadY, p.w, 1, C.mix(P.road, P.line, .35));
+  for (let x = -8; x < p.w; x += 22) p.rect(x, roadY + Math.round(roadH * .52), 11, 1, P.line);
+  p.rect(0, curbY, p.w, 3, C.mix(P.rumble, P.ground, .4));
+  p.rect(0, curbY + 3, p.w, p.h - curbY - 3, C.mix(lawn, [0, 0, 0], .25));
+  // 手前の草と生垣（奥行きの額縁）
+  for (let i = 0; i < 90; i++) {
+    const gx2 = M.hash(i * 2.9) * p.w;
+    const gy2 = curbY + 5 + M.hash(i * 5.1) * (p.h - curbY - 8);
+    p.rectA(gx2, gy2, 1, 2, C.mix(lawn, [70, 104, 66], .5), .3);
+  }
+  for (let i = 0; i < 26; i++) {
+    const bx = i * 9 - 4 + M.hash(i * 7.3) * 5;
+    p.circle(bx, p.h - 4, 8 + M.hash(i * 2.1) * 5, C.css(C.mix(lawn, [30, 58, 40], .75)));
+  }
+
+  /* 前庭の草の質感 */
+  for (let i = 0; i < 110; i++) {
+    const gx2 = M.hash(i * 1.7) * p.w;
+    const gy2 = hz + 4 + M.hash(i * 3.9) * (yardY - hz - 6);
+    const d = (gy2 - hz) / Math.max(1, yardY - hz);
+    p.rectA(gx2, gy2, 1, 1 + (d > .5 ? 1 : 0), C.mix(lawn, [96, 132, 84], .55), .30 + d * .35);
+  }
+  // 柵
+  for (let x = 2; x < p.w * .58; x += 7) {
+    p.rect(x, yardY - 11, 1, 11, C.mix(P.near, [130, 122, 116], .45));
+  }
+  p.rect(0, yardY - 9, Math.round(p.w * .58), 1, C.mix(P.near, [130, 122, 116], .40));
+
+  /* 主人公の家（右） */
+  const hx = Math.round(p.w * .70), hb = yardY;
+  const hw = 74, hh = 46;
+  const wall2 = C.mix(P.near, [156, 128, 122], .58);
+  const roof2 = C.mix(P.accentC, [92, 52, 60], .6);
+  // 壁
+  p.rect(hx - hw / 2, hb - hh, hw, hh, wall2);
+  p.rect(hx - hw / 2, hb - hh, hw, 2, C.scale(wall2, 1.12));
+  // 屋根
+  for (let i = 0; i < 17; i++) {
+    const t = i / 16;
+    const ww2 = Math.round(hw * (.10 + .95 * t)) + 6;
+    p.rect(Math.round(hx - ww2 / 2), hb - hh - 17 + i, ww2, 1, C.mix(roof2, C.scale(roof2, 1.25), 1 - t));
+  }
+  // 煙突
+  p.rect(hx + 16, hb - hh - 24, 7, 12, C.mix(roof2, [70, 50, 54], .5));
+  p.rect(hx + 15, hb - hh - 26, 9, 3, C.scale(roof2, .8));
+  // 窓（2階/1階）
+  const winC = o.night ? P.lightGlow : C.mix(P.lightGlow, P.mid, .35);
+  const winF = C.mix(wall2, [40, 34, 44], .6);
+  const drawWin = (wx2, wy2, ww2, wh2, lit) => {
+    p.rect(wx2 - 1, wy2 - 1, ww2 + 2, wh2 + 2, winF);
+    p.rect(wx2, wy2, ww2, wh2, lit ? winC : C.mix(winF, P.mid, .5));
+    p.rect(wx2 + ww2 / 2 - .5, wy2, 1, wh2, winF);
+    p.rect(wx2, wy2 + wh2 / 2, ww2, 1, winF);
+    if (lit) p.rectA(wx2 - 3, wy2 - 3, ww2 + 6, wh2 + 6, P.lightGlow, .07);
+  };
+  drawWin(hx - 26, hb - hh + 6, 14, 11, true);
+  drawWin(hx + 4, hb - hh + 6, 14, 11, false);
+  drawWin(hx + 12, hb - 22, 13, 11, true);
+  // ドア
+  const dw = 12, dh = 20, dx = Math.round(hx - 24), dy = hb - dh;
+  p.rect(dx - 1, dy - 1, dw + 2, dh + 1, C.scale(wall2, .8));
+  p.rect(dx, dy, dw, dh, C.mix(P.near, [96, 62, 48], .65));
+  p.rect(dx + dw - 3, dy + 11, 2, 2, C.mix(P.accentA, [220, 200, 140], .5));
+  if (o.doorOpen > .01) {
+    p.rect(dx, dy, Math.max(1, Math.round(dw * o.doorOpen)), dh, C.cssa(P.lightGlow, .5));
+  }
+  // ポーチ灯
+  p.rect(dx + dw + 3, dy + 3, 2, 3, C.css(P.lightGlow));
+  p.circle(dx + dw + 4, dy + 5, o.night ? 7 : 4, C.cssa(P.lightGlow, o.night ? .16 : .08));
+  // 私道
+  p.ctx.globalAlpha = .55;
+  for (let i = 0; i < walkY - hb + 12; i++) {
+    const t = i / (walkY - hb + 12);
+    const ww2 = 26 + t * 14;
+    p.rect(Math.round(hx - 4 - ww2 / 2), hb + i, Math.round(ww2), 1, C.mix(P.ground, [140, 136, 130], .5));
+  }
+  p.ctx.globalAlpha = 1;
+  // 生垣
+  for (let i = 0; i < 9; i++) {
+    p.circle(hx - hw / 2 - 6 + i * 5, hb - 2, 4, C.css(C.mix(lawn, [44, 84, 50], .7)));
+  }
+
+  /* 街路樹・電柱・街灯 */
+  D.tree(p, p.w * .12, yardY + 2, 46, 0, Math.sin(o.t * .8) * 1.4,
+    C.mix(P.mid, [70, 112, 66], .7), C.mix(P.near, [44, 78, 50], .7), 1);
+  D.pole(p, p.w * .36, walkY, 62, C.mix(P.near, P.mid, .35), 0);
+  D.streetlight(p, p.w * .90, walkY, 56, C.mix(P.near, P.mid, .3), P.lightGlow, o.night ? .95 : .2);
+  // ポスト
+  p.rect(p.w * .50, walkY - 12, 2, 12, C.mix(P.near, P.mid, .4));
+  p.rect(p.w * .50 - 4, walkY - 18, 10, 6, C.mix(P.accentC, P.near, .5));
+
+  /* 車 */
+  const cx = o.carX === undefined ? p.w * .32 : o.carX;
+  const cy = roadY + Math.round(roadH * .34);
+  drawCar(p, cx, cy, P, o.headlights || 0, o.night, o.t);
+
+  /* 猫（最初と最後で同じ場所にいる） */
+  const catX = Math.round(p.w * .13), catY = curbY + 2;
+  const spr = PX.SPR.catSit;
+  if (spr) {
+    if (o.catRainbow) p.circle(catX, catY - 6, 14, C.cssa(C.rainbow(o.t * 1.4, .6), .22));
+    p.sprite(spr, catX, catY, { scale: 1, ax: .5, ay: 1, hue: o.catRainbow ? o.t * 1.1 : 0 });
+  }
+
+  /* 主人公 */
+  if (o.personX !== undefined) {
+    const f = o.personFrame ? PX.SPR.walk2 : PX.SPR.walk1;
+    if (f) {
+      p.rectA(o.personX - 5, walkY + 1, 10, 2, [0, 0, 0], .22);
+      p.sprite(f, o.personX, walkY + 2, { scale: 2, ax: .5, ay: 1, flip: o.personFlip });
+    }
+  }
+  return { hz, roadY, carX: cx, carY: cy, doorX: dx + dw / 2, doorY: dy + dh, walkY };
+}
+
+function drawCar(p, x, y, P, headlights, night, t) {
+  const body = C.mix(P.accentC, [126, 70, 96], .45);
+  const dark = C.scale(body, .58);
+  const hi = C.scale(body, 1.22);
+  const glass = C.mix(P.accentB, P.mid, .45);
+  x = Math.round(x); y = Math.round(y);
+  p.rectA(x - 23, y, 46, 2, [0, 0, 0], .35);
+  // キャビン
+  p.rect(x - 12, y - 17, 23, 7, C.mix(body, dark, .25));
+  p.rect(x - 10, y - 16, 19, 5, glass);
+  p.rect(x - 10, y - 16, 19, 1, C.mix(glass, [255, 255, 255], .35));
+  p.rect(x - 1, y - 16, 1, 5, C.mix(body, dark, .4));
+  // ボディ
+  p.rect(x - 22, y - 10, 45, 7, body);
+  p.rect(x - 22, y - 10, 45, 1, hi);
+  p.rect(x - 22, y - 4, 45, 2, dark);
+  p.rect(x - 23, y - 8, 1, 4, dark);
+  p.rect(x + 22, y - 8, 1, 4, dark);
+  // ドアライン
+  p.rect(x - 2, y - 9, 1, 5, C.scale(body, .78));
+  p.rect(x + 3, y - 7, 3, 1, C.scale(body, 1.1));
+  // タイヤ
+  p.rect(x - 17, y - 3, 8, 4, [26, 24, 32]);
+  p.rect(x + 9, y - 3, 8, 4, [26, 24, 32]);
+  p.rect(x - 15, y - 2, 4, 2, [70, 68, 80]);
+  p.rect(x + 11, y - 2, 4, 2, [70, 68, 80]);
+  // ランプ
+  p.rect(x - 23, y - 8, 2, 3, C.mix(P.accentC, [210, 60, 60], .7));
+  if (headlights > .01) {
+    p.rect(x + 21, y - 8, 3, 3, C.cssa(P.lightGlow, 1));
+    p.circle(x + 25, y - 7, 3 + headlights * 4, C.cssa(P.lightGlow, .20 * headlights));
+    p.ctx.globalAlpha = .13 * headlights;
+    p.ctx.fillStyle = C.css(P.lightGlow);
+    for (let i = 0; i < 26; i++) {
+      const w = 2 + i * .55;
+      p.ctx.fillRect(x + 24 + i * 2, Math.round(y - 7 - w / 2), 2, Math.max(1, Math.round(w)));
+    }
+    p.ctx.globalAlpha = 1;
+  }
+}
+PX.drawExterior = drawExterior;
+PX.drawCar = drawCar;
+
+/* ==================================================== HOUSE (導入) */
+class HouseScene {
+  constructor(p, input) {
+    this.p = p; this.input = input;
+    this.t = 0;
+    this.state = 'idle';
+    this.st = 0;
+    this.mushroom = 1;      // 1 = まだ卓上にある
+    this.hint = 0;
+    this.personX = 0;
+    this.doorOpen = 0;
+    this.headlights = 0;
+    this.camY = 0;
+    this.zoom = 1;
+    this.done = false;
+    this.eatFlash = 0;
+    this.tvPhase = 0;
+    this.fade = 0;
+  }
+
+  _go(s) { this.state = s; this.st = 0; }
+
+  update(dt) {
+    this.t += dt; this.st += dt;
+    const p = this.p;
+    const taps = this.input.takeTaps();
+
+    switch (this.state) {
+      case 'idle': {
+        this.hint = M.approach(this.hint, this.st > 3.5 ? 1 : 0, 1.5, dt);
+        const mx = this.mushX === undefined ? p.w * .46 : this.mushX;
+        const my = this.mushY === undefined ? p.h * .72 : this.mushY;
+        for (const tp of taps) {
+          if (Math.abs(tp.x - mx) < 28 && Math.abs(tp.y - my) < 30) {
+            PX.Audio.init();
+            PX.Audio.sfx('eat');
+            this.mushroom = 0;
+            this.eatFlash = 1;
+            this._go('eaten');
+            break;
+          }
+        }
+        break;
+      }
+      case 'eaten':
+        // ★ここが肝: 数秒間、本当に何も起きない
+        this.eatFlash = M.approach(this.eatFlash, 0, 3, dt);
+        if (this.st > 4.2) this._go('stand');
+        break;
+      case 'stand':
+        if (this.st > 1.4) { PX.Audio.sfx('door'); this._go('leave'); }
+        break;
+      case 'leave':
+        this.fade = M.sat(this.st / .8);
+        if (this.st > 1.1) { this.fade = 0; this._go('outside'); }
+        break;
+      case 'outside':
+        this.personX = M.lerp(p.w * .58, p.w * .34, M.smooth(this.st / 2.6));
+        this.doorOpen = M.sat(1.2 - this.st) * .8;
+        if (this.st > 2.9) { PX.Audio.sfx('door'); this._go('enter'); }
+        break;
+      case 'enter':
+        if (this.st > .9) {
+          PX.Audio.init();
+          PX.Audio.sfx('ignition');
+          PX.Audio.startEngine();
+          this._go('ignition');
+        }
+        break;
+      case 'ignition':
+        this.headlights = M.sat(this.st / 1.1);
+        PX.Audio.setEngine(.15 + M.sat(this.st / 2) * .2, .12);
+        if (this.st > 2.2) this._go('board');
+        break;
+      case 'board': {
+        // 運転席へ視点が入っていく
+        const k = M.smoother(M.sat(this.st / 1.6));
+        this.zoom = 1 + k * 2.6;
+        this.camY = k * 26;
+        if (this.st > 1.7) { this.done = true; }
+        break;
+      }
+    }
+  }
+
+  render() {
+    const p = this.p;
+    p.resetFx();
+    if (this.state === 'idle' || this.state === 'eaten' || this.state === 'stand' || this.state === 'leave') {
+      this._room();
+      if (this.fade > 0) p.rectA(0, 0, p.w, p.h, [0, 0, 0], this.fade);
+    } else {
+      p.fx.zoom = this.zoom;
+      drawExterior(p, {
+        t: this.t, night: false,
+        carX: p.w * .32,
+        doorOpen: this.doorOpen,
+        headlights: this.headlights,
+        personX: (this.state === 'outside') ? this.personX : undefined,
+        personFrame: Math.floor(this.t * 5) % 2,
+        personFlip: true,
+        camY: 0
+      });
+      if (this.state === 'board') {
+        const k = M.sat(this.st / 1.6);
+        p.rectA(0, 0, p.w, p.h, [10, 8, 16], k * .35);
+      }
+    }
+  }
+
+  /* -------------------------------------------------------- リビング */
+  _room() {
+    const p = this.p, P = pal('suburb');
+    const wall = C.mix(P.near, [92, 80, 88], .55);
+    const floorY = Math.round(p.h * .60);
+    const fl = C.mix(P.near, [116, 80, 54], .58);
+
+    /* 壁と床 */
+    p.vgrad(0, 0, p.w, floorY, C.scale(wall, .86), wall, true);
+    p.rect(0, floorY - 5, p.w, 5, C.scale(wall, .68));
+    for (let y = floorY; y < p.h; y++) {
+      const t = (y - floorY) / (p.h - floorY);
+      p.rect(0, y, p.w, 1, C.mix(C.scale(fl, .74), fl, t));
+    }
+    for (let i = -5; i <= 5; i++) {
+      p.line(p.w * .5 + i * 9, floorY, p.w * .5 + i * 46, p.h, C.scale(fl, .78), .45);
+    }
+
+    /* 天井灯（部屋全体を照らす） */
+    p.rect(p.w * .5 - 1, 0, 2, 26, C.scale(wall, .5));
+    p.rect(p.w * .5 - 7, 26, 14, 3, C.scale(wall, .45));
+    p.circle(p.w * .5, 32, 8, C.css(C.mix(P.lightGlow, [255, 255, 255], .35)));
+    p.circle(p.w * .5, 34, 26, C.cssa(P.lightGlow, .07));
+    p.circle(p.w * .5, 38, 48, C.cssa(P.lightGlow, .04));
+
+    /* 窓（夕方の空） */
+    const wx = 12, wy = 78, ww = 62, wh = 52;
+    p.rect(wx - 3, wy - 3, ww + 6, wh + 6, C.scale(wall, .58));
+    p.vgrad(wx, wy, ww, wh, P.skyMid, P.skyLow, true);
+    p.circle(wx + 46, wy + 34, 7, C.cssa(P.sun, .92));
+    for (let i = 0; i < 3; i++) D.cloud(p, wx + 14 + i * 20, wy + 12 + i * 4, 16, 2, P.cloud, 0, .55);
+    D.pole(p, wx + 14, wy + wh, 30, C.mix(P.mid, [0, 0, 0], .35), 0);
+    D.building(p, wx + 44, wy + wh, 16, 12, 0, { alpha: .8, body: C.mix(P.mid, [0, 0, 0], .3), roof: C.mix(P.near, [0, 0, 0], .3), win: P.lightGlow, winOff: P.mid, seed: 3 });
+    p.rect(wx + ww / 2 - 1, wy, 2, wh, C.scale(wall, .58));
+    p.rect(wx, wy + wh / 2 - 1, ww, 2, C.scale(wall, .58));
+    p.rect(wx - 3, wy + wh, ww + 6, 3, C.scale(wall, .5));
+
+    /* 壁の絵（まっすぐな道の絵。これから走る道） */
+    const gx = 94, gy = 86, gw = 36, gh = 26;
+    p.rect(gx - 2, gy - 2, gw + 4, gh + 4, C.mix(wall, [120, 90, 60], .7));
+    p.vgrad(gx, gy, gw, gh * .55, C.hex('#3a3560'), C.hex('#c07a5c'), false);
+    p.rect(gx, gy + gh * .55, gw, gh * .45, C.hex('#2e2a40'));
+    for (let i = 0; i < 9; i++) {
+      const t = i / 8, yy = gy + gh * .55 + t * gh * .45;
+      p.rect(gx + gw / 2 - Math.round(t * 5), yy, Math.max(1, Math.round(t * 10)), 1, C.hex('#5a5470'));
+    }
+
+    /* 時計（秒針が動く = 「時間はまだ正常」） */
+    const cx = p.w * .82, cy = 96, cr = 13;
+    p.circle(cx, cy, cr, C.css(C.mix(wall, [242, 238, 224], .82)));
+    p.ring(cx, cy, cr, C.css(C.scale(wall, .5)), 1, 1);
+    for (let i = 0; i < 12; i++) {
+      const a = i / 12 * Math.PI * 2;
+      p.px(cx + Math.cos(a) * (cr - 3), cy + Math.sin(a) * (cr - 3), C.scale(wall, .4));
+    }
+    const sa = -Math.PI / 2 + Math.floor(this.t) * (Math.PI * 2 / 60);
+    p.line(cx, cy, cx + Math.cos(sa) * (cr - 4), cy + Math.sin(sa) * (cr - 4), [190, 62, 62]);
+    p.line(cx, cy, cx + Math.cos(-1.9) * (cr - 6), cy + Math.sin(-1.9) * (cr - 6), C.scale(wall, .3));
+    p.line(cx, cy, cx + Math.cos(-.5) * (cr - 8), cy + Math.sin(-.5) * (cr - 8), C.scale(wall, .3));
+
+    /* 冷蔵庫（右奥） */
+    const fx = p.w - 34, fby = floorY + 16;
+    p.rectA(fx - 2, fby - 2, 34, 4, [0, 0, 0], .22);
+    p.rect(fx, fby - 66, 30, 66, C.mix(wall, [214, 216, 222], .8));
+    p.rect(fx, fby - 66, 30, 2, C.mix(wall, [240, 242, 248], .8));
+    p.rect(fx, fby - 42, 30, 1, C.scale(wall, .55));
+    p.rect(fx + 25, fby - 58, 2, 10, C.scale(wall, .45));
+    p.rect(fx + 25, fby - 36, 2, 10, C.scale(wall, .45));
+    p.rect(fx + 5, fby - 62, 8, 5, [232, 204, 96]);
+    p.rect(fx + 16, fby - 61, 5, 4, [140, 190, 210]);
+
+    /* テレビ（左奥・砂嵐） */
+    const tvx = 14, tby = floorY + 22;
+    p.rectA(tvx - 2, tby - 2, 58, 4, [0, 0, 0], .22);
+    p.rect(tvx + 8, tby - 12, 38, 12, C.mix(fl, [70, 50, 40], .6));
+    p.rect(tvx, tby - 50, 54, 38, C.mix(wall, [34, 32, 42], .85));
+    for (let y = 0; y < 32; y++) {
+      const n = M.hash2(y * 1.7, Math.floor(this.t * 9));
+      p.rect(tvx + 3, tby - 47 + y, 48, 1, C.mix([38, 44, 60], [158, 168, 188], n * .85));
+    }
+    p.rectA(tvx + 3, tby - 47, 48, 32, P.accentB, .10);
+    
+    p.rect(tvx + 48, tby - 16, 2, 2, [220, 90, 70]);
+
+    /* 観葉植物（左の壁際） */
+    const plx = 12, ply = floorY + 26;
+    p.rect(plx - 6, ply - 10, 13, 11, C.mix(fl, [150, 96, 70], .6));
+    p.rect(plx - 6, ply - 11, 13, 2, C.mix(fl, [172, 116, 84], .6));
+    D.fern(p, plx, ply - 10, 26, Math.sin(this.t * .7) * 1.2,
+      C.mix(P.mid, [78, 132, 74], .8), C.mix(P.near, [46, 92, 56], .8), 1);
+
+    /* フロアランプ（右の壁際） */
+    const lx2 = p.w - 62, ly2 = floorY + 20;
+    p.rect(lx2 - 5, ly2 - 1, 11, 2, C.scale(wall, .5));
+    p.rect(lx2 - 1, ly2 - 42, 2, 42, C.scale(wall, .5));
+    p.rect(lx2 - 9, ly2 - 54, 19, 12, C.mix(wall, [214, 176, 128], .7));
+    p.rect(lx2 - 7, ly2 - 42, 15, 2, C.cssa(P.lightGlow, .9));
+    p.circle(lx2, ly2 - 38, 20, C.cssa(P.lightGlow, .05));
+
+    /* ラグ */
+    p.ctx.globalAlpha = .5;
+    for (let i = 0; i < 16; i++) {
+      const t = i / 15;
+      const yy = floorY + 74 + i * 2;
+      const ww2 = 60 + t * 46;
+      p.rect(p.w * .42 - ww2 / 2, yy, ww2, 2, i % 3 === 0 ? C.hex('#7a4a58') : C.hex('#6a3f4c'));
+    }
+    p.ctx.globalAlpha = 1;
+
+    /* ソファ */
+    const sx = p.w * .30, sy = floorY + 66;
+    p.rectA(sx - 40, sy - 2, 80, 4, [0, 0, 0], .22);
+    p.rect(sx - 36, sy - 34, 72, 14, C.mix(P.near, [146, 88, 98], .6));
+    p.rect(sx - 36, sy - 22, 72, 22, C.mix(P.near, [124, 72, 82], .6));
+    p.rect(sx - 42, sy - 30, 8, 30, C.mix(P.near, [112, 64, 74], .6));
+    p.rect(sx + 34, sy - 30, 8, 30, C.mix(P.near, [112, 64, 74], .6));
+    p.rect(sx - 24, sy - 32, 20, 10, C.mix(P.near, [162, 100, 110], .6));
+    p.rect(sx + 4, sy - 32, 20, 10, C.mix(P.near, [162, 100, 110], .6));
+
+    /* テーブル + キノコ + マグ */
+    const tx = p.w * .46, ty = floorY + 108;
+    p.rectA(tx - 40, ty - 1, 80, 3, [0, 0, 0], .25);
+    p.rect(tx - 38, ty - 22, 76, 5, C.mix(fl, [162, 112, 74], .65));
+    p.rect(tx - 38, ty - 17, 76, 2, C.scale(fl, .7));
+    p.rect(tx - 33, ty - 15, 4, 15, C.scale(fl, .78));
+    p.rect(tx + 29, ty - 15, 4, 15, C.scale(fl, .78));
+    // マグカップ
+    p.rect(tx + 16, ty - 31, 8, 9, [232, 228, 218]);
+    p.rect(tx + 24, ty - 29, 2, 4, [232, 228, 218]);
+    p.rect(tx + 16, ty - 31, 8, 1, [200, 196, 188]);
+    for (let i = 0; i < 4; i++) {
+      const yy = ty - 34 - i * 4 - M.mod(this.t * 7, 4);
+      p.rectA(tx + 19 + Math.sin(this.t * 2 + i * .9) * 2, yy, 1, 3, [255, 255, 255], .20 - i * .04);
+    }
+
+    this.mushX = tx - 14; this.mushY = ty - 22;
+    if (this.mushroom > 0) {
+      const bob = Math.sin(this.t * 1.6) * .7;
+      const spr = PX.SPR.mushroom;
+      if (spr) p.sprite(spr, this.mushX, this.mushY + bob, { scale: 2, ax: .5, ay: 1 });
+      if (this.hint > .02) {
+        const a = this.hint * (.26 + .28 * Math.sin(this.t * 3.2));
+        p.ring(this.mushX, this.mushY - 10, 17, C.css(P.lightGlow), a, 1);
+        p.textC('TAP', this.mushX, this.mushY + 8, C.cssa(P.line, this.hint * .75), 1, 1);
+      }
+    }
+
+    /* 主人公 */
+    const standing = (this.state === 'stand' || this.state === 'leave');
+    const px_ = standing ? M.lerp(p.w * .68, p.w * .86, M.sat(this.st / 1.4)) : p.w * .68;
+    const f = standing && Math.floor(this.t * 5) % 2 ? PX.SPR.walk2 : PX.SPR.walk1;
+    if (f) p.sprite(f, px_, ty + 4, { scale: 4, ax: .5, ay: 1, flip: true });
+    p.rectA(px_ - 10, ty + 3, 20, 3, [0, 0, 0], .22);
+
+    /* 食べた瞬間のごく小さな反応（派手にしない） */
+    if (this.eatFlash > .01) p.rectA(0, 0, p.w, p.h, [255, 240, 220], this.eatFlash * .09);
+  }
+}
+PX.HouseScene = HouseScene;
+
+/* ==================================================== OUTRO (帰還) */
+class OutroScene {
+  constructor(p) {
+    this.p = p; this.t = 0; this.st = 0; this.state = 'arrive';
+    this.carX = -30; this.headlights = 1; this.catRainbow = false;
+    this.fade = 0; this.clear = 0; this.done = false;
+  }
+  _go(s) { this.state = s; this.st = 0; }
+  update(dt) {
+    this.t += dt; this.st += dt;
+    const p = this.p;
+    switch (this.state) {
+      case 'arrive': {
+        const k = M.smoother(M.sat(this.st / 3.4));
+        this.carX = M.lerp(-46, p.w * .32, k);
+        PX.Audio.setEngine(.28 * (1 - k) + .05, .12 * (1 - k * .5));
+        if (this.st > 3.6) { PX.Audio.stopEngine(1.2); this._go('still'); }
+        break;
+      }
+      case 'still':
+        this.headlights = M.approach(this.headlights, 0, 1.2, dt);
+        // 数秒間、本当に何も起きない
+        if (this.st > 4.5) { PX.Audio.sfx('shimmer'); this._go('cat'); }
+        break;
+      case 'cat':
+        this.catRainbow = true;
+        if (this.st > 1.3) { this.catRainbow = false; this._go('fade'); }
+        break;
+      case 'fade':
+        this.fade = M.sat(this.st / 1.4);
+        if (this.st > 1.8) this._go('clear');
+        break;
+      case 'clear':
+        this.fade = 1;
+        this.clear = M.sat((this.st - .4) / .8);
+        if (this.st > 6) this.done = true;
+        break;
+    }
+  }
+  render(stats) {
+    const p = this.p;
+    p.resetFx();
+    p.fx.vignette = .25;
+    drawExterior(p, {
+      t: this.t, night: true, carX: this.carX,
+      doorOpen: 0, headlights: this.headlights,
+      catRainbow: this.catRainbow, camY: 0
+    });
+    if (this.fade > 0) p.rectA(0, 0, p.w, p.h, [0, 0, 0], this.fade);
+    if (this.clear > 0) {
+      const a = this.clear;
+      const y = Math.round(p.h * .40);
+      p.textC('STAGE CLEAR', p.w / 2, y, C.cssa([255, 255, 255], a), 2, 1);
+      if (stats && this.st > 1.4) {
+        const b = M.sat((this.st - 1.4) / .6);
+        const rows = [
+          'PERFECT  ' + stats.perfect,
+          'GROOVY   ' + stats.groovy,
+          'GOOD     ' + stats.good,
+          'MISS     ' + stats.miss,
+          '',
+          'MAX COMBO ' + stats.maxCombo,
+          'SCORE ' + stats.score,
+          '',
+          'TRIP DEPTH ' + stats.depth + ' / 10'
+        ];
+        for (let i = 0; i < rows.length; i++) {
+          p.textC(rows[i], p.w / 2, y + 22 + i * 8, C.cssa([210, 200, 230], b * .9), 1, 1);
+        }
+        if (this.st > 3.2) {
+          const c = .5 + .5 * Math.sin(this.t * 3);
+          p.textC('TAP TO DRIVE AGAIN', p.w / 2, p.h - 30, C.cssa([255, 255, 255], c * .8), 1, 1);
+        }
+      }
+    }
+  }
+}
+PX.OutroScene = OutroScene;
+
+})(window.PX);
+
+;
+/* ===== src/game.js ===== */
+/* =====================================================================
+   game.js — ステージ進行 / トリップ管理 / スコア / ダッシュボード / HUD
+   ---------------------------------------------------------------------
+   ステージデータ(data/stage1.js)を時間で補間し、
+     world(重み) / road(変形) / pixel(ポストFX)
+   に配るだけの層。ここにステージ固有の記述は書かない。
+
+   ★ グルーヴ分岐 ★
+   判定精度から groove(0..1) を作り、
+     ・trip.level を最大 +1.6 押し上げる
+     ・worlds を keys[].deep 側へブレンドする
+     ・路肩オブジェクトの密度(フラダンサーの人数)を最大 3.4 倍にする
+   → 上手いほど深い世界が見える。ヘタなら少し現実寄りに戻る。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C, D = PX.draw;
+
+/* --------------------------------------------- タイムライン補間 */
+const WARP_DEF = { sky: 0, spiral: 0, wave: 0, snake: 0, loop: 0, breathe: 0, rainbow: 0, glow: 0, keys: 0, tongue: 0, liquid: 0, widen: 1 };
+const FX_DEF = { wave: 0, vwave: 0, ripple: 0, rgb: 0, hue: 0, sat: 0, bright: 1, invert: 0, posterize: 0, trails: 0, melt: 0, kaleido: 0, tunnel: 0, vignette: 0, scan: 0, flash: 0 };
+const V_DEF = { speed: 30, horizon: .44, moonSize: 0, cloudFace: 0, starBoost: 0, sunGlasses: 0, moonFace: 0, tunnelDark: 0, crowd: 0, signSet: 'normal' };
+
+function lerpObj(a, b, u, def, out) {
+  out = out || {};
+  for (const k in def) {
+    const av = (a && a[k] !== undefined) ? a[k] : def[k];
+    const bv = (b && b[k] !== undefined) ? b[k] : def[k];
+    out[k] = typeof av === 'number' ? av + (bv - av) * u : (u < .5 ? av : bv);
+  }
+  return out;
+}
+function lerpWorlds(a, b, u, out) {
+  out = out || {};
+  for (const k of PX.WORLD_LIST) out[k] = 0;
+  if (a) for (const k in a) out[k] = (out[k] || 0) + a[k] * (1 - u);
+  if (b) for (const k in b) out[k] = (out[k] || 0) + b[k] * u;
+  return out;
+}
+
+class Timeline {
+  constructor(stage) {
+    this.stage = stage;
+    this.keys = stage.keys;
+    this.i = 0;
+    this.out = { level: 0, worlds: {}, deep: null, warp: {}, fx: {}, v: {} };
+    this.fired = new Array(stage.events.length).fill(false);
+  }
+  sample(t) {
+    const K = this.keys;
+    let i = 0, lo = 0, hi = K.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (K[mid].t <= t) lo = mid; else hi = mid - 1; }
+    i = lo;
+    const a = K[i], b = K[i + 1] || K[i];
+    const u = b === a ? 0 : M.smooth((t - a.t) / (b.t - a.t));
+    const o = this.out;
+    o.level = M.lerp(a.level || 0, b.level || 0, u);
+    lerpWorlds(a.worlds, b.worlds, u, o.worlds);
+    // deep（グルーヴ時の世界）も同様に補間。無ければ通常と同じ。
+    o.deep = lerpWorlds(a.deep || a.worlds, b.deep || b.worlds, u, o.deep || {});
+    lerpObj(a.warp, b.warp, u, WARP_DEF, o.warp);
+    lerpObj(a.fx, b.fx, u, FX_DEF, o.fx);
+    lerpObj(a.v, b.v, u, V_DEF, o.v);
+    return o;
+  }
+  events(t) {
+    const out = [];
+    const E = this.stage.events;
+    for (let i = 0; i < E.length; i++) {
+      if (!this.fired[i] && t >= E[i].t) { this.fired[i] = true; out.push(E[i]); }
+    }
+    return out;
+  }
+  reset() { this.fired.fill(false); }
+}
+
+/* エンジン側が決めるエフェクトの最大振れ幅。
+   ここを絞ることで「終盤 100%」でも走行ラインが読める状態を担保する。 */
+const FX_MAX = {
+  wave: .28, vwave: .20, ripple: .26, rgb: .42, hue: .05, sat: .50,
+  trails: .22, melt: .12, kaleido: .38, tunnel: .38, posterize: .70, invert: .26
+};
+
+/* ------------------------------------------------------------ Game */
+class Game {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.p = new PX.Pixel(canvas, 192);
+    this.p.resize();
+    PX.buildArt();
+    this.input = new PX.Input(canvas, this.p);
+    this.scene = 'house';
+    this.stage = PX.STAGES.stage1;
+    this.track = PX.TRACKS[this.stage.track] || PX.TRACKS.default;
+    this.house = new PX.HouseScene(this.p, this.input);
+    this.outro = null;
+    this.acc = 0; this.last = 0;
+    this.songTime = 0;
+    this.particles = [];
+    this.judgeText = null;
+    this.frame = 0;
+    // 自動品質: 実機が重ければ重いエフェクトから静かに削る
+    this.frameMs = 16.7; this.qual = 1; this.lowRes = false;
+
+    window.addEventListener('resize', () => this.p.resize());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.p.resize(), 250));
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && PX.Audio.ctx && PX.Audio.ctx.state === 'suspended') PX.Audio.ctx.resume();
+    });
+  }
+
+  /* ------------------------------------------------- ドライブ開始 */
+  startDrive(offset) {
+    offset = offset || 0;
+    const tr = this.track;
+    this.chart = new PX.Chart(tr);
+    this.cond = new PX.Conductor(tr);
+    this.road = new PX.Road(this.chart);
+    this.world = new PX.World(this.road);
+    this.tl = new Timeline(this.stage);
+    this.songTime = offset;
+    this.scene = 'drive';
+    // シーク時は過ぎたイベントを消化済みにし、世界の重みを即座に合わせる
+    if (offset > 0) {
+      this.tl.events(offset);
+      const K = this.tl.sample(offset);
+      for (const k of PX.WORLD_LIST) this.world.w[k] = K.worlds[k] || 0;
+      this.chart.cursor = 0;
+      const b0 = offset / (60 / tr.bpm);
+      for (const n of this.chart.notes) if (n.beat < b0) n.judged = true;
+    }
+
+    this.trip = {
+      level: 0, groove: .38, grooveBoost: 0, hueSpin: 0,
+      moonSize: 0, cloudFace: 0, starBoost: 0,
+      signWords: this.stage.signSets.normal
+    };
+    this.score = 0; this.combo = 0; this.maxCombo = 0;
+    this.grooveRaw = .38;
+    this.distort = 0; this.hueBlip = 0; this.flash = 0;
+    this.camMode = 'first'; this.camTimer = 0;
+    this.mirrorWorld = 0;
+    this.shake = 0;
+    this.deepest = 0;
+    this.pal = {};
+
+    PX.Audio.init();
+    PX.Audio.setTrack(tr);
+    PX.Audio.startEngine();   // 走行中は常にエンジン音（導入を飛ばした場合の保険も兼ねる）
+    if (tr.audioUrl) {
+      PX.Audio.loadExternal(tr.audioUrl).then(() => PX.Audio.play(offset)).catch(() => PX.Audio.play(offset));
+    } else {
+      PX.Audio.play(offset);
+    }
+    PX.Audio.fadeMusic(1, .8);
+  }
+
+  /* ------------------------------------------------------- ループ */
+  start() {
+    const step = (ts) => {
+      if (!this.last) this.last = ts;
+      let dt = (ts - this.last) / 1000;
+      this.last = ts;
+      if (dt > .06) dt = .06;
+      this.frame++;
+      this.frameMs += (Math.min(60, dt * 1000) - this.frameMs) * .05;
+      if (this.frameMs > 23) this.qual = M.clamp(this.qual - dt * .5, .3, 1);
+      else if (this.frameMs < 17.5) this.qual = M.clamp(this.qual + dt * .25, .3, 1);
+      if (!this.lowRes && this.qual < .45 && this.frame > 240) { this.lowRes = true; this.p.setBaseWidth(160); }
+      else if (this.lowRes && this.qual > .92) { this.lowRes = false; this.p.setBaseWidth(192); }
+      this.input.update(dt);
+      this.update(dt);
+      this.render();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  update(dt) {
+    switch (this.scene) {
+      case 'house':
+        this.house.update(dt);
+        if (this.house.done) this.startDrive();
+        break;
+      case 'drive':
+        this.updateDrive(dt);
+        break;
+      case 'outro':
+        this.outro.update(dt);
+        if (this.outro.done) {
+          const taps = this.input.takeTaps();
+          if (taps.length) this.restart();
+        }
+        break;
+    }
+  }
+
+  /* 任意の時刻へ移動（プレビュー用） */
+  seek(t) { PX.Audio.stop(); this.p.clearHistory(); this.startDrive(t); }
+
+  restart() {
+    PX.Audio.stop();
+    PX.Audio.stopEngine(.3);
+    this.p.clearHistory();
+    this.house = new PX.HouseScene(this.p, this.input);
+    this.scene = 'house';
+  }
+
+  /* =============================================== DRIVE UPDATE */
+  updateDrive(dt) {
+    const p = this.p;
+    // 音楽時計（音源があればそれが正、無ければ内部時計）
+    if (PX.Audio.ready && PX.Audio.playing) this.songTime = PX.Audio.now();
+    else this.songTime += dt;
+    const t = this.songTime;
+
+    this.cond.set(t);
+    const K = this.tl.sample(t);
+
+    /* --- グルーヴ → トリップ強度 --------------------------------- */
+    this.road.setTiming(this.track.bpm, this.cond.beat);
+    const judged = this.chart.update(this.cond.beat, this.input.steer);
+    for (const j of judged) this.onJudge(j);
+
+    // 連続的なライン精度も少しだけ効かせる（“ノっている”感）
+    const laneNow = this.chart.laneAt(this.cond.beat);
+    const lineAcc = M.sat(1 - Math.abs(this.input.steer - laneNow) / .5);
+    this.grooveRaw = M.clamp(this.grooveRaw + (lineAcc - .5) * dt * .12, 0, 1);
+    this.trip.groove = M.approach(this.trip.groove, this.grooveRaw, 1.6, dt);
+    const gb = this.trip.grooveBoost = M.sat((this.trip.groove - .42) / .48);
+
+    /* --- トリップレベル ------------------------------------------ */
+    const base = K.level;
+    const gate = M.sat(base / 1.5);                 // 序盤は絶対に普通のまま
+    const bonus = (this.trip.groove - .45) * 3.2 * gate;
+    this.trip.level = M.clamp(base + M.clamp(bonus, -1.3, 1.7), 0, 10);
+    this.deepest = Math.max(this.deepest, this.trip.level);
+
+    this.trip.hueSpin += dt * this.trip.level * .012;
+    this.trip.moonSize = K.v.moonSize;
+    this.trip.cloudFace = K.v.cloudFace;
+    this.trip.starBoost = K.v.starBoost;
+    this.trip.signWords = this.stage.signSets[K.v.signSet] || this.stage.signSets.normal;
+
+    /* --- ワールド重み（グルーヴで deep 側へ分岐） ------------------ */
+    const wts = {};
+    for (const k of PX.WORLD_LIST) wts[k] = M.lerp(K.worlds[k] || 0, K.deep[k] || 0, gb);
+    this.world.setTarget(wts);
+    this.world.moonFace = K.v.moonFace;
+    this.world.sunGlasses = K.v.sunGlasses;
+
+    /* --- 道路 ---------------------------------------------------- */
+    this.road.speed = K.v.speed * M.lerp(.94, 1.06, this.trip.groove);
+    this.road.horizon = K.v.horizon;
+    for (const k in WARP_DEF) {
+      const boost = (k === 'widen') ? 1 : M.lerp(.85, 1.18, gb);
+      this.road.warp[k] = (k === 'widen') ? K.warp[k] : K.warp[k] * boost;
+    }
+    // 低音で路面がうねる / ビートで幅が脈動
+    this.road.warp.wave += this.cond.env.bass * .05 * M.sat(this.trip.level / 4);
+    this.road.warp.breathe += this.cond.env.kick * .3 * M.sat(this.trip.level / 5);
+    this.road.pitch = Math.sin(this.cond.beat * Math.PI) * this.cond.env.kick * 1.4 * M.sat(this.trip.level / 6)
+                    - this.cond.env.bass * 1.2 * M.sat(this.trip.level / 8);
+    this.road.roll = Math.sin(t * .21) * .05 * M.sat((this.trip.level - 5) / 5)
+                   + this.input.steer * .012;
+    this.road.update(dt, this.input.steer, this.cond);
+    this.world.update(dt, this.cond, this.trip);
+
+    /* --- イベント ------------------------------------------------ */
+    for (const e of this.tl.events(t)) this.onEvent(e);
+    this.camTimer -= dt;
+    if (this.camTimer <= 0 && this.camMode !== 'first') this.camMode = 'first';
+    this.mirrorWorld = M.approach(this.mirrorWorld, this.camMode === 'mirror' ? 1 : 0, 2, dt);
+
+    /* --- エンジン音 ---------------------------------------------- */
+    PX.Audio.setEngine(.25 + M.sat(this.road.speed / 50) * .55 + Math.abs(this.input.steer) * .1,
+      .085 * (1 - M.sat(this.trip.level / 14)));
+
+    /* --- パレット ------------------------------------------------ */
+    const nw = this.world.normWeights();
+    // 色相は「累積回転」させない（作り込んだパレットが台無しになる）。
+    // レベルに応じた有界な揺らぎ + 一瞬のブリップだけにする。
+    const hueWobble = Math.sin(t * .19) * .035 * M.sat(this.trip.level / 10)
+                    + Math.sin(t * .047) * .025 * M.sat((this.trip.level - 6) / 4);
+    PX.blendPalette(nw, hueWobble + this.hueBlip,
+      M.sat(this.trip.level / 10) * .30 + this.trip.groove * .08, this.pal);
+
+    /* --- 減衰系 -------------------------------------------------- */
+    this.distort = M.approach(this.distort, 0, 1.8, dt);
+    this.hueBlip = M.approach(this.hueBlip, 0, 3.5, dt);
+    this.flash = M.approach(this.flash, 0, 2.2, dt);
+    this.shake = M.approach(this.shake, 0, 5, dt);
+    if (this.judgeText) { this.judgeText.life -= dt; if (this.judgeText.life <= 0) this.judgeText = null; }
+    this.updateParticles(dt);
+
+    /* --- 終了 ---------------------------------------------------- */
+    if (t >= this.stage.driveEnd) {
+      this.outro = new PX.OutroScene(p);
+      this.outro.stats = this.stats();
+      this.scene = 'outro';
+      PX.Audio.stop(1.0);
+      this.p.clearHistory();
+    }
+  }
+
+  stats() {
+    const s = this.chart.stats;
+    return {
+      perfect: s.perfect, groovy: s.groovy, good: s.good, miss: s.miss,
+      maxCombo: this.maxCombo, score: this.score,
+      depth: Math.round(this.deepest * 10) / 10
+    };
+  }
+
+  /* ------------------------------------------------------- 判定 */
+  onJudge(j) {
+    const g = j.grade;
+    const mul = Math.min(4, 1 + this.combo / 50);
+    if (g === 'MISS') {
+      this.combo = 0;
+      this.grooveRaw = M.clamp(this.grooveRaw - .11, 0, 1);
+      this.distort = Math.min(1.4, this.distort + .9);
+      this.road.kickOff(j.note.lane > this.input.steer ? -1 : 1);
+      PX.Audio.sfx('miss');
+    } else {
+      this.combo++;
+      this.maxCombo = Math.max(this.maxCombo, this.combo);
+      const pts = g === 'PERFECT' ? 300 : g === 'GROOVY' ? 180 : 70;
+      this.score += Math.round(pts * mul);
+      this.grooveRaw = M.clamp(this.grooveRaw + (g === 'PERFECT' ? .052 : g === 'GROOVY' ? .026 : -.004), 0, 1);
+      if (g === 'PERFECT') {
+        PX.Audio.sfx('perfect', Math.min(8, this.combo / 8));
+        if (this.combo % 8 === 0) this.burst(this.p.w * .5, this.p.h * .52, 14 + this.combo / 4);
+        if (this.trip.level > 7 && this.combo % 4 === 0) this.burst(this.p.w * (.2 + Math.random() * .6), this.p.h * .3, 8);
+      }
+    }
+    this.judgeText = { g, life: .42, x: this.p.w * .5 };
+  }
+
+  /* ----------------------------------------------------- イベント */
+  onEvent(e) {
+    switch (e.type) {
+      case 'cat':
+        this.world.forceSpawn('cat', 46, (M.hash(e.t) < .5 ? -1 : 1) * 2.2, { sit: true });
+        break;
+      case 'hueBlip': this.hueBlip = e.amount; break;
+      case 'shimmer': PX.Audio.sfx('shimmer'); break;
+      case 'whoosh': PX.Audio.sfx('whoosh'); break;
+      case 'tunnelIn': PX.Audio.fadeMusic(.25, 1.2); this.shake = .6; break;
+      case 'tunnelOut':
+        PX.Audio.fadeMusic(1, .25); PX.Audio.sfx('shimmer');
+        this.flash = 1; this.burst(this.p.w * .5, this.p.h * .45, 46);
+        break;
+      case 'thirdPerson': this.camMode = 'third'; this.camTimer = e.dur; break;
+      case 'mirrorWorld': this.camMode = 'mirror'; this.camTimer = e.dur; break;
+      case 'fireworks':
+        for (let i = 0; i < 6; i++) this.burst(this.p.w * (.15 + Math.random() * .7), this.p.h * (.15 + Math.random() * .4), 26);
+        break;
+      case 'whiteout': this.flash = 1.6; PX.Audio.sfx('shimmer'); break;
+      case 'musicOut': PX.Audio.fadeMusic(0, 3.0); break;
+    }
+  }
+
+  /* --------------------------------------------------- パーティクル */
+  burst(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = 20 + Math.random() * 90;
+      this.particles.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 20,
+        life: .5 + Math.random() * .9, max: 1.4,
+        c: C.rainbow(Math.random(), .62)
+      });
+    }
+    if (this.particles.length > 460) this.particles.splice(0, this.particles.length - 460);
+  }
+  updateParticles(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const q = this.particles[i];
+      q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 42 * dt;
+      q.vx *= (1 - dt * 1.1); q.life -= dt;
+      if (q.life <= 0) this.particles.splice(i, 1);
+    }
+  }
+
+  /* ================================================== RENDER */
+  render() {
+    const p = this.p;
+    switch (this.scene) {
+      case 'house': this.house.render(); break;
+      case 'drive': this.renderDrive(); break;
+      case 'outro': this.outro.render(this.outro.stats); break;
+    }
+    p.time = performance.now() / 1000;
+    p.present();
+  }
+
+  renderDrive() {
+    const p = this.p, pal = this.pal, cond = this.cond, trip = this.trip, road = this.road;
+    p.clear(pal.skyTop);
+
+    this.world.render(p, pal, cond, trip, road);
+    road.render(p, pal, cond.env, trip);
+    this.world.renderObjects(p, pal, cond, trip, road);
+    road.renderGuide(p, pal, M.sat(1.2 - trip.level / 6) * .8, cond.env);
+
+    // ドットの花火
+    for (const q of this.particles) {
+      const a = M.sat(q.life / q.max) * 1.2;
+      p.rectA(q.x, q.y, 1 + (q.life > .8 ? 1 : 0), 1 + (q.life > .8 ? 1 : 0), q.c, a);
+    }
+
+    // トンネル（世界が一度閉じる。ここが南国への切り替え点）
+    const tun = this.tl.out.v.tunnelDark;
+    if (tun > .02) this.drawTunnel(tun);
+
+    if (this.camMode === 'third') this.drawThirdPerson();
+    else this.drawDashboard();
+
+    this.drawHUD();
+    this.applyFx();
+  }
+
+  /* トンネル: 暗い壁と天井灯が流れる */
+  drawTunnel(a) {
+    const p = this.p, road = this.road, pal = this.pal;
+    const hz = road.horizonY(p);
+    const wall = C.mix(pal.near, [6, 5, 10], .8);
+    const q = {};
+    // アーチ状に左右から閉じる
+    for (let y = 0; y < p.h; y++) {
+      const t = M.sat((y - hz + 24) / (p.h - hz + 24));
+      const open = M.lerp(.10, .62, Math.pow(t, .7)) * M.lerp(1.6, 1, a);
+      const half = p.w * open;
+      const x0 = Math.round(p.w * .5 - half), x1 = Math.round(p.w * .5 + half);
+      if (x0 > 0) p.rectA(0, y, x0, 1, wall, a);
+      if (x1 < p.w) p.rectA(x1, y, p.w - x1, 1, wall, a);
+      // 壁の縁のハイライト
+      if (x0 > 0) p.rectA(x0 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
+      if (x1 < p.w) p.rectA(x1 - 1, y, 2, 1, C.mix(wall, pal.lightGlow, .18), a * .8);
+    }
+    // 天井灯（近づいてくる）
+    for (let i = 0; i < 12; i++) {
+      const dz = M.mod(i * 5 - road.z * .55, 60) + 1.2;
+      road.project(p, dz, 0, q);
+      const y = Math.round(hz - (q.sy - hz) * .75);
+      if (y < 0 || y > hz + 10) continue;
+      const w = Math.max(1, q.sw * .5);
+      p.rectA(q.sx - w / 2, y, w, Math.max(1, q.sc * 3), pal.lightGlow, a * .9);
+    }
+  }
+
+  /* ------------------------------------------------ ダッシュボード */
+  drawDashboard() {
+    const p = this.p, pal = this.pal, trip = this.trip, cond = this.cond;
+    const dashH = Math.round(p.h * .195);
+    const y0 = p.h - dashH;
+    // 車内は世界の色に少しだけ染まる程度に留める（常にニュートラルな暗さ）
+    const dark = C.mix(pal.near, [16, 13, 22], .74);
+    const dark2 = C.mix(pal.near, [7, 6, 12], .84);
+    const rimCol = C.mix(dark, [70, 62, 86], .55);
+    const rimHi = C.mix(pal.line, pal.accentA, .25 + trip.level * .045);
+    const ctx = p.ctx;
+
+    /* フロントガラス下端のカーブ + ダッシュ面 */
+    for (let x = 0; x < p.w; x++) {
+      const c = Math.round(Math.cos((x / p.w - .5) * 3.0) * 4);
+      p.rect(x, y0 - c, 1, 2, C.mix(pal.line, dark, .5));
+      p.rect(x, y0 - c + 2, 1, dashH + c, dark);
+    }
+    p.vgrad(0, y0 + 7, p.w, dashH - 7, dark, dark2, true);
+    // ダッシュ上面のステッチ
+    for (let x = 6; x < p.w - 6; x += 6) p.rectA(x, y0 + 6, 3, 1, [255, 255, 255], .06);
+
+    /* Aピラー / ルーフ（視界は狭めない） */
+    p.rect(0, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
+    p.rect(p.w - 2, 0, 2, p.h, C.mix(dark2, pal.mid, .22));
+    p.rect(0, 0, p.w, 2, C.mix(dark2, pal.mid, .18));
+
+    /* サイドミラー（ミラーの中だけ別世界） */
+    const mw = 30, mh = 15, mx = 3, my = y0 - 40;
+    p.rect(mx + 4, my + mh + 1, 4, 5, C.mix(dark2, pal.mid, .3));   // 支柱
+    p.rect(mx - 1, my - 1, mw + 2, mh + 2, C.mix(dark2, pal.mid, .35));
+    this.drawMirror(mx, my, mw, mh);
+
+    /* メーター（速度計 = 進行、回転計 = グルーヴ） */
+    const gy = y0 + 15;
+    this.drawGauge(p.w * .16, gy, 9, M.sat(this.songTime / this.stage.driveEnd), pal, rimHi, cond, 'trip');
+    this.drawGauge(p.w * .84, gy, 9, this.trip.groove, pal, rimHi, cond, 'groove');
+
+    /* ハンドル */
+    const cx = p.w * .5;
+    const cy = y0 + dashH * .96;
+    const R = Math.round(p.w * .40);
+    const rot = this.input.steer * .62 + Math.sin(cond.beat * Math.PI) * .012 * M.sat(trip.level / 6);
+    const glow = .25 + this.trip.groove * .75;
+
+    for (let a = -Math.PI * .99; a <= .03; a += .012) {
+      const aa = a + rot;
+      const x = cx + Math.cos(aa) * R, y = cy + Math.sin(aa) * R * .78;
+      if (y > p.h) continue;
+      const top = Math.sin(a) < -.5;
+      const col = top ? C.mix(rimCol, rimHi, .22 + glow * .35 + cond.env.kick * .12 * glow) : rimCol;
+      p.rect(x - 1, y - 1, 4, 4, col);
+      p.rect(x, y - 2, 2, 1, C.mix(col, [255, 255, 255], .18));
+    }
+    // スポーク（厚みを持たせる）
+    for (let i = 0; i < 3; i++) {
+      const a = (-Math.PI * .5) + (i - 1) * 1.06 + rot;
+      const x1 = cx + Math.cos(a) * R * .93, y1 = cy + Math.sin(a) * R * .72;
+      for (let o = -1; o <= 1; o++) p.line(cx + o, cy, x1 + o, y1, rimCol);
+      p.line(cx, cy - 1, x1, y1 - 1, C.mix(rimCol, [255, 255, 255], .12), .5);
+    }
+    // ハブ
+    p.circle(cx, cy, 9, C.css(C.mix(rimCol, [0, 0, 0], .35)));
+    p.circle(cx, cy, 6, C.css(C.mix(rimCol, rimHi, glow * .5)));
+    p.circle(cx, cy, 3, C.cssa(pal.lightGlow, .3 + cond.env.kick * .55 * glow));
+
+    /* ガラスの映り込み */
+    p.rectA(0, y0 - 1, p.w, 1, pal.lightGlow, .10 + cond.env.hat * .10);
+  }
+
+  /* 円形メーター */
+  drawGauge(cx, cy, r, v, pal, hi, cond, kind) {
+    const p = this.p;
+    const body = C.mix(pal.near, [10, 9, 16], .8);
+    p.circle(cx, cy, r + 1, C.css(C.mix(body, [255, 255, 255], .05)));
+    p.circle(cx, cy, r, C.css(body));
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const a = Math.PI * .78 + t * Math.PI * 1.44;
+      const on = t <= v;
+      const col = on ? (kind === 'groove' ? C.rainbow(.34 - t * .34, .58) : C.mix(hi, pal.accentB, t))
+                     : C.mix(body, [255, 255, 255], .10);
+      p.px(cx + Math.cos(a) * (r - 2), cy + Math.sin(a) * (r - 2), C.css(col));
+    }
+    const a = Math.PI * .78 + M.sat(v) * Math.PI * 1.44;
+    p.line(cx, cy, cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4), C.css(hi));
+    p.px(cx, cy, C.css(C.mix(hi, [255, 255, 255], .4)));
+  }
+
+  /* ミラーの中は別世界 */
+  drawMirror(x, y, w, h) {
+    const p = this.p, pal = this.pal, trip = this.trip;
+    const t = performance.now() / 1000;
+    p.rect(x - 1, y - 1, w + 2, h + 2, C.mix(pal.near, [0, 0, 0], .6));
+    // 通常は後方の道、mirrorWorld 中は完全に別の世界
+    const alt = this.mirrorWorld;
+    const top = C.mix(pal.skyTop, C.rainbow(t * .3, .5), alt * .8);
+    const bot = C.mix(pal.road, C.rainbow(t * .3 + .4, .35), alt * .8);
+    p.vgrad(x, y, w, h, top, bot, false);
+    // 後方に流れる線
+    for (let i = 0; i < 5; i++) {
+      const yy = y + M.mod(t * (14 + i * 5) + i * 3, h);
+      p.rectA(x + 2 + i * 4, yy, 2, 1, pal.line, .4 + alt * .4);
+    }
+    if (alt > .3) {
+      for (let i = 0; i < 6; i++) {
+        const px_ = x + M.mod(i * 5 + t * 9, w);
+        const py = y + 2 + M.hash(i * 3.3) * (h - 4);
+        p.rectA(px_, py, 1, 1, C.rainbow(i * .17 + t, .7), alt);
+      }
+    }
+    p.rectA(x, y, w, 1, [255, 255, 255], .18);
+  }
+
+  /* 一瞬だけ三人称 */
+  drawThirdPerson() {
+    const p = this.p, pal = this.pal;
+    const t = performance.now() / 1000;
+    const x = p.w * .5 + this.input.steer * p.w * .12;
+    const y = p.h * .86;
+    const bob = Math.sin(t * 9) * .8 + this.cond.env.kick * 1.4;
+    // 後ろから見た車
+    const body = C.mix(pal.accentC, [70, 40, 80], .3);
+    p.rectA(x - 20, y + 2, 40, 3, [0, 0, 0], .4);
+    p.rect(x - 19, y - 10 + bob, 38, 10, body);
+    p.rect(x - 14, y - 17 + bob, 28, 8, C.mix(body, [0, 0, 0], .25));
+    p.rect(x - 12, y - 16 + bob, 24, 6, C.mix(pal.accentB, pal.mid, .4));
+    p.rect(x - 17, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
+    p.rect(x + 12, y - 6 + bob, 5, 3, C.mix([255, 60, 60], pal.accentA, .3));
+    p.rect(x - 21, y - 4 + bob, 6, 4, [24, 22, 30]);
+    p.rect(x + 15, y - 4 + bob, 6, 4, [24, 22, 30]);
+    // テールランプの光
+    p.circle(x - 15, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
+    p.circle(x + 14, y - 5 + bob, 4, C.cssa([255, 70, 70], .18));
+  }
+
+  /* ---------------------------------------------------------- HUD */
+  drawHUD() {
+    const p = this.p, pal = this.pal;
+    // 進行ゲージ（極細）
+    const prog = M.sat(this.songTime / this.stage.driveEnd);
+    p.rectA(0, 0, p.w, 1, [0, 0, 0], .35);
+    p.rect(0, 0, Math.round(p.w * prog), 1, C.mix(pal.line, pal.accentA, .5));
+
+    // スコア / コンボ
+    p.text(String(this.score), 4, 4, C.cssa(pal.line, .70), 1, 1);
+    if (this.combo > 2) {
+      const s = this.combo >= 50 ? 2 : 1;
+      const col = this.combo >= 50 ? C.rainbow(performance.now() / 900, .65) : pal.line;
+      const txt = this.combo + 'x';
+      p.text(txt, p.w - PX.textWidth(txt, s, 1) - 4, 4, C.cssa(col, .8), s, 1);
+    }
+
+    // 判定表示（小さく、一瞬だけ）
+    if (this.judgeText) {
+      const j = this.judgeText;
+      const a = M.sat(j.life / .42);
+      const col = j.g === 'PERFECT' ? [255, 240, 140] : j.g === 'GROOVY' ? [140, 255, 220]
+        : j.g === 'GOOD' ? [200, 200, 220] : [255, 130, 150];
+      const y = Math.round(p.h * .78 - (1 - a) * 5);
+      p.textC(j.g, p.w * .5, y, C.cssa(col, a * .85), 1, 1);
+    }
+  }
+
+  /* ------------------------------------------------ ポストエフェクト
+     stage データの fx 値は 0..1 の「許容範囲のうちどれだけ使うか」。
+     実際の振れ幅は下の FX_MAX がエンジン側の責任として決める。
+     これがあるので data 側は思い切り 1.0 と書ける。 */
+  applyFx() {
+    const p = this.p, K = this.tl.out, trip = this.trip, cond = this.cond;
+    const fx = p.fx;
+    p.resetFx();
+    const lv = M.sat(trip.level / 10);
+    const gK = M.lerp(.84, 1.16, trip.grooveBoost);
+    const Q = this.qual;   // 自動品質（重い端末では静かに下がる）
+    const beat = cond.env.kick, bass = cond.env.bass;
+    const X = FX_MAX;
+    const now = performance.now();
+
+    // 走行ライン保護: トリップが深いほど「空で暴れて道路は守る」
+    fx.protectY = this.road.horizon + .02;
+    fx.protect = M.lerp(.40, .90, lv);
+
+    fx.wave = Math.min(X.wave, (K.fx.wave * X.wave + this.distort * .12) * gK);
+    fx.waveFreq = 1 + lv * 1.4;
+    fx.waveSpeed = .8 + lv;
+    fx.vwave = K.fx.vwave * X.vwave + this.distort * .06;
+    fx.ripple = Math.min(X.ripple * 1.6, (K.fx.ripple * X.ripple + this.distort * .22) * gK);
+    fx.rippleCX = .5; fx.rippleCY = this.road.horizon;
+    fx.rgb = K.fx.rgb * X.rgb * (.72 + beat * .5) * gK;
+    fx.hue = K.fx.hue * X.hue * Math.sin(now / 4200) + this.hueBlip * .5;
+    fx.sat = K.fx.sat * X.sat * gK;
+    fx.bright = K.fx.bright * (1 + beat * .04 * lv);
+    fx.invert = K.fx.invert * X.invert * (.4 + .6 * Math.abs(Math.sin(now / 3300)));
+    fx.posterize = K.fx.posterize * X.posterize;
+    fx.trails = K.fx.trails * X.trails * (.85 + this.trip.groove * .25) * Q;
+    fx.melt = K.fx.melt * X.melt * gK * Q;
+    fx.kaleido = K.fx.kaleido * X.kaleido * gK * (.88 + beat * .14) * Q;
+    fx.kaleidoSeg = 4 + Math.floor(lv * 4);
+    fx.kaleidoRot = now / 11000;
+    fx.tunnel = K.fx.tunnel * X.tunnel * gK * Q;
+    fx.vignette = K.fx.vignette + (1 - lv) * .10;
+    fx.scan = .09 + lv * .10;
+    fx.zoom = 1 + beat * .010 * lv + bass * .006;
+    fx.rot = Math.sin(now / 5200) * .014 * lv;
+    fx.shakeX = (Math.random() - .5) * this.shake * 6 + this.input.wheelKick * (Math.random() - .5) * 1.6;
+    fx.shakeY = (Math.random() - .5) * this.shake * 4;
+    fx.flash = M.sat(this.flash * .9 + K.fx.flash * this.flash);
+    fx.flashColor = [255, 252, 245];
+  }
+}
+
+/* --------------------------------------------------------- boot */
+function boot() {
+  const cv = document.getElementById('view');
+  const g = new PX.Game(cv);
+  PX.game = g;
+  g.start();
+  /* デバッグ/プレビュー用: ?t=225 で任意の時刻から、?skip=1 で導入を飛ばす
+     （PX.game.seek(秒) でもいつでも移動できる） */
+  const q = new URLSearchParams(location.search);
+  const t0 = parseFloat(q.get('t'));
+  if (q.get('skip') || !isNaN(t0)) g.startDrive(isNaN(t0) ? 0 : t0);
+  // 初回タッチで AudioContext を起こす
+  const unlock = () => { PX.Audio.init(); };
+  document.addEventListener('touchstart', unlock, { once: true });
+  document.addEventListener('mousedown', unlock, { once: true });
+}
+PX.Game = Game;
+if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(boot, 0);
+else window.addEventListener('DOMContentLoaded', boot);
+
+})(window.PX);
+
+</script>
+</body>
+</html>
