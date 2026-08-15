@@ -46,7 +46,9 @@ class Pixel {
   _mk(w, h) {
     this.w = w; this.h = h;
     this.cv = document.createElement('canvas'); this.cv.width = w; this.cv.height = h;
-    this.ctx = this.cv.getContext('2d', { alpha: false });
+    // willReadFrequently: 毎フレーム getImageData する面は CPU 側に置く。
+    // これが無いとフレーム毎に GPU→CPU の同期が起きて、実機で強烈に詰まる。
+    this.ctx = this.cv.getContext('2d', { alpha: false, willReadFrequently: true });
     this.ctx.imageSmoothingEnabled = false;
     this.post = document.createElement('canvas'); this.post.width = w; this.post.height = h;
     this.pctx = this.post.getContext('2d', { alpha: false });
@@ -393,6 +395,8 @@ class Pixel {
       }
       const yOffRow = colOff.length ? 0 : 0;
       const scanMul = (scan > .01 && (y & 1)) ? (1 - scan * .30) : 1;
+      // 残像も走行ライン保護の対象。路面が尾を引くと譜面マーカーが読めなくなる。
+      const tKr = tK * M.lerp(.22, 1, mk);
       const dyv = y - cy, dyv2 = dyv * dyv;
       const rowX = rowOff[y];
 
@@ -484,9 +488,9 @@ class Pixel {
         /* --- 残像 --- */
         if (doTrail) {
           const pr = H[di] * tDecay, pg = H[di + 1] * tDecay, pb = H[di + 2] * tDecay;
-          if (pr > r) r += (pr - r) * tK;
-          if (pg > g) g += (pg - g) * tK;
-          if (pb > b) b += (pb - b) * tK;
+          if (pr > r) r += (pr - r) * tKr;
+          if (pg > g) g += (pg - g) * tKr;
+          if (pb > b) b += (pb - b) * tKr;
           H[di] = r; H[di + 1] = g; H[di + 2] = b;
         }
 

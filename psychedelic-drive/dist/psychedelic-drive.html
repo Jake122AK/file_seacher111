@@ -352,184 +352,184 @@ const SIGNS = {
 const K = [
 /* ============ PHASE 1 : NORMAL (0:00-0:35) — 完全に普通 ============ */
 { t: 0,   level: 0,   worlds: { suburb: 1 },
-  warp: { widen: 1 }, fx: {}, v: { speed: 28, signSet: 'normal', horizon: .44 } },
+  warp: { widen: 1 }, fx: {}, v: { speed: 18, signSet: 'normal', horizon: .44 } },
 
 { t: 12,  level: 0,   worlds: { suburb: 1 },
-  warp: {}, fx: {}, v: { speed: 29, signSet: 'normal' } },
+  warp: {}, fx: {}, v: { speed: 19, signSet: 'normal' } },
 
 /* 0:16 — ごく小さな異常。信号が一瞬紫。電柱が1px呼吸する。 */
 { t: 16,  level: 0.35, worlds: { suburb: 1 },
-  warp: {}, fx: { hue: .05 }, v: { speed: 30, signSet: 'normal' } },
+  warp: {}, fx: { hue: .05 }, v: { speed: 20, signSet: 'normal' } },
 
 { t: 28,  level: 0.7, worlds: { suburb: .94, weird: .06 },
   warp: { snake: .04 }, fx: { hue: .10, sat: .05 },
-  v: { speed: 30, signSet: 'odd', moonSize: .06 } },
+  v: { speed: 20, signSet: 'odd', moonSize: .06 } },
 
 /* ============ PHASE 2 : SOMETHING IS WRONG (0:35-1:00) ============ */
 { t: 35,  level: 1.5, worlds: { suburb: .86, weird: .14 },
   warp: { snake: .10, breathe: .1 }, fx: { hue: .16, sat: .12 },
-  v: { speed: 31, signSet: 'odd', moonSize: .10, starBoost: .05 } },
+  v: { speed: 20, signSet: 'odd', moonSize: .10, starBoost: .05 } },
 
 { t: 46,  level: 2.2, worlds: { suburb: .7, weird: .3, night: .05 },
   warp: { snake: .16, breathe: .2, glow: .12 }, fx: { hue: .26, sat: .18, rgb: .06 },
-  v: { speed: 32, signSet: 'weird', moonSize: .14, starBoost: .12 } },
+  v: { speed: 21, signSet: 'weird', moonSize: .14, starBoost: .12 } },
 
 { t: 58,  level: 2.8, worlds: { suburb: .5, weird: .5 },
   warp: { snake: .22, breathe: .32, glow: .2, wave: .06 },
   fx: { hue: .38, sat: .24, rgb: .12, wave: .07 },
-  v: { speed: 33, signSet: 'weird', moonSize: .2, starBoost: .2, cloudFace: .1 } },
+  v: { speed: 22, signSet: 'weird', moonSize: .2, starBoost: .2, cloudFace: .1 } },
 
 /* ============ PHASE 3 : TRIP START (1:00-1:37) ==================== */
 { t: 68,  level: 3.4, worlds: { suburb: .34, weird: .66 },
   deep:  { suburb: .2, weird: .6, tropical: .2 },
   warp: { snake: .3, breathe: .45, glow: .35, wave: .12, rainbow: .14 },
   fx: { hue: .5, sat: .32, rgb: .18, wave: .13, ripple: .06, trails: .10 },
-  v: { speed: 34, signSet: 'trip', moonSize: .26, starBoost: .3, cloudFace: .45, moonFace: 1 } },
+  v: { speed: 22, signSet: 'trip', moonSize: .26, starBoost: .3, cloudFace: .45, moonFace: 1 } },
 
 { t: 80,  level: 4.2, worlds: { suburb: .2, weird: .8 },
   deep:  { weird: .7, tropical: .3 },
   warp: { snake: .38, breathe: .6, glow: .5, wave: .22, rainbow: .3 },
   fx: { hue: .62, sat: .42, rgb: .26, wave: .22, ripple: .12, trails: .18, posterize: .1 },
-  v: { speed: 35, signSet: 'trip', moonSize: .34, starBoost: .4, cloudFace: .8, moonFace: 1 } },
+  v: { speed: 23, signSet: 'trip', moonSize: .34, starBoost: .4, cloudFace: .8, moonFace: 1 } },
 
 { t: 92,  level: 5.0, worlds: { weird: 1 },
   deep:  { weird: .74, tropical: .26 },
   warp: { snake: .45, breathe: .8, glow: .7, wave: .35, rainbow: .48 },
   fx: { hue: .74, sat: .5, rgb: .32, wave: .3, ripple: .18, trails: .26, posterize: .16 },
-  v: { speed: 36, signSet: 'trip', moonSize: .4, starBoost: .5, cloudFace: 1, moonFace: 1 } },
+  v: { speed: 24, signSet: 'trip', moonSize: .4, starBoost: .5, cloudFace: 1, moonFace: 1 } },
 
 /* ============ トンネル (1:37-1:43) ================================ */
 { t: 97,  level: 5.0, worlds: { weird: 1 },
   warp: { snake: .3, rainbow: .3, glow: .5 },
   fx: { hue: .7, sat: .3, rgb: .2, trails: .3, vignette: .3 },
-  v: { speed: 37, signSet: 'trip' } },
+  v: { speed: 24, signSet: 'trip' } },
 
 { t: 100, level: 4.6, worlds: { weird: .4, night: .6 },
   warp: { widen: .86, rainbow: .06, glow: .9 },
   fx: { vignette: 1.4, trails: .5, rgb: .1, bright: .55, tunnel: .35 },
-  v: { speed: 40, signSet: 'none', tunnelDark: 1 } },
+  v: { speed: 26, signSet: 'none', tunnelDark: 1 } },
 
 { t: 102.5, level: 4.6, worlds: { night: 1 },
   warp: { widen: .8, glow: 1 },
   fx: { vignette: 1.7, trails: .6, bright: .34, tunnel: .55 },
-  v: { speed: 42, tunnelDark: 1 } },
+  v: { speed: 28, tunnelDark: 1 } },
 
 /* ============ 急激な南国化 (1:43-2:25) ============================ */
 { t: 105, level: 6.0, worlds: { tropical: 1 },
   deep:  { tropical: .8, abstract: .2 },
   warp: { rainbow: .35, glow: .8, wave: .2, widen: 1.05 },
   fx: { sat: .55, hue: .3, rgb: .18, trails: .14, flash: .6 },
-  v: { speed: 38, signSet: 'trip', sunGlasses: 1, cloudFace: .5 } },
+  v: { speed: 25, signSet: 'trip', sunGlasses: 1, cloudFace: .5 } },
 
 { t: 118, level: 6.3, worlds: { tropical: 1 },
   deep:  { tropical: .78, space: .22 },
   warp: { rainbow: .4, glow: .7, wave: .28, snake: .3 },
   fx: { sat: .5, hue: .36, rgb: .22, wave: .24, trails: .22, ripple: .14 },
-  v: { speed: 38, sunGlasses: 1, cloudFace: .7, crowd: 1 } },
+  v: { speed: 25, sunGlasses: 1, cloudFace: .7, crowd: 1 } },
 
 { t: 134, level: 6.8, worlds: { tropical: 1 },
   deep:  { tropical: .7, space: .3 },
   warp: { rainbow: .5, glow: .8, wave: .38, snake: .34, liquid: .2 },
   fx: { sat: .55, hue: .44, rgb: .28, wave: .32, trails: .28, ripple: .2, kaleido: .06 },
-  v: { speed: 39, sunGlasses: 1, cloudFace: .9, crowd: 1 } },
+  v: { speed: 26, sunGlasses: 1, cloudFace: .9, crowd: 1 } },
 
 /* ============ 世界崩壊 (2:25-3:20) ================================ */
 { t: 146, level: 7.0, worlds: { tropical: .55, space: .45 },
   deep:  { tropical: .35, space: .65 },
   warp: { rainbow: .55, glow: .9, wave: .4, sky: .12, liquid: .25 },
   fx: { sat: .55, hue: .5, rgb: .32, wave: .34, trails: .34, ripple: .22, kaleido: .1 },
-  v: { speed: 40, signSet: 'deep', starBoost: .6 } },
+  v: { speed: 26, signSet: 'deep', starBoost: .6 } },
 
 { t: 158, level: 7.3, worlds: { space: 1 },
   deep:  { space: .75, abstract: .25 },
   warp: { rainbow: .5, glow: 1, wave: .3, sky: .3, spiral: .12, liquid: .2 },
   fx: { sat: .5, hue: .56, rgb: .34, wave: .32, trails: .4, ripple: .2, kaleido: .14, tunnel: .12 },
-  v: { speed: 41, starBoost: 1 } },
+  v: { speed: 27, starBoost: 1 } },
 
 { t: 170, level: 7.5, worlds: { space: .45, city: .55 },
   deep:  { space: .3, city: .5, abstract: .2 },
   warp: { rainbow: .5, glow: .9, snake: .4, spiral: .1, keys: .1 },
   fx: { sat: .5, hue: .62, rgb: .36, wave: .28, trails: .36, ripple: .18, kaleido: .12 },
-  v: { speed: 42, starBoost: .7 } },
+  v: { speed: 28, starBoost: .7 } },
 
 { t: 180, level: 7.8, worlds: { city: 1 },
   deep:  { city: .7, abstract: .3 },
   warp: { rainbow: .55, glow: 1, snake: .45, wave: .3, keys: .18 },
   fx: { sat: .55, hue: .68, rgb: .4, wave: .32, trails: .4, ripple: .22, kaleido: .16, melt: .1 },
-  v: { speed: 42 } },
+  v: { speed: 28 } },
 
 { t: 190, level: 8.0, worlds: { city: .4, jungle: .6 },
   deep:  { city: .25, jungle: .5, abstract: .25 },
   warp: { rainbow: .55, glow: .9, snake: .5, wave: .38, breathe: 1 },
   fx: { sat: .55, hue: .74, rgb: .38, wave: .36, trails: .4, ripple: .26, kaleido: .16, melt: .16 },
-  v: { speed: 42 } },
+  v: { speed: 28 } },
 
 { t: 198, level: 8.2, worlds: { jungle: .45, ocean: .55 },
   deep:  { jungle: .3, ocean: .45, abstract: .25 },
   warp: { rainbow: .6, glow: 1, wave: .5, liquid: .5, snake: .4 },
   fx: { sat: .6, hue: .8, rgb: .4, wave: .44, trails: .46, ripple: .32, kaleido: .18, melt: .12 },
-  v: { speed: 41 } },
+  v: { speed: 27 } },
 
 /* ============ 完全サイケデリックゾーン (3:20-4:11) ================= */
 { t: 208, level: 8.6, worlds: { ocean: .4, abstract: .6 },
   deep:  { ocean: .2, abstract: .8 },
   warp: { rainbow: .75, glow: 1, spiral: .16, loop: .18, wave: .5, liquid: .5, keys: .16 },
   fx: { sat: .65, hue: .86, rgb: .46, wave: .48, trails: .5, ripple: .34, kaleido: .3, tunnel: .2, melt: .1 },
-  v: { speed: 42, signSet: 'deep' } },
+  v: { speed: 28, signSet: 'deep' } },
 
 { t: 220, level: 9.0, worlds: { abstract: 1 },
   deep:  { abstract: .8, climax: .2 },
   warp: { rainbow: .85, glow: 1, spiral: .22, loop: .28, wave: .55, liquid: .7, keys: .22, sky: .2 },
   fx: { sat: .7, hue: .92, rgb: .52, wave: .52, trails: .55, ripple: .4, kaleido: .42, tunnel: .3, melt: .18, posterize: .2 },
-  v: { speed: 43 } },
+  v: { speed: 28 } },
 
 { t: 234, level: 9.3, worlds: { abstract: .8, space: .2 },
   deep:  { abstract: .65, space: .15, climax: .2 },
   warp: { rainbow: .9, glow: 1, spiral: .30, loop: .35, wave: .6, liquid: .8, keys: .28, sky: .35 },
   fx: { sat: .75, hue: .96, rgb: .56, wave: .56, trails: .6, ripple: .44, kaleido: .55, tunnel: .4, melt: .22, posterize: .25, invert: .05 },
-  v: { speed: 44 } },
+  v: { speed: 29 } },
 
 { t: 244, level: 9.6, worlds: { abstract: .6, climax: .4 },
   deep:  { abstract: .4, climax: .6 },
   warp: { rainbow: .95, glow: 1, spiral: .34, loop: .40, wave: .65, liquid: .9, keys: .32, sky: .5, tongue: .4 },
   fx: { sat: .8, hue: 1, rgb: .6, wave: .6, trails: .65, ripple: .48, kaleido: .65, tunnel: .5, melt: .26, posterize: .3, invert: .07 },
-  v: { speed: 45 } },
+  v: { speed: 30 } },
 
 /* ============ 最大のクライマックス (4:11-4:33) ===================== */
 { t: 251, level: 10, worlds: { climax: .5, abstract: .16, tropical: .12, space: .1, city: .06, jungle: .04, ocean: .02 },
   deep:  { climax: .62, abstract: .12, tropical: .1, space: .08, city: .04, jungle: .03, ocean: .01 },
   warp: { rainbow: 1, glow: 1, spiral: .38, loop: .45, wave: .7, liquid: 1, keys: .30, sky: .6, widen: 1.0 },
   fx: { sat: .9, hue: 1, rgb: .7, wave: .68, trails: .58, ripple: .55, kaleido: .8, tunnel: .6, melt: .16, posterize: .35 },
-  v: { speed: 46, starBoost: 1, cloudFace: 1, sunGlasses: 1, moonFace: 1 } },
+  v: { speed: 30, starBoost: 1, cloudFace: 1, sunGlasses: 1, moonFace: 1 } },
 
 { t: 262, level: 10, worlds: { climax: .58, abstract: .14, tropical: .1, space: .1, city: .04, jungle: .03, ocean: .01 },
   warp: { rainbow: 1, glow: 1, spiral: .42, loop: .5, wave: .8, liquid: 1, keys: .26, sky: 1.0, widen: 1.04 },
   fx: { sat: 1, hue: 1, rgb: .85, wave: .8, trails: .62, ripple: .65, kaleido: 1, tunnel: .75, melt: .18, posterize: .4, invert: .06 },
-  v: { speed: 48, starBoost: 1 } },
+  v: { speed: 32, starBoost: 1 } },
 
 /* 車が空へ向かって走る */
 { t: 268, level: 10, worlds: { climax: .6, space: .25, abstract: .15 },
   warp: { rainbow: 1, glow: 1, spiral: .40, loop: .45, wave: .6, liquid: 1, sky: 1.6, widen: 1.0 },
   fx: { sat: 1, hue: 1, rgb: .9, wave: .7, trails: .62, ripple: .6, kaleido: 1, tunnel: .9, melt: .16 },
-  v: { speed: 50, starBoost: 1 } },
+  v: { speed: 33, starBoost: 1 } },
 
 /* ============ 帰還 (4:33-4:40) ==================================== */
 { t: 272, level: 10, worlds: { white: 1 },
   warp: { rainbow: .3, glow: 1, sky: .3, widen: 1 },
   fx: { bright: 2.6, sat: -.5, trails: .3, flash: .9 },
-  v: { speed: 40 } },
+  v: { speed: 26 } },
 
 { t: 275, level: 2, worlds: { night: 1 },
   warp: {}, fx: { bright: 1.1, trails: .1, vignette: .2 },
-  v: { speed: 32, signSet: 'none' } },
+  v: { speed: 21, signSet: 'none' } },
 
 { t: 278, level: 0, worlds: { night: 1 },
   warp: {}, fx: { vignette: .25 },
-  v: { speed: 28, signSet: 'none' } },
+  v: { speed: 18, signSet: 'none' } },
 
 { t: 290, level: 0, worlds: { night: 1 },
   warp: {}, fx: { vignette: .25 },
-  v: { speed: 22, signSet: 'none' } }
+  v: { speed: 16, signSet: 'none' } }
 ];
 
 /* events ----------------------------------------------------------- */
@@ -892,7 +892,9 @@ class Pixel {
   _mk(w, h) {
     this.w = w; this.h = h;
     this.cv = document.createElement('canvas'); this.cv.width = w; this.cv.height = h;
-    this.ctx = this.cv.getContext('2d', { alpha: false });
+    // willReadFrequently: 毎フレーム getImageData する面は CPU 側に置く。
+    // これが無いとフレーム毎に GPU→CPU の同期が起きて、実機で強烈に詰まる。
+    this.ctx = this.cv.getContext('2d', { alpha: false, willReadFrequently: true });
     this.ctx.imageSmoothingEnabled = false;
     this.post = document.createElement('canvas'); this.post.width = w; this.post.height = h;
     this.pctx = this.post.getContext('2d', { alpha: false });
@@ -1239,6 +1241,8 @@ class Pixel {
       }
       const yOffRow = colOff.length ? 0 : 0;
       const scanMul = (scan > .01 && (y & 1)) ? (1 - scan * .30) : 1;
+      // 残像も走行ライン保護の対象。路面が尾を引くと譜面マーカーが読めなくなる。
+      const tKr = tK * M.lerp(.22, 1, mk);
       const dyv = y - cy, dyv2 = dyv * dyv;
       const rowX = rowOff[y];
 
@@ -1330,9 +1334,9 @@ class Pixel {
         /* --- 残像 --- */
         if (doTrail) {
           const pr = H[di] * tDecay, pg = H[di + 1] * tDecay, pb = H[di + 2] * tDecay;
-          if (pr > r) r += (pr - r) * tK;
-          if (pg > g) g += (pg - g) * tK;
-          if (pb > b) b += (pb - b) * tK;
+          if (pr > r) r += (pr - r) * tKr;
+          if (pg > g) g += (pg - g) * tKr;
+          if (pb > b) b += (pb - b) * tKr;
           H[di] = r; H[di + 1] = g; H[di + 2] = b;
         }
 
@@ -1767,6 +1771,66 @@ const Audio = PX.Audio = {
     setTimeout(() => { try { nodes.n.stop(); nodes.o.stop(); } catch (err) {} }, (fade || 1) * 2000);
   },
 
+  /* ------------------------------------------------- 判定ヒット音
+     ★音ゲー感の要★ プレイヤーの精度が「音楽の一部」として鳴る。
+     PERFECT はコンボが伸びるほどペンタトニックを駆け上がり、
+     MISS では音楽を一瞬しゃがませて（duck）はっきり分かるようにする。 */
+  PENTA: [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24],
+
+  hit(grade, combo) {
+    if (!this.ready) return;
+    const c = this.ctx, t = c.currentTime + .001;
+    const tr = this.track || { root: 55 };
+    if (grade === 'MISS') {
+      // 音楽が一瞬引っ込む（外したことが耳で分かる）
+      this.duck(.42, .16);
+      const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+      const f = c.createBiquadFilter(); f.type = 'lowpass';
+      f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(120, t + .25);
+      const g = c.createGain();
+      g.gain.setValueAtTime(.16, t); g.gain.exponentialRampToValueAtTime(.001, t + .28);
+      n.connect(f); f.connect(g); g.connect(this.sfxGain);
+      n.start(t); n.stop(t + .3);
+      return;
+    }
+    const deg = this.PENTA[Math.min(this.PENTA.length - 1, (combo | 0) % 8 + (grade === 'PERFECT' ? 2 : 0))];
+    const freq = tr.root * 8 * Math.pow(2, deg / 12);
+    const bright = grade === 'PERFECT' ? 1 : grade === 'GROOVY' ? .62 : .3;
+    const dur = grade === 'GOOD' ? .16 : .38;
+
+    // マリンバ寄りの打点（基音 + 4倍音）
+    for (let i = 0; i < 2; i++) {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = i === 0 ? 'triangle' : 'sine';
+      o.frequency.setValueAtTime(freq * (i === 0 ? 1 : 4.01), t);
+      const amp = (i === 0 ? .13 : .05 * bright) * (grade === 'GOOD' ? .55 : 1);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(amp, t + .006);
+      g.gain.exponentialRampToValueAtTime(.001, t + dur * (i === 0 ? 1 : .45));
+      o.connect(g); g.connect(this.sfxGain);
+      if (grade === 'PERFECT') { const sd = c.createGain(); sd.gain.value = .35; g.connect(sd); sd.connect(this.delay); }
+      o.start(t); o.stop(t + dur + .05);
+    }
+    // PERFECT はきらめきを足す
+    if (grade === 'PERFECT') {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(freq * 6, t);
+      g.gain.setValueAtTime(.035, t); g.gain.exponentialRampToValueAtTime(.001, t + .18);
+      o.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .2);
+    }
+  },
+
+  /* 音楽バスを一瞬しゃがませる */
+  duck(amount, sec) {
+    if (!this.musicGain) return;
+    const g = this.musicGain.gain, t = this.ctx.currentTime;
+    const cur = g.value;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(cur, t);
+    g.linearRampToValueAtTime(cur * (1 - amount), t + .02);
+    g.linearRampToValueAtTime(1, t + .02 + (sec || .2));
+  },
+
   /* -------------------------------------------------------------- SFX */
   sfx(name, param) {
     if (!this.ready) return;
@@ -1910,10 +1974,11 @@ class Input {
     const p = this._pt(t);
     this.touchX = p.x; this.touchY = p.y;
     const prev = this.raw;
-    // アンカー相対 + 絶対位置のブレンド → どこを持っても直感的
+    /* 完全な相対ドラッグ。指を動かした分だけ動く。
+       以前は絶対位置を 35% ブレンドしていたので、触れた瞬間に指の位置へ
+       引っ張られて「車が勝手にずれる」感触になっていた。 */
     const rel = (p.x - this.anchor) / (this.pixel.w * .34);
-    const abs = (p.x - this.pixel.w * .5) / (this.pixel.w * .42);
-    this.raw = M.clamp(M.lerp(rel, abs, .35) * this.sensitivity, -1.35, 1.35);
+    this.raw = M.clamp(rel * this.sensitivity, -1.25, 1.25);
     const d = Math.abs(this.raw - prev);
     if (d > .09) this.wheelKick = Math.min(1, this.wheelKick + d);
     this.lastMoveT = performance.now();
@@ -1957,11 +2022,8 @@ class Input {
     let target = this.raw;
     if (this.keyL || this.keyR) target = M.clamp(target + (this.keyR - this.keyL) * 1.15, -1.2, 1.2);
     if (this.gyro) target = M.clamp(target + this.gyroVal, -1.3, 1.3);
-    if (!this.active && !this.keyL && !this.keyR && !this.gyro) {
-      // 指を離したら緩やかにセンターへ（完全には戻さない = 音ゲー的追従）
-      this.raw = M.approach(this.raw, 0, 1.1, dt);
-      target = this.raw;
-    }
+    /* 指を離しても値は保持する。勝手にセンターへ戻すと、
+       手を止めた瞬間に車がラインから外れていくため。 */
     const prev = this.steer;
     this.steer = M.approach(this.steer, M.clamp(target, -1.15, 1.15), 17, dt);
     this.vel = (this.steer - prev) / Math.max(.0001, dt);
@@ -3786,16 +3848,20 @@ PX.generateChart = function (track) {
       const r = rng();
       switch (style) {
         case 'still':
-          if (b % 4 === 0) notes.push({ beat: bar0, lane: 0, kind: 'ease' });
+          notes.push({ beat: bar0, lane: (r < .5 ? -1 : 1) * amp * .8, kind: 'ease' });
+          notes.push({ beat: bar0 + 2, lane: (r < .5 ? 1 : -1) * amp * .8, kind: 'ease' });
           break;
-        case 'straight':
-          notes.push({ beat: bar0, lane: (r < .5 ? -1 : 1) * amp * (.35 + rng() * .3), kind: 'ease' });
-          notes.push({ beat: bar0 + 2, lane: (r < .5 ? 1 : -1) * amp * (.35 + rng() * .3), kind: 'ease' });
-          break;
-        case 'sway': {
+        case 'straight': {
           const s0 = r < .5 ? -1 : 1;
           for (let k = 0; k < 4; k++)
-            notes.push({ beat: bar0 + k, lane: s0 * (k % 2 ? -1 : 1) * amp * (.55 + rng() * .35), kind: 'ease' });
+            notes.push({ beat: bar0 + k, lane: s0 * (k % 2 ? -1 : 1) * amp * (.4 + rng() * .3), kind: 'ease' });
+          break;
+        }
+        case 'sway': {
+          const s0 = r < .5 ? -1 : 1;
+          for (let k = 0; k < 8; k++)
+            notes.push({ beat: bar0 + k * .5, lane: s0 * Math.sin(k * .785) * amp * (.6 + rng() * .3),
+                         kind: k % 2 ? 'ease' : 'swing' });
           break;
         }
         case 'skank': {
@@ -3810,8 +3876,9 @@ PX.generateChart = function (track) {
         case 'long': {
           const s0 = r < .5 ? -1 : 1;
           notes.push({ beat: bar0, lane: s0 * amp * .95, kind: 'hold' });
+          notes.push({ beat: bar0 + 1, lane: s0 * amp * .88, kind: 'hold' });
           notes.push({ beat: bar0 + 2, lane: s0 * amp * .95, kind: 'hold' });
-          notes.push({ beat: bar0 + 3, lane: -s0 * amp * .5, kind: 'ease' });
+          notes.push({ beat: bar0 + 3, lane: -s0 * amp * .55, kind: 'ease' });
           break;
         }
         case 'scratch': {
@@ -3900,20 +3967,25 @@ class Road {
   }
   laneAtDz(dz) { return this.chart.laneAt(this.beat + dz * this.beatsPerUnit) * LANE_AMP; }
 
+  /* 判定面は「カメラ」ではなく「自車」。
+     自車は dz = carDz 先にいるので、その分だけ先の拍を判定する。
+     ここがズレていると、見た目でラインに乗せているのに判定が渋る。 */
+  judgeLead() { return this.carDz * this.beatsPerUnit; }
+
   /* 車の目標位置（＝プレイヤーのステア） */
   update(dt, steer, conductor) {
     this.time += dt;
     this.z += this.speed * dt;
     const target = steer * LANE_AMP;
     const prev = this.carX;
-    this.carX = M.approach(this.carX, target + this.offRoad * .55 * (this.offSide || 1), 22, dt);
+    this.carX = M.approach(this.carX, target + this.offRoad * .18 * (this.offSide || 1), 22, dt);
     // カメラは自車に遅れて追従 → 自車が画面内で左右に振れて進路が見える
     this.camX = M.approach(this.camX, this.carX * this.camFollow, 9, dt);
     const vel = (this.carX - prev) / Math.max(.0001, dt);
     this.bank = M.approach(this.bank, M.clamp(vel * .55, -1, 1), 8, dt);
   }
 
-  kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .8); this.offSide = side; }
+  kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .55); this.offSide = side; }
 
   horizonY(p) { return Math.round(p.h * this.horizon + this.pitch); }
 
@@ -4101,6 +4173,151 @@ class Road {
           ctx.globalAlpha = 1;
         }
       }
+    }
+  }
+
+  /*
+    譜面マーカー — 音ゲー感の本体。
+    ノーツを画面上部から降らせるのではなく、路面に「拍のライン」と
+    「そこで乗るべき点」を描いて手前へ流す。自車に到達した瞬間が判定。
+    UI ではなく世界の一部なので、視線は道路から外れない。
+  */
+  renderNotes(p, pal, cond, trip) {
+    const notes = this.chart.notes;
+    if (!notes.length) return;
+    /* 冒頭の「完全に普通のドライブ」では譜面表示を出さない。
+       音楽が世界を侵食し始める(level>0.6)のに合わせて浮かび上がらせる。 */
+    const vis = M.sat((trip.level - 0.6) / 1.6);
+    if (vis <= .01) return;
+    const ctx = p.ctx;
+    const beat = this.beat;
+    const bpu = this.beatsPerUnit;
+    const lead = this.judgeLead();
+    const q = {};
+    const FAR = 46;   // これ以上遠いと地平線に潰れて読めないので描かない
+
+    /* --- 拍のグリッド ---
+       ノーツが疎な区間でも「音楽が路面を流れている」状態を作る。
+       8分ごとに細い線、拍で太く、小節頭で最も明るい。
+       これが手前へ流れ続けるので、曲に乗っている感覚が視覚的に生まれる。 */
+    const bpb = this.chart.track.beatsPerBar || 4;
+    const jb = beat + lead;
+    /* 判定面より手前(=通過済み)も描く。ここを描かないと画面の下半分に
+       拍が存在せず、流れが途切れて「音に乗っている」感覚が出ない。 */
+    const gridStart = Math.ceil((jb - 1.5) * 2) / 2;
+    for (let gb = gridStart; ; gb += .5) {
+      const gdz = (gb - beat) / bpu;
+      if (gdz > FAR) break;
+      if (gdz < .4) continue;
+      this.project(p, gdz, 0, q);
+      if (q.sw < .8 || q.sy > p.h + 8) continue;
+      const isBeat = Math.abs(gb - Math.round(gb)) < .01;
+      const isBar = isBeat && Math.abs(M.mod(gb, bpb)) < .01;
+      const app = M.sat((FAR - gdz) / FAR);
+      const gPassed = M.sat((this.carDz - gdz) / 2.0);
+      const a = (isBar ? .78 : isBeat ? .52 : .26) * (.35 + app * .85) * vis * (1 - gPassed * .8);
+      const hgt = M.clamp(Math.round(q.sc * (isBar ? 15 : isBeat ? 10 : 5)), 1, Math.round(p.h * .035));
+      ctx.globalAlpha = a;
+      // 暗い縁を先に置いて、路面の色に関わらず線が立つようにする
+      ctx.fillStyle = '#000';
+      ctx.globalAlpha = a * .5;
+      ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy) + hgt, Math.max(1, Math.round(q.sw * 2)), Math.max(1, Math.round(hgt * .6)));
+      ctx.globalAlpha = a;
+      ctx.fillStyle = C.css(isBar ? pal.accentA : pal.line);
+      ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy), Math.max(1, Math.round(q.sw * 2)), hgt);
+      if (isBeat) {   // 白い芯を入れて、どんな路面色でも線が読める
+        ctx.globalAlpha = a * .85;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy), Math.max(1, Math.round(q.sw * 2)),
+          Math.max(1, Math.round(hgt * .4)));
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 表示範囲の先頭ノートを二分探索
+    let lo = 0, hi = notes.length - 1, start = notes.length;
+    const minBeat = beat + lead - 1.2;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (notes[mid].beat >= minBeat) { start = mid; hi = mid - 1; } else lo = mid + 1;
+    }
+
+    for (let i = start; i < notes.length; i++) {
+      const n = notes[i];
+      const dz = (n.beat - beat) / bpu;          // そのノーツが今どこにあるか
+      if (dz > FAR) break;
+      if (dz < .4) continue;
+      this.project(p, dz, 0, q);
+      if (q.sy < this.horizonY(p) - 4 || q.sy > p.h + 8) continue;
+      if (q.sw < 1.0) continue;
+      const app = M.sat((FAR - dz) / (FAR - this.carDz));       // 手前ほど 1
+      const imminent = M.sat(1 - Math.abs(dz - this.carDz) / 9);// 到達前後で強く光る
+      const passed = M.sat((this.carDz - dz) / 1.8);            // 通過後は素早く消す
+      const pf = 1 - passed * .88;
+      const strong = (n.kind === 'snap' || n.kind === 'hold');
+
+      // 拍のライン（路面を横切る帯）。到達間際に一気に明るくなる = 「今」が分かる
+      const a = (.30 + app * .50 + imminent * .55) * (strong ? 1 : .74) * M.lerp(.45, 1, vis) * pf;
+      const bandH = M.clamp(Math.round(q.sc * (strong ? 20 : 13)), 1, Math.round(p.h * .05));
+      ctx.globalAlpha = M.sat(a);
+      ctx.fillStyle = C.css(C.mix(pal.line, strong ? pal.accentB : pal.accentA, .3 + app * .35));
+      ctx.fillRect(Math.round(q.sx - q.sw * .96), Math.round(q.sy), Math.max(1, Math.round(q.sw * 1.92)), bandH);
+      // 帯の芯（白）
+      ctx.globalAlpha = M.sat(a * .9);
+      ctx.fillStyle = C.css(C.mix(pal.lightGlow, [255, 255, 255], .5));
+      ctx.fillRect(Math.round(q.sx - q.sw * .96), Math.round(q.sy), Math.max(1, Math.round(q.sw * 1.92)),
+        Math.max(1, Math.round(bandH * .35)));
+
+      // 乗るべき点（路面中央のひし形）
+      const lx = q.sx + q.sc * (n.lane * LANE_AMP - this.laneAtDz(dz)) * (p.w * .58);
+      const r = M.clamp(Math.round(q.sc * (9 + app * 12 + imminent * 10)), 1, Math.round(p.h * .06));
+      ctx.globalAlpha = M.sat((.40 + app * .5 + imminent * .45) * M.lerp(.5, 1, vis) * pf);
+      ctx.fillStyle = C.css(strong ? pal.accentB : pal.lightGlow);
+      for (let k = -r; k <= r; k++) {
+        const wq = r - Math.abs(k);
+        if (wq < 0) continue;
+        ctx.fillRect(Math.round(lx - wq), Math.round(q.sy + k), Math.max(1, wq * 2), 1);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    /* --- ターゲット --- 「今この瞬間、車が居るべき点」を常時表示する。
+       自車とこのマーカーの距離がそのままズレ量なので、
+       プレイヤーは何をすれば良いかを一瞬で理解できる。 */
+    this.project(p, this.carDz, 0, q);
+    if (q.sw > 2) {
+      const err = Math.abs(this.carX - this.laneAtDz(this.carDz)) / LANE_AMP;
+      const good = M.sat(1 - err / .45);
+      const pulse = .55 + cond.env.kick * .45;
+      const col = C.mix(pal.line, pal.accentA, .25 + good * .5);
+      const w2 = Math.max(2, Math.round(q.sw * .16));
+      const hh = Math.max(1, Math.round(q.sc * 9));
+      ctx.globalAlpha = M.sat((.35 + good * .5) * pulse * M.lerp(.5, 1, vis));
+      // 中央のくさび
+      ctx.fillStyle = C.css(col);
+      for (let k = 0; k < hh; k++) {
+        const ww = Math.max(1, Math.round(w2 * (1 - k / hh)));
+        ctx.fillRect(Math.round(q.sx - ww), Math.round(q.sy - k), ww * 2, 1);
+      }
+      // ぴったり乗っていると光る
+      if (good > .72) {
+        ctx.globalAlpha = (good - .72) / .28 * .5 * pulse;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(q.sx - w2), Math.round(q.sy - hh), w2 * 2, Math.max(1, Math.round(hh * .5)));
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 判定面（自車の足元）を路肩に小さく示す
+    this.project(p, this.carDz, 0, q);
+    if (q.sw > 2) {
+      const pulse = .45 + cond.env.kick * .55;
+      ctx.globalAlpha = .5 * pulse;
+      ctx.fillStyle = C.css(pal.lightGlow);
+      const tw = Math.max(2, Math.round(q.sw * .18));
+      ctx.fillRect(Math.round(q.sx - q.sw - tw), Math.round(q.sy) - 1, tw, 3);
+      ctx.fillRect(Math.round(q.sx + q.sw), Math.round(q.sy) - 1, tw, 3);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -4809,7 +5026,7 @@ class Game {
     /* 自動品質。実測では内部解像度が最も効くので、そちらを主レバーにする。
        エフェクト側(qual)は 0.6 までしか落とさない = 終盤の絵作りを壊さない。 */
     this.frameMs = 16.7; this.workMs = 8; this.qual = 1;
-    this.resLadder = [192, 176, 160, 144];
+    this.resLadder = [192, 176, 160, 144, 128];
     this.resStep = 0; this.resCool = 3;
     this.exhaust = [];
 
@@ -4850,6 +5067,7 @@ class Game {
     this.grooveRaw = .38;
     this.distort = 0; this.hueBlip = 0; this.flash = 0;
     this.camTimer = 0; this.camZoom = 0;   // closeUp 演出（カメラが一瞬寄る）
+    this.hitFx = null;
     this.shake = 0;
     this.deepest = 0;
     this.pal = {};
@@ -4954,11 +5172,13 @@ class Game {
 
     /* --- グルーヴ → トリップ強度 --------------------------------- */
     this.road.setTiming(this.track.bpm, this.cond.beat);
-    const judged = this.chart.update(this.cond.beat, this.input.steer);
+    // 判定面は自車の位置（カメラより carDz だけ先）
+    const jBeat = this.cond.beat + this.road.judgeLead();
+    const judged = this.chart.update(jBeat, this.input.steer);
     for (const j of judged) this.onJudge(j);
 
     // 連続的なライン精度も少しだけ効かせる（“ノっている”感）
-    const laneNow = this.chart.laneAt(this.cond.beat);
+    const laneNow = this.chart.laneAt(jBeat);
     const lineAcc = M.sat(1 - Math.abs(this.input.steer - laneNow) / .5);
     this.grooveRaw = M.clamp(this.grooveRaw + (lineAcc - .5) * dt * .12, 0, 1);
     this.trip.groove = M.approach(this.trip.groove, this.grooveRaw, 1.6, dt);
@@ -5030,6 +5250,7 @@ class Game {
     this.flash = M.approach(this.flash, 0, 2.2, dt);
     this.shake = M.approach(this.shake, 0, 5, dt);
     if (this.judgeText) { this.judgeText.life -= dt; if (this.judgeText.life <= 0) this.judgeText = null; }
+    if (this.hitFx) { this.hitFx.life -= dt; if (this.hitFx.life <= 0) this.hitFx = null; }
     this.updateParticles(dt);
 
     /* --- 終了 ---------------------------------------------------- */
@@ -5055,12 +5276,15 @@ class Game {
   onJudge(j) {
     const g = j.grade;
     const mul = Math.min(4, 1 + this.combo / 50);
+    // 自車の位置で光らせる（判定面 = 自車なので、当たった場所が一致する）
+    const pose = this.road.carPose(this.p);
+    this.hitFx = { grade: g, life: .5, x: pose.sx, y: pose.sy, w: pose.w };
+    PX.Audio.hit(g, this.combo);
     if (g === 'MISS') {
       this.combo = 0;
       this.grooveRaw = M.clamp(this.grooveRaw - .11, 0, 1);
       this.distort = Math.min(1.4, this.distort + .9);
       this.road.kickOff(j.note.lane > this.input.steer ? -1 : 1);
-      PX.Audio.sfx('miss');
     } else {
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
@@ -5068,12 +5292,11 @@ class Game {
       this.score += Math.round(pts * mul);
       this.grooveRaw = M.clamp(this.grooveRaw + (g === 'PERFECT' ? .052 : g === 'GROOVY' ? .026 : -.004), 0, 1);
       if (g === 'PERFECT') {
-        PX.Audio.sfx('perfect', Math.min(8, this.combo / 8));
         if (this.combo % 8 === 0) this.burst(this.p.w * .5, this.p.h * .52, 14 + this.combo / 4);
         if (this.trip.level > 7 && this.combo % 4 === 0) this.burst(this.p.w * (.2 + Math.random() * .6), this.p.h * .3, 8);
       }
     }
-    this.judgeText = { g, life: .42, x: this.p.w * .5 };
+    this.judgeText = { g, life: .5, x: this.p.w * .5 };
   }
 
   /* ----------------------------------------------------- イベント */
@@ -5138,6 +5361,7 @@ class Game {
 
     this.world.render(p, pal, cond, trip, road);
     road.render(p, pal, cond.env, trip);
+    road.renderNotes(p, pal, cond, trip);
     this.world.renderObjects(p, pal, cond, trip, road);
     road.renderGuide(p, pal, M.sat(1.2 - trip.level / 6) * .8, cond.env);
 
@@ -5152,6 +5376,7 @@ class Game {
     if (tun > .02) this.drawTunnel(tun);
 
     this.drawCar();
+    this.drawHit();
     this.drawHUD();
     this.applyFx();
   }
@@ -5211,6 +5436,21 @@ class Game {
     });
   }
 
+  /* 判定の瞬間を自車の足元で光らせる */
+  drawHit() {
+    const h = this.hitFx;
+    if (!h) return;
+    const p = this.p, pal = this.pal;
+    const k = M.sat(h.life / .5);
+    const col = h.grade === 'PERFECT' ? [255, 244, 150] : h.grade === 'GROOVY' ? [150, 255, 225]
+      : h.grade === 'GOOD' ? [205, 205, 225] : [255, 120, 140];
+    const r = h.w * (.9 + (1 - k) * 1.7);
+    p.ring(h.x, h.y - 2, r, C.css(col), k * k * .75, 1);
+    if (h.grade === 'PERFECT') p.ring(h.x, h.y - 2, r * .55, C.css(col), k * .5, 1);
+    // 路面に残る光
+    p.rectA(h.x - h.w, h.y - 1, h.w * 2, 2, col, k * .45);
+  }
+
   /* ---------------------------------------------------------- HUD */
   drawHUD() {
     const p = this.p, pal = this.pal;
@@ -5250,6 +5490,11 @@ class Game {
     const lv = M.sat(trip.level / 10);
     const gK = M.lerp(.84, 1.16, trip.grooveBoost);
     const Q = this.qual;   // 自動品質（重い端末では静かに下がる）
+    /* 解像度を下げてもまだ重い端末では、最も高価な効果から順に切る。
+       万華鏡とトンネルは画素ごとに極座標演算が要るので真っ先に落とす。 */
+    const tier = this.resStep;
+    const Qpolar = tier >= 4 ? 0 : tier === 3 ? .45 : tier === 2 ? .75 : 1;
+    const Qmelt = tier >= 3 ? .4 : 1;
     const beat = cond.env.kick, bass = cond.env.bass;
     const X = FX_MAX;
     const now = performance.now();
@@ -5271,11 +5516,11 @@ class Game {
     fx.invert = K.fx.invert * X.invert * (.4 + .6 * Math.abs(Math.sin(now / 3300)));
     fx.posterize = K.fx.posterize * X.posterize;
     fx.trails = K.fx.trails * X.trails * (.85 + this.trip.groove * .25) * Q;
-    fx.melt = K.fx.melt * X.melt * gK * Q;
-    fx.kaleido = K.fx.kaleido * X.kaleido * gK * (.88 + beat * .14) * Q;
+    fx.melt = K.fx.melt * X.melt * gK * Q * Qmelt;
+    fx.kaleido = K.fx.kaleido * X.kaleido * gK * (.88 + beat * .14) * Q * Qpolar;
     fx.kaleidoSeg = 4 + Math.floor(lv * 4);
     fx.kaleidoRot = now / 11000;
-    fx.tunnel = K.fx.tunnel * X.tunnel * gK * Q;
+    fx.tunnel = K.fx.tunnel * X.tunnel * gK * Q * Qpolar;
     fx.vignette = K.fx.vignette + (1 - lv) * .10;
     fx.scan = .09 + lv * .10;
     fx.zoom = 1 + beat * .010 * lv + bass * .006;

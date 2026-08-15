@@ -102,7 +102,7 @@ class Game {
     /* 自動品質。実測では内部解像度が最も効くので、そちらを主レバーにする。
        エフェクト側(qual)は 0.6 までしか落とさない = 終盤の絵作りを壊さない。 */
     this.frameMs = 16.7; this.workMs = 8; this.qual = 1;
-    this.resLadder = [192, 176, 160, 144];
+    this.resLadder = [192, 176, 160, 144, 128];
     this.resStep = 0; this.resCool = 3;
     this.exhaust = [];
 
@@ -143,6 +143,7 @@ class Game {
     this.grooveRaw = .38;
     this.distort = 0; this.hueBlip = 0; this.flash = 0;
     this.camTimer = 0; this.camZoom = 0;   // closeUp 演出（カメラが一瞬寄る）
+    this.hitFx = null;
     this.shake = 0;
     this.deepest = 0;
     this.pal = {};
@@ -247,11 +248,13 @@ class Game {
 
     /* --- グルーヴ → トリップ強度 --------------------------------- */
     this.road.setTiming(this.track.bpm, this.cond.beat);
-    const judged = this.chart.update(this.cond.beat, this.input.steer);
+    // 判定面は自車の位置（カメラより carDz だけ先）
+    const jBeat = this.cond.beat + this.road.judgeLead();
+    const judged = this.chart.update(jBeat, this.input.steer);
     for (const j of judged) this.onJudge(j);
 
     // 連続的なライン精度も少しだけ効かせる（“ノっている”感）
-    const laneNow = this.chart.laneAt(this.cond.beat);
+    const laneNow = this.chart.laneAt(jBeat);
     const lineAcc = M.sat(1 - Math.abs(this.input.steer - laneNow) / .5);
     this.grooveRaw = M.clamp(this.grooveRaw + (lineAcc - .5) * dt * .12, 0, 1);
     this.trip.groove = M.approach(this.trip.groove, this.grooveRaw, 1.6, dt);
@@ -323,6 +326,7 @@ class Game {
     this.flash = M.approach(this.flash, 0, 2.2, dt);
     this.shake = M.approach(this.shake, 0, 5, dt);
     if (this.judgeText) { this.judgeText.life -= dt; if (this.judgeText.life <= 0) this.judgeText = null; }
+    if (this.hitFx) { this.hitFx.life -= dt; if (this.hitFx.life <= 0) this.hitFx = null; }
     this.updateParticles(dt);
 
     /* --- 終了 ---------------------------------------------------- */
@@ -348,12 +352,15 @@ class Game {
   onJudge(j) {
     const g = j.grade;
     const mul = Math.min(4, 1 + this.combo / 50);
+    // 自車の位置で光らせる（判定面 = 自車なので、当たった場所が一致する）
+    const pose = this.road.carPose(this.p);
+    this.hitFx = { grade: g, life: .5, x: pose.sx, y: pose.sy, w: pose.w };
+    PX.Audio.hit(g, this.combo);
     if (g === 'MISS') {
       this.combo = 0;
       this.grooveRaw = M.clamp(this.grooveRaw - .11, 0, 1);
       this.distort = Math.min(1.4, this.distort + .9);
       this.road.kickOff(j.note.lane > this.input.steer ? -1 : 1);
-      PX.Audio.sfx('miss');
     } else {
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
@@ -361,12 +368,11 @@ class Game {
       this.score += Math.round(pts * mul);
       this.grooveRaw = M.clamp(this.grooveRaw + (g === 'PERFECT' ? .052 : g === 'GROOVY' ? .026 : -.004), 0, 1);
       if (g === 'PERFECT') {
-        PX.Audio.sfx('perfect', Math.min(8, this.combo / 8));
         if (this.combo % 8 === 0) this.burst(this.p.w * .5, this.p.h * .52, 14 + this.combo / 4);
         if (this.trip.level > 7 && this.combo % 4 === 0) this.burst(this.p.w * (.2 + Math.random() * .6), this.p.h * .3, 8);
       }
     }
-    this.judgeText = { g, life: .42, x: this.p.w * .5 };
+    this.judgeText = { g, life: .5, x: this.p.w * .5 };
   }
 
   /* ----------------------------------------------------- イベント */
@@ -431,6 +437,7 @@ class Game {
 
     this.world.render(p, pal, cond, trip, road);
     road.render(p, pal, cond.env, trip);
+    road.renderNotes(p, pal, cond, trip);
     this.world.renderObjects(p, pal, cond, trip, road);
     road.renderGuide(p, pal, M.sat(1.2 - trip.level / 6) * .8, cond.env);
 
@@ -445,6 +452,7 @@ class Game {
     if (tun > .02) this.drawTunnel(tun);
 
     this.drawCar();
+    this.drawHit();
     this.drawHUD();
     this.applyFx();
   }
@@ -504,6 +512,21 @@ class Game {
     });
   }
 
+  /* 判定の瞬間を自車の足元で光らせる */
+  drawHit() {
+    const h = this.hitFx;
+    if (!h) return;
+    const p = this.p, pal = this.pal;
+    const k = M.sat(h.life / .5);
+    const col = h.grade === 'PERFECT' ? [255, 244, 150] : h.grade === 'GROOVY' ? [150, 255, 225]
+      : h.grade === 'GOOD' ? [205, 205, 225] : [255, 120, 140];
+    const r = h.w * (.9 + (1 - k) * 1.7);
+    p.ring(h.x, h.y - 2, r, C.css(col), k * k * .75, 1);
+    if (h.grade === 'PERFECT') p.ring(h.x, h.y - 2, r * .55, C.css(col), k * .5, 1);
+    // 路面に残る光
+    p.rectA(h.x - h.w, h.y - 1, h.w * 2, 2, col, k * .45);
+  }
+
   /* ---------------------------------------------------------- HUD */
   drawHUD() {
     const p = this.p, pal = this.pal;
@@ -543,6 +566,11 @@ class Game {
     const lv = M.sat(trip.level / 10);
     const gK = M.lerp(.84, 1.16, trip.grooveBoost);
     const Q = this.qual;   // 自動品質（重い端末では静かに下がる）
+    /* 解像度を下げてもまだ重い端末では、最も高価な効果から順に切る。
+       万華鏡とトンネルは画素ごとに極座標演算が要るので真っ先に落とす。 */
+    const tier = this.resStep;
+    const Qpolar = tier >= 4 ? 0 : tier === 3 ? .45 : tier === 2 ? .75 : 1;
+    const Qmelt = tier >= 3 ? .4 : 1;
     const beat = cond.env.kick, bass = cond.env.bass;
     const X = FX_MAX;
     const now = performance.now();
@@ -564,11 +592,11 @@ class Game {
     fx.invert = K.fx.invert * X.invert * (.4 + .6 * Math.abs(Math.sin(now / 3300)));
     fx.posterize = K.fx.posterize * X.posterize;
     fx.trails = K.fx.trails * X.trails * (.85 + this.trip.groove * .25) * Q;
-    fx.melt = K.fx.melt * X.melt * gK * Q;
-    fx.kaleido = K.fx.kaleido * X.kaleido * gK * (.88 + beat * .14) * Q;
+    fx.melt = K.fx.melt * X.melt * gK * Q * Qmelt;
+    fx.kaleido = K.fx.kaleido * X.kaleido * gK * (.88 + beat * .14) * Q * Qpolar;
     fx.kaleidoSeg = 4 + Math.floor(lv * 4);
     fx.kaleidoRot = now / 11000;
-    fx.tunnel = K.fx.tunnel * X.tunnel * gK * Q;
+    fx.tunnel = K.fx.tunnel * X.tunnel * gK * Q * Qpolar;
     fx.vignette = K.fx.vignette + (1 - lv) * .10;
     fx.scan = .09 + lv * .10;
     fx.zoom = 1 + beat * .010 * lv + bass * .006;

@@ -416,6 +416,66 @@ const Audio = PX.Audio = {
     setTimeout(() => { try { nodes.n.stop(); nodes.o.stop(); } catch (err) {} }, (fade || 1) * 2000);
   },
 
+  /* ------------------------------------------------- 判定ヒット音
+     ★音ゲー感の要★ プレイヤーの精度が「音楽の一部」として鳴る。
+     PERFECT はコンボが伸びるほどペンタトニックを駆け上がり、
+     MISS では音楽を一瞬しゃがませて（duck）はっきり分かるようにする。 */
+  PENTA: [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24],
+
+  hit(grade, combo) {
+    if (!this.ready) return;
+    const c = this.ctx, t = c.currentTime + .001;
+    const tr = this.track || { root: 55 };
+    if (grade === 'MISS') {
+      // 音楽が一瞬引っ込む（外したことが耳で分かる）
+      this.duck(.42, .16);
+      const n = c.createBufferSource(); n.buffer = this.noiseBuf;
+      const f = c.createBiquadFilter(); f.type = 'lowpass';
+      f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(120, t + .25);
+      const g = c.createGain();
+      g.gain.setValueAtTime(.16, t); g.gain.exponentialRampToValueAtTime(.001, t + .28);
+      n.connect(f); f.connect(g); g.connect(this.sfxGain);
+      n.start(t); n.stop(t + .3);
+      return;
+    }
+    const deg = this.PENTA[Math.min(this.PENTA.length - 1, (combo | 0) % 8 + (grade === 'PERFECT' ? 2 : 0))];
+    const freq = tr.root * 8 * Math.pow(2, deg / 12);
+    const bright = grade === 'PERFECT' ? 1 : grade === 'GROOVY' ? .62 : .3;
+    const dur = grade === 'GOOD' ? .16 : .38;
+
+    // マリンバ寄りの打点（基音 + 4倍音）
+    for (let i = 0; i < 2; i++) {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = i === 0 ? 'triangle' : 'sine';
+      o.frequency.setValueAtTime(freq * (i === 0 ? 1 : 4.01), t);
+      const amp = (i === 0 ? .13 : .05 * bright) * (grade === 'GOOD' ? .55 : 1);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(amp, t + .006);
+      g.gain.exponentialRampToValueAtTime(.001, t + dur * (i === 0 ? 1 : .45));
+      o.connect(g); g.connect(this.sfxGain);
+      if (grade === 'PERFECT') { const sd = c.createGain(); sd.gain.value = .35; g.connect(sd); sd.connect(this.delay); }
+      o.start(t); o.stop(t + dur + .05);
+    }
+    // PERFECT はきらめきを足す
+    if (grade === 'PERFECT') {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(freq * 6, t);
+      g.gain.setValueAtTime(.035, t); g.gain.exponentialRampToValueAtTime(.001, t + .18);
+      o.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .2);
+    }
+  },
+
+  /* 音楽バスを一瞬しゃがませる */
+  duck(amount, sec) {
+    if (!this.musicGain) return;
+    const g = this.musicGain.gain, t = this.ctx.currentTime;
+    const cur = g.value;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(cur, t);
+    g.linearRampToValueAtTime(cur * (1 - amount), t + .02);
+    g.linearRampToValueAtTime(1, t + .02 + (sec || .2));
+  },
+
   /* -------------------------------------------------------------- SFX */
   sfx(name, param) {
     if (!this.ready) return;

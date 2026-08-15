@@ -125,16 +125,20 @@ PX.generateChart = function (track) {
       const r = rng();
       switch (style) {
         case 'still':
-          if (b % 4 === 0) notes.push({ beat: bar0, lane: 0, kind: 'ease' });
+          notes.push({ beat: bar0, lane: (r < .5 ? -1 : 1) * amp * .8, kind: 'ease' });
+          notes.push({ beat: bar0 + 2, lane: (r < .5 ? 1 : -1) * amp * .8, kind: 'ease' });
           break;
-        case 'straight':
-          notes.push({ beat: bar0, lane: (r < .5 ? -1 : 1) * amp * (.35 + rng() * .3), kind: 'ease' });
-          notes.push({ beat: bar0 + 2, lane: (r < .5 ? 1 : -1) * amp * (.35 + rng() * .3), kind: 'ease' });
-          break;
-        case 'sway': {
+        case 'straight': {
           const s0 = r < .5 ? -1 : 1;
           for (let k = 0; k < 4; k++)
-            notes.push({ beat: bar0 + k, lane: s0 * (k % 2 ? -1 : 1) * amp * (.55 + rng() * .35), kind: 'ease' });
+            notes.push({ beat: bar0 + k, lane: s0 * (k % 2 ? -1 : 1) * amp * (.4 + rng() * .3), kind: 'ease' });
+          break;
+        }
+        case 'sway': {
+          const s0 = r < .5 ? -1 : 1;
+          for (let k = 0; k < 8; k++)
+            notes.push({ beat: bar0 + k * .5, lane: s0 * Math.sin(k * .785) * amp * (.6 + rng() * .3),
+                         kind: k % 2 ? 'ease' : 'swing' });
           break;
         }
         case 'skank': {
@@ -149,8 +153,9 @@ PX.generateChart = function (track) {
         case 'long': {
           const s0 = r < .5 ? -1 : 1;
           notes.push({ beat: bar0, lane: s0 * amp * .95, kind: 'hold' });
+          notes.push({ beat: bar0 + 1, lane: s0 * amp * .88, kind: 'hold' });
           notes.push({ beat: bar0 + 2, lane: s0 * amp * .95, kind: 'hold' });
-          notes.push({ beat: bar0 + 3, lane: -s0 * amp * .5, kind: 'ease' });
+          notes.push({ beat: bar0 + 3, lane: -s0 * amp * .55, kind: 'ease' });
           break;
         }
         case 'scratch': {
@@ -239,20 +244,25 @@ class Road {
   }
   laneAtDz(dz) { return this.chart.laneAt(this.beat + dz * this.beatsPerUnit) * LANE_AMP; }
 
+  /* 判定面は「カメラ」ではなく「自車」。
+     自車は dz = carDz 先にいるので、その分だけ先の拍を判定する。
+     ここがズレていると、見た目でラインに乗せているのに判定が渋る。 */
+  judgeLead() { return this.carDz * this.beatsPerUnit; }
+
   /* 車の目標位置（＝プレイヤーのステア） */
   update(dt, steer, conductor) {
     this.time += dt;
     this.z += this.speed * dt;
     const target = steer * LANE_AMP;
     const prev = this.carX;
-    this.carX = M.approach(this.carX, target + this.offRoad * .55 * (this.offSide || 1), 22, dt);
+    this.carX = M.approach(this.carX, target + this.offRoad * .18 * (this.offSide || 1), 22, dt);
     // カメラは自車に遅れて追従 → 自車が画面内で左右に振れて進路が見える
     this.camX = M.approach(this.camX, this.carX * this.camFollow, 9, dt);
     const vel = (this.carX - prev) / Math.max(.0001, dt);
     this.bank = M.approach(this.bank, M.clamp(vel * .55, -1, 1), 8, dt);
   }
 
-  kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .8); this.offSide = side; }
+  kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .55); this.offSide = side; }
 
   horizonY(p) { return Math.round(p.h * this.horizon + this.pitch); }
 
@@ -440,6 +450,151 @@ class Road {
           ctx.globalAlpha = 1;
         }
       }
+    }
+  }
+
+  /*
+    譜面マーカー — 音ゲー感の本体。
+    ノーツを画面上部から降らせるのではなく、路面に「拍のライン」と
+    「そこで乗るべき点」を描いて手前へ流す。自車に到達した瞬間が判定。
+    UI ではなく世界の一部なので、視線は道路から外れない。
+  */
+  renderNotes(p, pal, cond, trip) {
+    const notes = this.chart.notes;
+    if (!notes.length) return;
+    /* 冒頭の「完全に普通のドライブ」では譜面表示を出さない。
+       音楽が世界を侵食し始める(level>0.6)のに合わせて浮かび上がらせる。 */
+    const vis = M.sat((trip.level - 0.6) / 1.6);
+    if (vis <= .01) return;
+    const ctx = p.ctx;
+    const beat = this.beat;
+    const bpu = this.beatsPerUnit;
+    const lead = this.judgeLead();
+    const q = {};
+    const FAR = 46;   // これ以上遠いと地平線に潰れて読めないので描かない
+
+    /* --- 拍のグリッド ---
+       ノーツが疎な区間でも「音楽が路面を流れている」状態を作る。
+       8分ごとに細い線、拍で太く、小節頭で最も明るい。
+       これが手前へ流れ続けるので、曲に乗っている感覚が視覚的に生まれる。 */
+    const bpb = this.chart.track.beatsPerBar || 4;
+    const jb = beat + lead;
+    /* 判定面より手前(=通過済み)も描く。ここを描かないと画面の下半分に
+       拍が存在せず、流れが途切れて「音に乗っている」感覚が出ない。 */
+    const gridStart = Math.ceil((jb - 1.5) * 2) / 2;
+    for (let gb = gridStart; ; gb += .5) {
+      const gdz = (gb - beat) / bpu;
+      if (gdz > FAR) break;
+      if (gdz < .4) continue;
+      this.project(p, gdz, 0, q);
+      if (q.sw < .8 || q.sy > p.h + 8) continue;
+      const isBeat = Math.abs(gb - Math.round(gb)) < .01;
+      const isBar = isBeat && Math.abs(M.mod(gb, bpb)) < .01;
+      const app = M.sat((FAR - gdz) / FAR);
+      const gPassed = M.sat((this.carDz - gdz) / 2.0);
+      const a = (isBar ? .78 : isBeat ? .52 : .26) * (.35 + app * .85) * vis * (1 - gPassed * .8);
+      const hgt = M.clamp(Math.round(q.sc * (isBar ? 15 : isBeat ? 10 : 5)), 1, Math.round(p.h * .035));
+      ctx.globalAlpha = a;
+      // 暗い縁を先に置いて、路面の色に関わらず線が立つようにする
+      ctx.fillStyle = '#000';
+      ctx.globalAlpha = a * .5;
+      ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy) + hgt, Math.max(1, Math.round(q.sw * 2)), Math.max(1, Math.round(hgt * .6)));
+      ctx.globalAlpha = a;
+      ctx.fillStyle = C.css(isBar ? pal.accentA : pal.line);
+      ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy), Math.max(1, Math.round(q.sw * 2)), hgt);
+      if (isBeat) {   // 白い芯を入れて、どんな路面色でも線が読める
+        ctx.globalAlpha = a * .85;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy), Math.max(1, Math.round(q.sw * 2)),
+          Math.max(1, Math.round(hgt * .4)));
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 表示範囲の先頭ノートを二分探索
+    let lo = 0, hi = notes.length - 1, start = notes.length;
+    const minBeat = beat + lead - 1.2;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (notes[mid].beat >= minBeat) { start = mid; hi = mid - 1; } else lo = mid + 1;
+    }
+
+    for (let i = start; i < notes.length; i++) {
+      const n = notes[i];
+      const dz = (n.beat - beat) / bpu;          // そのノーツが今どこにあるか
+      if (dz > FAR) break;
+      if (dz < .4) continue;
+      this.project(p, dz, 0, q);
+      if (q.sy < this.horizonY(p) - 4 || q.sy > p.h + 8) continue;
+      if (q.sw < 1.0) continue;
+      const app = M.sat((FAR - dz) / (FAR - this.carDz));       // 手前ほど 1
+      const imminent = M.sat(1 - Math.abs(dz - this.carDz) / 9);// 到達前後で強く光る
+      const passed = M.sat((this.carDz - dz) / 1.8);            // 通過後は素早く消す
+      const pf = 1 - passed * .88;
+      const strong = (n.kind === 'snap' || n.kind === 'hold');
+
+      // 拍のライン（路面を横切る帯）。到達間際に一気に明るくなる = 「今」が分かる
+      const a = (.30 + app * .50 + imminent * .55) * (strong ? 1 : .74) * M.lerp(.45, 1, vis) * pf;
+      const bandH = M.clamp(Math.round(q.sc * (strong ? 20 : 13)), 1, Math.round(p.h * .05));
+      ctx.globalAlpha = M.sat(a);
+      ctx.fillStyle = C.css(C.mix(pal.line, strong ? pal.accentB : pal.accentA, .3 + app * .35));
+      ctx.fillRect(Math.round(q.sx - q.sw * .96), Math.round(q.sy), Math.max(1, Math.round(q.sw * 1.92)), bandH);
+      // 帯の芯（白）
+      ctx.globalAlpha = M.sat(a * .9);
+      ctx.fillStyle = C.css(C.mix(pal.lightGlow, [255, 255, 255], .5));
+      ctx.fillRect(Math.round(q.sx - q.sw * .96), Math.round(q.sy), Math.max(1, Math.round(q.sw * 1.92)),
+        Math.max(1, Math.round(bandH * .35)));
+
+      // 乗るべき点（路面中央のひし形）
+      const lx = q.sx + q.sc * (n.lane * LANE_AMP - this.laneAtDz(dz)) * (p.w * .58);
+      const r = M.clamp(Math.round(q.sc * (9 + app * 12 + imminent * 10)), 1, Math.round(p.h * .06));
+      ctx.globalAlpha = M.sat((.40 + app * .5 + imminent * .45) * M.lerp(.5, 1, vis) * pf);
+      ctx.fillStyle = C.css(strong ? pal.accentB : pal.lightGlow);
+      for (let k = -r; k <= r; k++) {
+        const wq = r - Math.abs(k);
+        if (wq < 0) continue;
+        ctx.fillRect(Math.round(lx - wq), Math.round(q.sy + k), Math.max(1, wq * 2), 1);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    /* --- ターゲット --- 「今この瞬間、車が居るべき点」を常時表示する。
+       自車とこのマーカーの距離がそのままズレ量なので、
+       プレイヤーは何をすれば良いかを一瞬で理解できる。 */
+    this.project(p, this.carDz, 0, q);
+    if (q.sw > 2) {
+      const err = Math.abs(this.carX - this.laneAtDz(this.carDz)) / LANE_AMP;
+      const good = M.sat(1 - err / .45);
+      const pulse = .55 + cond.env.kick * .45;
+      const col = C.mix(pal.line, pal.accentA, .25 + good * .5);
+      const w2 = Math.max(2, Math.round(q.sw * .16));
+      const hh = Math.max(1, Math.round(q.sc * 9));
+      ctx.globalAlpha = M.sat((.35 + good * .5) * pulse * M.lerp(.5, 1, vis));
+      // 中央のくさび
+      ctx.fillStyle = C.css(col);
+      for (let k = 0; k < hh; k++) {
+        const ww = Math.max(1, Math.round(w2 * (1 - k / hh)));
+        ctx.fillRect(Math.round(q.sx - ww), Math.round(q.sy - k), ww * 2, 1);
+      }
+      // ぴったり乗っていると光る
+      if (good > .72) {
+        ctx.globalAlpha = (good - .72) / .28 * .5 * pulse;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(q.sx - w2), Math.round(q.sy - hh), w2 * 2, Math.max(1, Math.round(hh * .5)));
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 判定面（自車の足元）を路肩に小さく示す
+    this.project(p, this.carDz, 0, q);
+    if (q.sw > 2) {
+      const pulse = .45 + cond.env.kick * .55;
+      ctx.globalAlpha = .5 * pulse;
+      ctx.fillStyle = C.css(pal.lightGlow);
+      const tw = Math.max(2, Math.round(q.sw * .18));
+      ctx.fillRect(Math.round(q.sx - q.sw - tw), Math.round(q.sy) - 1, tw, 3);
+      ctx.fillRect(Math.round(q.sx + q.sw), Math.round(q.sy) - 1, tw, 3);
+      ctx.globalAlpha = 1;
     }
   }
 

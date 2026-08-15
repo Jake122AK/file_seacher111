@@ -62,10 +62,11 @@ class Input {
     const p = this._pt(t);
     this.touchX = p.x; this.touchY = p.y;
     const prev = this.raw;
-    // アンカー相対 + 絶対位置のブレンド → どこを持っても直感的
+    /* 完全な相対ドラッグ。指を動かした分だけ動く。
+       以前は絶対位置を 35% ブレンドしていたので、触れた瞬間に指の位置へ
+       引っ張られて「車が勝手にずれる」感触になっていた。 */
     const rel = (p.x - this.anchor) / (this.pixel.w * .34);
-    const abs = (p.x - this.pixel.w * .5) / (this.pixel.w * .42);
-    this.raw = M.clamp(M.lerp(rel, abs, .35) * this.sensitivity, -1.35, 1.35);
+    this.raw = M.clamp(rel * this.sensitivity, -1.25, 1.25);
     const d = Math.abs(this.raw - prev);
     if (d > .09) this.wheelKick = Math.min(1, this.wheelKick + d);
     this.lastMoveT = performance.now();
@@ -109,11 +110,8 @@ class Input {
     let target = this.raw;
     if (this.keyL || this.keyR) target = M.clamp(target + (this.keyR - this.keyL) * 1.15, -1.2, 1.2);
     if (this.gyro) target = M.clamp(target + this.gyroVal, -1.3, 1.3);
-    if (!this.active && !this.keyL && !this.keyR && !this.gyro) {
-      // 指を離したら緩やかにセンターへ（完全には戻さない = 音ゲー的追従）
-      this.raw = M.approach(this.raw, 0, 1.1, dt);
-      target = this.raw;
-    }
+    /* 指を離しても値は保持する。勝手にセンターへ戻すと、
+       手を止めた瞬間に車がラインから外れていくため。 */
     const prev = this.steer;
     this.steer = M.approach(this.steer, M.clamp(target, -1.15, 1.15), 17, dt);
     this.vel = (this.steer - prev) / Math.max(.0001, dt);
