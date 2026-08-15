@@ -490,6 +490,13 @@ const Audio = PX.Audio = {
         o.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .12);
         break;
       }
+      case 'tapMiss': {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(160, t);
+        g.gain.setValueAtTime(.035, t); g.gain.exponentialRampToValueAtTime(.001, t + .06);
+        o.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .07);
+        break;
+      }
       case 'miss': {
         const o = c.createOscillator(), g = c.createGain();
         o.type = 'sawtooth';

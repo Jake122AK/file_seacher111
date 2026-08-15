@@ -1845,6 +1845,13 @@ const Audio = PX.Audio = {
         o.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .12);
         break;
       }
+      case 'tapMiss': {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(160, t);
+        g.gain.setValueAtTime(.035, t); g.gain.exponentialRampToValueAtTime(.001, t + .06);
+        o.connect(g); g.connect(this.sfxGain); o.start(t); o.stop(t + .07);
+        break;
+      }
       case 'miss': {
         const o = c.createOscillator(), g = c.createGain();
         o.type = 'sawtooth';
@@ -1911,11 +1918,11 @@ const Audio = PX.Audio = {
 ;
 /* ===== src/input.js ===== */
 /* =====================================================================
-   input.js — 片手ドラッグステアリング / タップ / ジャイロ(オプション)
+   input.js — 5レーンのタップ入力 / マルチタッチ / ジャイロ(オプション)
    ---------------------------------------------------------------------
-   ・画面のどこを触っても良いが、下部 45% は「ハンドル領域」として扱い
-     指の横移動量がそのままステアリングに乗る（実車シムではなく音ゲー感）。
-   ・タップ（短時間・小移動）は tap イベントとして通知（キノコ等）。
+   ・判定は touchstart の瞬間に取る（touchend まで待つと必ず遅れる）。
+   ・マルチタッチ対応。同時押しのノーツが叩ける。
+   ・hits[] は音ゲーの判定用、taps[] はキノコ等の UI 用。
    ===================================================================== */
 (function (PX) {
 'use strict';
@@ -1931,23 +1938,33 @@ class Input {
     this.touchX = 0; this.touchY = 0;
     this.startX = 0; this.startY = 0; this.startT = 0;
     this.anchor = 0;
-    this.taps = [];        // {x,y} 内部解像度座標
+    this.taps = [];        // {x,y} 内部解像度座標（UI 用）
+    this.hits = [];        // {x,y,lane,t} 音ゲー判定用（touchstart の瞬間）
+    this.lanes = 5;
+    this.laneFlash = [0, 0, 0, 0, 0];   // 押された余韻（描画用）
     this.gyro = false; this.gyroBase = null; this.gyroVal = 0;
     this.sensitivity = 1.55;
     this.lastMoveT = 0;
-    this.wheelKick = 0;    // 演出用: 急な操作量
 
     const opts = { passive: false };
-    el.addEventListener('touchstart', e => this._down(e.changedTouches[0], e), opts);
-    el.addEventListener('touchmove', e => this._move(e.changedTouches[0], e), opts);
-    el.addEventListener('touchend', e => this._up(e.changedTouches[0], e), opts);
-    el.addEventListener('touchcancel', e => this._up(e.changedTouches[0], e), opts);
+    // マルチタッチ: changedTouches を全部処理する
+    el.addEventListener('touchstart', e => {
+      if (e.preventDefault) e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) this._down(e.changedTouches[i], e);
+    }, opts);
+    el.addEventListener('touchmove', e => { if (e.preventDefault) e.preventDefault(); }, opts);
+    el.addEventListener('touchend', e => {
+      for (let i = 0; i < e.changedTouches.length; i++) this._up(e.changedTouches[i], e);
+    }, opts);
+    el.addEventListener('touchcancel', e => {
+      for (let i = 0; i < e.changedTouches.length; i++) this._up(e.changedTouches[i], e);
+    }, opts);
     el.addEventListener('mousedown', e => this._down(e, e));
     window.addEventListener('mousemove', e => { if (this.active) this._move(e, e); });
     window.addEventListener('mouseup', e => this._up(e, e));
     window.addEventListener('keydown', e => this._key(e, 1));
     window.addEventListener('keyup', e => this._key(e, 0));
-    this.keyL = 0; this.keyR = 0;
+    this.keyHeld = [0, 0, 0, 0, 0];
   }
 
   _pt(t) {
@@ -1959,29 +1976,24 @@ class Input {
   }
 
   _down(t, e) {
-    if (e.preventDefault) e.preventDefault();
+    if (e && e.preventDefault && e.type === 'mousedown') e.preventDefault();
     const p = this._pt(t);
     this.active = true;
     this.touchX = p.x; this.touchY = p.y;
     this.startX = p.x; this.startY = p.y;
     this.startT = performance.now();
-    this.anchor = p.x - this.raw * (this.pixel.w * .34);
+    // 画面を横に5等分したものがそのままレーン
+    const lane = M.clamp(Math.floor(p.x / (this.pixel.w / this.lanes)), 0, this.lanes - 1);
+    // 誰も取りに来ない場面（導入シーン等）で溜まり続けないよう上限を設ける
+    if (this.hits.length > 12) this.hits.shift();
+    this.hits.push({ x: p.x, y: p.y, lane, t: performance.now() });
+    this.laneFlash[lane] = 1;
   }
 
   _move(t, e) {
-    if (e.preventDefault) e.preventDefault();
     if (!this.active) return;
     const p = this._pt(t);
     this.touchX = p.x; this.touchY = p.y;
-    const prev = this.raw;
-    /* 完全な相対ドラッグ。指を動かした分だけ動く。
-       以前は絶対位置を 35% ブレンドしていたので、触れた瞬間に指の位置へ
-       引っ張られて「車が勝手にずれる」感触になっていた。 */
-    const rel = (p.x - this.anchor) / (this.pixel.w * .34);
-    this.raw = M.clamp(rel * this.sensitivity, -1.25, 1.25);
-    const d = Math.abs(this.raw - prev);
-    if (d > .09) this.wheelKick = Math.min(1, this.wheelKick + d);
-    this.lastMoveT = performance.now();
   }
 
   _up(t, e) {
@@ -1994,9 +2006,19 @@ class Input {
     this.active = false;
   }
 
+  /* PC 確認用: S D F J K が左から5レーンに対応 */
   _key(e, v) {
-    if (e.key === 'ArrowLeft' || e.key === 'a') { this.keyL = v; e.preventDefault(); }
-    if (e.key === 'ArrowRight' || e.key === 'd') { this.keyR = v; e.preventDefault(); }
+    const idx = 'sdfjk'.indexOf(e.key.toLowerCase());
+    if (idx >= 0) {
+      e.preventDefault();
+      if (v && !this.keyHeld[idx]) {
+        const x = (idx + .5) * (this.pixel.w / this.lanes);
+        this.hits.push({ x, y: this.pixel.h * .8, lane: idx, t: performance.now() });
+        this.laneFlash[idx] = 1;
+      }
+      this.keyHeld[idx] = v;
+      return;
+    }
     if (v && (e.key === ' ' || e.key === 'Enter')) this.taps.push({ x: this.pixel.w / 2, y: this.pixel.h / 2 });
   }
 
@@ -2017,17 +2039,10 @@ class Input {
   disableGyro() { this.gyro = false; this.gyroBase = null; }
 
   takeTaps() { const t = this.taps; this.taps = []; return t; }
+  takeHits() { const h = this.hits; this.hits = []; return h; }
 
   update(dt) {
-    let target = this.raw;
-    if (this.keyL || this.keyR) target = M.clamp(target + (this.keyR - this.keyL) * 1.15, -1.2, 1.2);
-    if (this.gyro) target = M.clamp(target + this.gyroVal, -1.3, 1.3);
-    /* 指を離しても値は保持する。勝手にセンターへ戻すと、
-       手を止めた瞬間に車がラインから外れていくため。 */
-    const prev = this.steer;
-    this.steer = M.approach(this.steer, M.clamp(target, -1.15, 1.15), 17, dt);
-    this.vel = (this.steer - prev) / Math.max(.0001, dt);
-    this.wheelKick = M.approach(this.wheelKick, 0, 3.5, dt);
+    for (let i = 0; i < this.lanes; i++) this.laneFlash[i] = M.approach(this.laneFlash[i], 0, 7, dt);
   }
 }
 
@@ -3734,192 +3749,192 @@ PX.WORLD_LIST = WORLDS;
 'use strict';
 const M = PX.M, C = PX.C;
 
-/* ===================================================== Chart (譜面) */
+/* ===================================================== Chart (譜面)
+   5レーンのタップ譜面。ノーツは路面を手前へ流れ、判定ラインで叩く。
+   道路のうねり(path)は「見た目」専用で、判定には一切関与しない。
+   → 世界がどれだけグニャグニャに歪んでも、叩くべきタイミングは壊れない。
+   ===================================================================== */
+const LANES = 5;
+/* レーン固有色（サイケ寄りに彩度を上げた5色） */
+const LANE_COL = [
+  [255, 90, 140], [255, 178, 60], [120, 255, 150], [80, 200, 255], [190, 120, 255]
+];
+PX.LANE_COL = LANE_COL;
+
 class Chart {
   constructor(track) {
     this.track = track;
     this.notes = [];
     this.build();
-    this.res = 8;                       // 1拍あたりのサンプル数
-    this.bake();
-    this.judgeWindow = .20;             // 拍単位
+    this.res = 4;
+    this.bakePath();
     this.cursor = 0;
+    // 判定幅（拍単位）。84BPM なら 1拍 = 0.714秒
+    this.win = { perfect: .10, groovy: .19, good: .30 };
     this.stats = { perfect: 0, groovy: 0, good: 0, miss: 0, total: 0 };
   }
 
   build() {
     const tr = this.track;
-    if (tr.chart && tr.chart.length) { this.notes = tr.chart.slice(); }
-    else this.notes = PX.generateChart(tr);
+    this.notes = (tr.chart && tr.chart.length) ? tr.chart.slice() : PX.generateChart(tr);
     this.notes.sort((a, b) => a.beat - b.beat);
-    for (const n of this.notes) { n.judged = false; n.bestErr = 9; n.seen = false; }
+    for (const n of this.notes) {
+      n.lane = M.clamp(n.lane | 0, 0, LANES - 1);
+      n.judged = false; n.hit = 0;
+    }
   }
 
-  bake() {
-    const last = this.notes.length ? this.notes[this.notes.length - 1].beat : 0;
-    const total = Math.ceil(last + 32);
+  /* 道路のうねり（装飾）。セクションの amp に合わせて振幅が変わる */
+  bakePath() {
+    const tr = this.track, bpb = tr.beatsPerBar || 4;
+    const secs = tr.sections;
+    const lastBar = secs[secs.length - 1].bar + (secs[secs.length - 1].bars || 8);
+    const total = Math.ceil(lastBar * bpb) + 16;
     const n = total * this.res;
-    const arr = this.lane = new Float32Array(n + 2);
-    let idx = 0;
+    const arr = this.path = new Float32Array(n + 2);
     for (let i = 0; i <= n; i++) {
       const beat = i / this.res;
-      arr[i] = this._laneRaw(beat, idx);
-      while (idx + 1 < this.notes.length && this.notes[idx + 1].beat <= beat) idx++;
+      const bar = beat / bpb;
+      let amp = .5;
+      for (let k = 0; k < secs.length; k++) if (bar >= secs[k].bar) amp = secs[k].amp === undefined ? .5 : secs[k].amp;
+      arr[i] = (Math.sin(beat * .17) * .62 + Math.sin(beat * .43 + 1.7) * .3 + Math.sin(beat * .07) * .28) * amp;
     }
     this.maxBeat = total;
   }
 
-  _laneRaw(beat) {
-    const N = this.notes;
-    if (!N.length) return 0;
-    if (beat <= N[0].beat) return N[0].lane * M.smooth(beat / Math.max(.001, N[0].beat));
-    let i = 0;
-    // 二分探索
-    let lo = 0, hi = N.length - 1;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (N[mid].beat <= beat) lo = mid; else hi = mid - 1; }
-    i = lo;
-    const a = N[i], b = N[i + 1];
-    if (!b) return a.lane;
-    const t = M.sat((beat - a.beat) / Math.max(.0001, b.beat - a.beat));
-    switch (b.kind) {
-      case 'snap':  return M.lerp(a.lane, b.lane, M.smoother(M.sat((t - .55) / .45)));
-      case 'hold':  return M.lerp(a.lane, b.lane, M.smooth(M.sat((t - .72) / .28)));
-      case 'swing': return M.lerp(a.lane, b.lane, t < .5 ? M.smooth(t * 2) * .58 : .58 + M.smooth((t - .5) * 2) * .42);
-      default:      return M.lerp(a.lane, b.lane, M.smoother(t));
-    }
-  }
-
-  /* 拍位置のレーン値（ベイク済み配列を線形補間） */
-  laneAt(beat) {
+  pathAt(beat) {
     if (beat < 0) return 0;
-    const f = beat * this.res;
-    const i = f | 0;
-    if (i >= this.lane.length - 1) return this.lane[this.lane.length - 1];
-    const t = f - i;
-    return this.lane[i] + (this.lane[i + 1] - this.lane[i]) * t;
+    const f = beat * this.res, i = f | 0;
+    if (i >= this.path.length - 1) return this.path[this.path.length - 1];
+    return this.path[i] + (this.path[i + 1] - this.path[i]) * (f - i);
   }
 
-  /* 判定: 毎フレーム呼ぶ。確定した判定を配列で返す */
-  update(beat, steer) {
-    const out = [];
-    const W = this.judgeWindow;
+  /* 指定レーンのタップを試みる。判定できたら結果を返す */
+  tryHit(beat, lane) {
+    const W = this.win.good;
     for (let i = this.cursor; i < this.notes.length; i++) {
       const n = this.notes[i];
-      if (n.beat - W > beat) break;
-      if (n.judged) { if (i === this.cursor) this.cursor++; continue; }
-      const d = beat - n.beat;
-      if (d >= -W && d <= W) {
-        const err = Math.abs(steer - n.lane);
-        if (err < n.bestErr) n.bestErr = err;
-      }
-      if (d > W) {
-        n.judged = true;
-        const e = n.bestErr;
-        let g;
-        if (e < .15) g = 'PERFECT';
-        else if (e < .27) g = 'GROOVY';
-        else if (e < .44) g = 'GOOD';
-        else g = 'MISS';
-        this.stats[g.toLowerCase()]++;
-        this.stats.total++;
-        out.push({ grade: g, note: n, err: e });
-        if (i === this.cursor) this.cursor++;
-      }
+      if (n.beat - beat > W) break;
+      if (n.judged || n.lane !== lane) continue;
+      const d = Math.abs(n.beat - beat);
+      if (d > W) continue;
+      n.judged = true; n.hit = 1;
+      const g = d < this.win.perfect ? 'PERFECT' : d < this.win.groovy ? 'GROOVY' : 'GOOD';
+      this.stats[g.toLowerCase()]++; this.stats.total++;
+      return { grade: g, note: n, err: d };
     }
+    return null;
+  }
+
+  /* 見逃しの確定。毎フレーム呼ぶ */
+  update(beat) {
+    const out = [];
+    const W = this.win.good;
+    for (let i = this.cursor; i < this.notes.length; i++) {
+      const n = this.notes[i];
+      if (n.beat + W > beat) break;
+      if (!n.judged) {
+        n.judged = true;
+        this.stats.miss++; this.stats.total++;
+        out.push({ grade: 'MISS', note: n, err: 9 });
+      }
+      if (i === this.cursor) this.cursor++;
+    }
+    // cursor は「まだ判定され得る最古のノーツ」まで進める
+    while (this.cursor < this.notes.length &&
+           this.notes[this.cursor].judged &&
+           this.notes[this.cursor].beat + W < beat) this.cursor++;
     return out;
   }
 }
 PX.Chart = Chart;
+PX.LANES = LANES;
 
-/* 譜面自動生成（セクションの style / density から作る）
-   実楽曲を入れる時は track.chart に配列を渡せばこちらは使われない。   */
+/* 譜面自動生成。セクションの style がレーンの並びを決める。
+   実楽曲を入れる時は track.chart に [{beat, lane}] を渡せばこちらは使われない。 */
 PX.generateChart = function (track) {
   const notes = [];
   const bpb = track.beatsPerBar || 4;
   const secs = track.sections;
+  const push = (beat, lane, kind) => notes.push({ beat, lane: M.clamp(lane, 0, 4), kind: kind || 'tap' });
+
   for (let s = 0; s < secs.length; s++) {
     const sec = secs[s];
     const bars = (s + 1 < secs.length ? secs[s + 1].bar : sec.bar + (sec.bars || 8)) - sec.bar;
     const rng = M.rng(1000 + s * 137 + (sec.seed || 0));
     const style = sec.style || 'straight';
-    const amp = sec.amp === undefined ? .6 : sec.amp;
     for (let b = 0; b < bars; b++) {
-      const bar0 = (sec.bar + b) * bpb;
+      const t0 = (sec.bar + b) * bpb;
       const r = rng();
       switch (style) {
         case 'still':
-          notes.push({ beat: bar0, lane: (r < .5 ? -1 : 1) * amp * .8, kind: 'ease' });
-          notes.push({ beat: bar0 + 2, lane: (r < .5 ? 1 : -1) * amp * .8, kind: 'ease' });
+          push(t0, 2);
           break;
-        case 'straight': {
-          const s0 = r < .5 ? -1 : 1;
-          for (let k = 0; k < 4; k++)
-            notes.push({ beat: bar0 + k, lane: s0 * (k % 2 ? -1 : 1) * amp * (.4 + rng() * .3), kind: 'ease' });
+        case 'straight':
+          push(t0, r < .5 ? 1 : 3);
+          push(t0 + 2, r < .5 ? 3 : 1);
           break;
-        }
         case 'sway': {
-          const s0 = r < .5 ? -1 : 1;
-          for (let k = 0; k < 8; k++)
-            notes.push({ beat: bar0 + k * .5, lane: s0 * Math.sin(k * .785) * amp * (.6 + rng() * .3),
-                         kind: k % 2 ? 'ease' : 'swing' });
+          const d = r < .5 ? 1 : -1;
+          for (let k = 0; k < 4; k++) push(t0 + k, 2 + d * (k % 2 ? 1 : -1) * (1 + (k > 1 ? 1 : 0)));
           break;
         }
-        case 'skank': {
-          // 裏拍でクイッと寄せる（レゲエのスキャンク）
-          const s0 = r < .5 ? -1 : 1;
+        case 'skank':
+          // レゲエの裏拍。2 と 4 の裏で外側を叩く
           for (let k = 0; k < 4; k++) {
-            notes.push({ beat: bar0 + k + .5, lane: s0 * (k % 2 ? -1 : 1) * amp * .85, kind: 'snap' });
-            notes.push({ beat: bar0 + k + .99, lane: s0 * (k % 2 ? -1 : 1) * amp * .25, kind: 'ease' });
+            push(t0 + k + .5, k % 2 ? 0 : 4);
+            if (k % 2 === 0) push(t0 + k, 2);
           }
           break;
-        }
         case 'long': {
-          const s0 = r < .5 ? -1 : 1;
-          notes.push({ beat: bar0, lane: s0 * amp * .95, kind: 'hold' });
-          notes.push({ beat: bar0 + 1, lane: s0 * amp * .88, kind: 'hold' });
-          notes.push({ beat: bar0 + 2, lane: s0 * amp * .95, kind: 'hold' });
-          notes.push({ beat: bar0 + 3, lane: -s0 * amp * .55, kind: 'ease' });
+          const d = r < .5 ? 1 : -1;
+          push(t0, 2 - d, 'accent');
+          push(t0 + 1.5, 2);
+          push(t0 + 2, 2 + d, 'accent');
+          push(t0 + 3.5, 2);
           break;
         }
-        case 'scratch': {
-          for (let k = 0; k < 8; k++) {
-            const l = (k % 2 ? 1 : -1) * amp * (.6 + rng() * .4);
-            notes.push({ beat: bar0 + k * .5, lane: l, kind: 'snap' });
-          }
+        case 'scratch':
+          for (let k = 0; k < 8; k++) push(t0 + k * .5, k % 2 ? 4 - (k >> 1) % 5 : (k >> 1) % 5);
           break;
-        }
-        case 'wave': {
-          for (let k = 0; k < 8; k++)
-            notes.push({ beat: bar0 + k * .5, lane: Math.sin((b * 8 + k) * .55) * amp, kind: 'swing' });
+        case 'wave':
+          for (let k = 0; k < 8; k++) push(t0 + k * .5, 2 + Math.round(Math.sin((b * 8 + k) * .55) * 2));
           break;
-        }
         case 'wild': {
-          const n = 4 + Math.floor(rng() * 5);
-          for (let k = 0; k < n; k++) {
-            const bt = bar0 + (k / n) * bpb;
-            notes.push({ beat: bt, lane: (rng() * 2 - 1) * amp, kind: rng() < .4 ? 'snap' : 'ease' });
-          }
+          const n = 4 + Math.floor(rng() * 4);
+          for (let k = 0; k < n; k++) push(t0 + Math.floor(rng() * 8) * .5, Math.floor(rng() * 5));
           break;
         }
-        case 'climax': {
+        case 'climax':
           for (let k = 0; k < 8; k++) {
-            const l = Math.sin((b * 8 + k) * .8) * amp * (.7 + .3 * Math.sin(k * 1.7));
-            notes.push({ beat: bar0 + k * .5, lane: l, kind: k % 4 === 0 ? 'snap' : 'swing' });
+            const lane = 2 + Math.round(Math.sin((b * 8 + k) * .8) * 2);
+            push(t0 + k * .5, lane, k % 4 === 0 ? 'accent' : 'tap');
+            if (k % 4 === 0) push(t0 + k * .5, 4 - lane, 'accent');   // 同時押し
           }
           break;
-        }
       }
     }
   }
-  return notes;
+  // 同一レーン・同一拍の重複を除去
+  notes.sort((a, b) => a.beat - b.beat || a.lane - b.lane);
+  const out = [];
+  for (const n of notes) {
+    const p = out[out.length - 1];
+    if (p && Math.abs(p.beat - n.beat) < .05 && p.lane === n.lane) continue;
+    out.push(n);
+  }
+  return out;
 };
 
 /* ======================================================== Road ===== */
 const SEGLEN = 1.7;        // 縞 1 本の長さ（world units）
 const LANE_AMP = 0.62;     // レーン値 1.0 が何 world unit 横に相当するか
 const CAM_H = 1.62;        // 視点高（三人称。車を見下ろす高さ）
-const CAR_DZ = 2.80;       // カメラから自車までの距離（world units）
-const CAR_W = 0.34;        // 自車の半車幅（world units。道路半幅は0.92）
+const CAR_DZ = 4.00;       // 自車は少し先を走る（判定ラインと重ならない位置）
+/* 判定ラインの距離。ここでの路面幅がちょうど画面幅になるよう選んである。
+   → 路面の5レーンと、画面を5等分したタップ領域がぴったり一致する。 */
+const JUDGE_DZ = 1.95;
+const CAR_W = 0.40;        // 自車の半車幅（world units。道路半幅は0.92）
 const CAM_D = 1.75;
 const ROAD_HALF = 0.92;
 
@@ -3965,24 +3980,29 @@ class Road {
     this.beat = beat;
     this.beatsPerUnit = (bpm / 60) / this.speed;
   }
-  laneAtDz(dz) { return this.chart.laneAt(this.beat + dz * this.beatsPerUnit) * LANE_AMP; }
+  /* 道路のうねり（見た目のみ。判定には無関係） */
+  laneAtDz(dz) { return this.chart.pathAt(this.beat + dz * this.beatsPerUnit) * LANE_AMP; }
 
-  /* 判定面は「カメラ」ではなく「自車」。
-     自車は dz = carDz 先にいるので、その分だけ先の拍を判定する。
-     ここがズレていると、見た目でラインに乗せているのに判定が渋る。 */
-  judgeLead() { return this.carDz * this.beatsPerUnit; }
+  /* 判定ラインは自車の少し前。そこに届いた拍が「今」 */
+  judgeLead() { return JUDGE_DZ * this.beatsPerUnit; }
+
+  /* レーン中心の横位置（world units） */
+  laneX(lane) { return (lane - (PX.LANES - 1) / 2) * (ROAD_HALF * 2 * .92 / PX.LANES); }
 
   /* 車の目標位置（＝プレイヤーのステア） */
-  update(dt, steer, conductor) {
+  /* 自車はオート走行。プレイヤーはタップに専念する。
+     叩いたレーンへ少しだけ寄る（= 自分の演奏で車が動いている感触）。 */
+  update(dt, laneNudge) {
     this.time += dt;
     this.z += this.speed * dt;
-    const target = steer * LANE_AMP;
     const prev = this.carX;
-    this.carX = M.approach(this.carX, target + this.offRoad * .18 * (this.offSide || 1), 22, dt);
-    // カメラは自車に遅れて追従 → 自車が画面内で左右に振れて進路が見える
-    this.camX = M.approach(this.camX, this.carX * this.camFollow, 9, dt);
+    const centre = this.laneAtDz(this.carDz);
+    this.nudge = M.approach(this.nudge || 0, laneNudge || 0, 6, dt);
+    this.carX = M.approach(this.carX, centre + this.nudge * .55, 9, dt);
+    this.camX = M.approach(this.camX, this.carX * this.camFollow + centre * (1 - this.camFollow) * .35, 6, dt);
     const vel = (this.carX - prev) / Math.max(.0001, dt);
-    this.bank = M.approach(this.bank, M.clamp(vel * .55, -1, 1), 8, dt);
+    this.bank = M.approach(this.bank, M.clamp(vel * .8, -1, 1), 8, dt);
+    this.offRoad = M.approach(this.offRoad, 0, 2.6, dt);
   }
 
   kickOff(side) { this.offRoad = Math.min(1, this.offRoad + .55); this.offSide = side; }
@@ -4177,165 +4197,129 @@ class Road {
   }
 
   /*
-    譜面マーカー — 音ゲー感の本体。
-    ノーツを画面上部から降らせるのではなく、路面に「拍のライン」と
-    「そこで乗るべき点」を描いて手前へ流す。自車に到達した瞬間が判定。
-    UI ではなく世界の一部なので、視線は道路から外れない。
+    レーンとノーツ — 音ゲー部分の本体。
+    5車線の路面をノーツが手前へ流れ、判定ラインに着弾した瞬間にタップする。
+    レーンは判定ラインから画面下端へ向かって外側に開くので、
+    「路面のどのレーン」と「画面のどこを押すか」が視覚的に繋がる。
   */
   renderNotes(p, pal, cond, trip) {
     const notes = this.chart.notes;
     if (!notes.length) return;
-    /* 冒頭の「完全に普通のドライブ」では譜面表示を出さない。
-       音楽が世界を侵食し始める(level>0.6)のに合わせて浮かび上がらせる。 */
-    const vis = M.sat((trip.level - 0.6) / 1.6);
-    if (vis <= .01) return;
     const ctx = p.ctx;
-    const beat = this.beat;
-    const bpu = this.beatsPerUnit;
-    const lead = this.judgeLead();
-    const q = {};
-    const FAR = 46;   // これ以上遠いと地平線に潰れて読めないので描かない
-
-    /* --- 拍のグリッド ---
-       ノーツが疎な区間でも「音楽が路面を流れている」状態を作る。
-       8分ごとに細い線、拍で太く、小節頭で最も明るい。
-       これが手前へ流れ続けるので、曲に乗っている感覚が視覚的に生まれる。 */
-    const bpb = this.chart.track.beatsPerBar || 4;
+    const beat = this.beat, bpu = this.beatsPerUnit, lead = this.judgeLead();
     const jb = beat + lead;
-    /* 判定面より手前(=通過済み)も描く。ここを描かないと画面の下半分に
-       拍が存在せず、流れが途切れて「音に乗っている」感覚が出ない。 */
-    const gridStart = Math.ceil((jb - 1.5) * 2) / 2;
-    for (let gb = gridStart; ; gb += .5) {
-      const gdz = (gb - beat) / bpu;
-      if (gdz > FAR) break;
-      if (gdz < .4) continue;
-      this.project(p, gdz, 0, q);
-      if (q.sw < .8 || q.sy > p.h + 8) continue;
-      const isBeat = Math.abs(gb - Math.round(gb)) < .01;
-      const isBar = isBeat && Math.abs(M.mod(gb, bpb)) < .01;
-      const app = M.sat((FAR - gdz) / FAR);
-      const gPassed = M.sat((this.carDz - gdz) / 2.0);
-      const a = (isBar ? .78 : isBeat ? .52 : .26) * (.35 + app * .85) * vis * (1 - gPassed * .8);
-      const hgt = M.clamp(Math.round(q.sc * (isBar ? 15 : isBeat ? 10 : 5)), 1, Math.round(p.h * .035));
-      ctx.globalAlpha = a;
-      // 暗い縁を先に置いて、路面の色に関わらず線が立つようにする
-      ctx.fillStyle = '#000';
-      ctx.globalAlpha = a * .5;
-      ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy) + hgt, Math.max(1, Math.round(q.sw * 2)), Math.max(1, Math.round(hgt * .6)));
-      ctx.globalAlpha = a;
-      ctx.fillStyle = C.css(isBar ? pal.accentA : pal.line);
-      ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy), Math.max(1, Math.round(q.sw * 2)), hgt);
-      if (isBeat) {   // 白い芯を入れて、どんな路面色でも線が読める
-        ctx.globalAlpha = a * .85;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(Math.round(q.sx - q.sw), Math.round(q.sy), Math.max(1, Math.round(q.sw * 2)),
-          Math.max(1, Math.round(hgt * .4)));
+    const q = {}, qj = {};
+    const FAR = 40;
+    const L = PX.LANES;
+
+    this.project(p, JUDGE_DZ, 0, qj);
+    const laneW = qj.sc * (ROAD_HALF * 2 * .92 / L) * (p.w * .58);   // 判定ライン上のレーン幅(px)
+
+    /* --- レーンの床（判定ラインから画面下端へ開く） --- */
+    const botY = p.h;
+    for (let i = 0; i <= L; i++) {
+      const wx = (i - L / 2) * (ROAD_HALF * 2 * .92 / L);
+      this.project(p, JUDGE_DZ, wx, q);
+      const x0 = q.sx;
+      const x1 = (i / L) * p.w;                  // 画面下端では等分割 = タップ領域と一致
+      ctx.globalAlpha = .16 + cond.env.kick * .06;
+      ctx.fillStyle = C.css(C.mix(pal.line, pal.accentA, .3));
+      const steps = Math.max(2, Math.round((botY - qj.sy) / 3));
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const y = Math.round(M.lerp(qj.sy, botY, t));
+        ctx.fillRect(Math.round(M.lerp(x0, x1, t * t)), y, 1, 3);
       }
       ctx.globalAlpha = 1;
     }
 
-    // 表示範囲の先頭ノートを二分探索
+    /* --- 判定ライン --- */
+    const pulse = .55 + cond.env.kick * .45;
+    const jw = qj.sw * 1.02;
+    ctx.globalAlpha = .30 + pulse * .30;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy) + 3, Math.max(2, Math.round(jw * 2)), 3);
+    ctx.globalAlpha = .55 + pulse * .40;
+    ctx.fillStyle = C.css(C.mix(pal.line, pal.accentB, .35));
+    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy), Math.max(2, Math.round(jw * 2)), 4);
+    ctx.globalAlpha = .85 * pulse;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy), Math.max(2, Math.round(jw * 2)), 2);
+    // レーン区切りの目印
+    ctx.globalAlpha = .5 + pulse * .3;
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i <= L; i++) {
+      const wx = (i - L / 2) * (ROAD_HALF * 2 * .92 / L);
+      this.project(p, JUDGE_DZ, wx, q);
+      ctx.fillRect(Math.round(q.sx) - 1, Math.round(q.sy) - 4, 2, 10);
+    }
+    // 各レーンの受け皿（色で押す場所を示す）
+    for (let i = 0; i < L; i++) {
+      this.project(p, JUDGE_DZ, this.laneX(i), q);
+      ctx.globalAlpha = .30 + pulse * .18;
+      ctx.fillStyle = C.css(LANE_COL[i]);
+      ctx.fillRect(Math.round(q.sx - laneW * .42), Math.round(q.sy) + 4, Math.max(2, Math.round(laneW * .84)), 2);
+    }
+    ctx.globalAlpha = 1;
+
+    /* --- ノーツ --- */
     let lo = 0, hi = notes.length - 1, start = notes.length;
-    const minBeat = beat + lead - 1.2;
+    const minBeat = jb - .5;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       if (notes[mid].beat >= minBeat) { start = mid; hi = mid - 1; } else lo = mid + 1;
     }
-
     for (let i = start; i < notes.length; i++) {
       const n = notes[i];
-      const dz = (n.beat - beat) / bpu;          // そのノーツが今どこにあるか
+      const dz = JUDGE_DZ + (n.beat - jb) / bpu;
       if (dz > FAR) break;
-      if (dz < .4) continue;
-      this.project(p, dz, 0, q);
-      if (q.sy < this.horizonY(p) - 4 || q.sy > p.h + 8) continue;
-      if (q.sw < 1.0) continue;
-      const app = M.sat((FAR - dz) / (FAR - this.carDz));       // 手前ほど 1
-      const imminent = M.sat(1 - Math.abs(dz - this.carDz) / 9);// 到達前後で強く光る
-      const passed = M.sat((this.carDz - dz) / 1.8);            // 通過後は素早く消す
-      const pf = 1 - passed * .88;
-      const strong = (n.kind === 'snap' || n.kind === 'hold');
+      if (dz < .5) continue;
+      if (n.judged && n.hit) continue;                 // 叩いた瞬間に消える
+      this.project(p, dz, this.laneX(n.lane), q);
+      if (q.sy < this.horizonY(p) - 4 || q.sy > p.h + 10) continue;
+      const app = M.sat((FAR - dz) / (FAR - JUDGE_DZ));
+      const near = M.sat(1 - Math.abs(dz - JUDGE_DZ) / 2.2);
+      const gone = M.sat((JUDGE_DZ - dz) / 1.0);          // ラインを過ぎたら素早く消える
+      if (gone > .98) continue;
+      const accent = n.kind === 'accent';
+      const w = Math.max(2, q.sc * (ROAD_HALF * 2 * .92 / L) * .94 * (p.w * .58));
+      const h = Math.max(2, Math.round(q.sc * (accent ? 16 : 11)));
+      // レーンごとに固有の色。5色に分かれていると押す場所が一瞬で分かる。
+      const col = LANE_COL[n.lane];
 
-      // 拍のライン（路面を横切る帯）。到達間際に一気に明るくなる = 「今」が分かる
-      const a = (.30 + app * .50 + imminent * .55) * (strong ? 1 : .74) * M.lerp(.45, 1, vis) * pf;
-      const bandH = M.clamp(Math.round(q.sc * (strong ? 20 : 13)), 1, Math.round(p.h * .05));
-      ctx.globalAlpha = M.sat(a);
-      ctx.fillStyle = C.css(C.mix(pal.line, strong ? pal.accentB : pal.accentA, .3 + app * .35));
-      ctx.fillRect(Math.round(q.sx - q.sw * .96), Math.round(q.sy), Math.max(1, Math.round(q.sw * 1.92)), bandH);
-      // 帯の芯（白）
-      ctx.globalAlpha = M.sat(a * .9);
-      ctx.fillStyle = C.css(C.mix(pal.lightGlow, [255, 255, 255], .5));
-      ctx.fillRect(Math.round(q.sx - q.sw * .96), Math.round(q.sy), Math.max(1, Math.round(q.sw * 1.92)),
-        Math.max(1, Math.round(bandH * .35)));
-
-      // 乗るべき点（路面中央のひし形）
-      const lx = q.sx + q.sc * (n.lane * LANE_AMP - this.laneAtDz(dz)) * (p.w * .58);
-      const r = M.clamp(Math.round(q.sc * (9 + app * 12 + imminent * 10)), 1, Math.round(p.h * .06));
-      ctx.globalAlpha = M.sat((.40 + app * .5 + imminent * .45) * M.lerp(.5, 1, vis) * pf);
-      ctx.fillStyle = C.css(strong ? pal.accentB : pal.lightGlow);
-      for (let k = -r; k <= r; k++) {
-        const wq = r - Math.abs(k);
-        if (wq < 0) continue;
-        ctx.fillRect(Math.round(lx - wq), Math.round(q.sy + k), Math.max(1, wq * 2), 1);
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    /* --- ターゲット --- 「今この瞬間、車が居るべき点」を常時表示する。
-       自車とこのマーカーの距離がそのままズレ量なので、
-       プレイヤーは何をすれば良いかを一瞬で理解できる。 */
-    this.project(p, this.carDz, 0, q);
-    if (q.sw > 2) {
-      const err = Math.abs(this.carX - this.laneAtDz(this.carDz)) / LANE_AMP;
-      const good = M.sat(1 - err / .45);
-      const pulse = .55 + cond.env.kick * .45;
-      const col = C.mix(pal.line, pal.accentA, .25 + good * .5);
-      const w2 = Math.max(2, Math.round(q.sw * .16));
-      const hh = Math.max(1, Math.round(q.sc * 9));
-      ctx.globalAlpha = M.sat((.35 + good * .5) * pulse * M.lerp(.5, 1, vis));
-      // 中央のくさび
+      ctx.globalAlpha = M.sat((.30 + app * .55) * (1 - gone));
+      // 影（路面に落ちる）
+      ctx.fillStyle = '#000';
+      ctx.globalAlpha *= .5;
+      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy + h * .4), Math.max(1, Math.round(w)), Math.max(1, h));
+      // 本体
+      ctx.globalAlpha = M.sat((.42 + app * .55) * (1 - gone));
       ctx.fillStyle = C.css(col);
-      for (let k = 0; k < hh; k++) {
-        const ww = Math.max(1, Math.round(w2 * (1 - k / hh)));
-        ctx.fillRect(Math.round(q.sx - ww), Math.round(q.sy - k), ww * 2, 1);
-      }
-      // ぴったり乗っていると光る
-      if (good > .72) {
-        ctx.globalAlpha = (good - .72) / .28 * .5 * pulse;
+      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy - h / 2), Math.max(1, Math.round(w)), Math.max(1, h));
+      // 上面のハイライトと縁取り
+      ctx.fillStyle = C.css(C.mix(col, [255, 255, 255], .55 + near * .4));
+      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy - h / 2), Math.max(1, Math.round(w)),
+        Math.max(1, Math.round(h * .38)));
+      ctx.fillStyle = C.css(C.mix(col, [0, 0, 0], .45));
+      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy + h / 2) - 1, Math.max(1, Math.round(w)), 1);
+      if (accent && w > 5) {   // 同時押し/アクセントは二重線で区別
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(Math.round(q.sx - w2), Math.round(q.sy - hh), w2 * 2, Math.max(1, Math.round(hh * .5)));
+        ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy), Math.max(1, Math.round(w)), 1);
+      }
+      // 着弾間際に光る
+      if (near > .35 && w > 3) {
+        ctx.globalAlpha = (near - .35) / .65 * .5;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(q.sx - w * .6), Math.round(q.sy - h * .9), Math.max(1, Math.round(w * 1.2)),
+          Math.max(1, Math.round(h * 1.8)));
       }
       ctx.globalAlpha = 1;
     }
-
-    // 判定面（自車の足元）を路肩に小さく示す
-    this.project(p, this.carDz, 0, q);
-    if (q.sw > 2) {
-      const pulse = .45 + cond.env.kick * .55;
-      ctx.globalAlpha = .5 * pulse;
-      ctx.fillStyle = C.css(pal.lightGlow);
-      const tw = Math.max(2, Math.round(q.sw * .18));
-      ctx.fillRect(Math.round(q.sx - q.sw - tw), Math.round(q.sy) - 1, tw, 3);
-      ctx.fillRect(Math.round(q.sx + q.sw), Math.round(q.sy) - 1, tw, 3);
-      ctx.globalAlpha = 1;
-    }
   }
 
-  /* 判定ライン付近の「今なぞるべき点」を淡く示す（UI ではなく world 内表現） */
-  renderGuide(p, pal, strength, env) {
-    if (strength <= .01) return;
-    const q = this.project(p, 3.2, 0, {});
-    const ctx = p.ctx;
-    const a = strength * (.35 + (env ? env.kick : 0) * .5);
-    ctx.globalAlpha = a;
-    ctx.fillStyle = C.css(pal.lightGlow);
-    const w = Math.max(2, q.sw * .10);
-    ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy) - 2, Math.round(w), 3);
-    ctx.globalAlpha = 1;
-  }
 }
 PX.Road = Road;
-PX.ROAD_CONST = { SEGLEN, LANE_AMP, CAM_H, CAM_D, ROAD_HALF, CAR_DZ, CAR_W };
+PX.ROAD_CONST = { SEGLEN, LANE_AMP, CAM_H, CAM_D, ROAD_HALF, CAR_DZ, CAR_W, JUDGE_DZ };
 
 })(window.PX);
 
@@ -5067,7 +5051,9 @@ class Game {
     this.grooveRaw = .38;
     this.distort = 0; this.hueBlip = 0; this.flash = 0;
     this.camTimer = 0; this.camZoom = 0;   // closeUp 演出（カメラが一瞬寄る）
-    this.hitFx = null;
+    this.hitFx = null; this.laneNudge = 0;
+    this.tripCharge = 0; this.ripple = 0; this.rippleX = .5; this.rippleY = .5;
+    this.emptyTap = 0;
     this.shake = 0;
     this.deepest = 0;
     this.pal = {};
@@ -5172,16 +5158,16 @@ class Game {
 
     /* --- グルーヴ → トリップ強度 --------------------------------- */
     this.road.setTiming(this.track.bpm, this.cond.beat);
-    // 判定面は自車の位置（カメラより carDz だけ先）
+    /* --- タップ判定 --- 判定ラインに着弾した拍を叩く */
     const jBeat = this.cond.beat + this.road.judgeLead();
-    const judged = this.chart.update(jBeat, this.input.steer);
-    for (const j of judged) this.onJudge(j);
-
-    // 連続的なライン精度も少しだけ効かせる（“ノっている”感）
-    const laneNow = this.chart.laneAt(jBeat);
-    const lineAcc = M.sat(1 - Math.abs(this.input.steer - laneNow) / .5);
-    this.grooveRaw = M.clamp(this.grooveRaw + (lineAcc - .5) * dt * .12, 0, 1);
+    for (const h of this.input.takeHits()) {
+      const res = this.chart.tryHit(jBeat, h.lane);
+      if (res) this.onJudge(res);
+      else { this.emptyTap = .25; PX.Audio.sfx('tapMiss'); }   // 空打ちは減点しない
+    }
+    for (const j of this.chart.update(jBeat)) this.onJudge(j);
     this.trip.groove = M.approach(this.trip.groove, this.grooveRaw, 1.6, dt);
+    this.grooveRaw = M.clamp(this.grooveRaw + this.tripCharge * dt * .35, 0, 1);
     const gb = this.trip.grooveBoost = M.sat((this.trip.groove - .42) / .48);
 
     /* --- トリップレベル ------------------------------------------ */
@@ -5217,8 +5203,9 @@ class Game {
     this.road.pitch = Math.sin(this.cond.beat * Math.PI) * this.cond.env.kick * 1.4 * M.sat(this.trip.level / 6)
                     - this.cond.env.bass * 1.2 * M.sat(this.trip.level / 8);
     this.road.roll = Math.sin(t * .21) * .05 * M.sat((this.trip.level - 5) / 5)
-                   + this.input.steer * .012;
-    this.road.update(dt, this.input.steer, this.cond);
+                   + this.road.bank * .010;
+    this.laneNudge = M.approach(this.laneNudge || 0, 0, 2.2, dt);
+    this.road.update(dt, this.laneNudge);
     this.world.update(dt, this.cond, this.trip);
 
     /* --- イベント ------------------------------------------------ */
@@ -5232,7 +5219,7 @@ class Game {
     this.road.camFollow = M.lerp(.58, .34, this.camZoom);
 
     /* --- エンジン音 ---------------------------------------------- */
-    PX.Audio.setEngine(.25 + M.sat(this.road.speed / 50) * .55 + Math.abs(this.input.steer) * .1,
+    PX.Audio.setEngine(.25 + M.sat(this.road.speed / 34) * .55 + Math.abs(this.road.bank) * .08,
       .085 * (1 - M.sat(this.trip.level / 14)));
 
     /* --- パレット ------------------------------------------------ */
@@ -5245,6 +5232,9 @@ class Game {
       M.sat(this.trip.level / 10) * .30 + this.trip.groove * .08, this.pal);
 
     /* --- 減衰系 -------------------------------------------------- */
+    this.tripCharge = M.approach(this.tripCharge, 0, .55, dt);   // 叩き続けないと戻る
+    this.ripple = M.approach(this.ripple, 0, 2.4, dt);
+    this.emptyTap = M.approach(this.emptyTap, 0, 5, dt);
     this.distort = M.approach(this.distort, 0, 1.8, dt);
     this.hueBlip = M.approach(this.hueBlip, 0, 3.5, dt);
     this.flash = M.approach(this.flash, 0, 2.2, dt);
@@ -5276,24 +5266,39 @@ class Game {
   onJudge(j) {
     const g = j.grade;
     const mul = Math.min(4, 1 + this.combo / 50);
-    // 自車の位置で光らせる（判定面 = 自車なので、当たった場所が一致する）
-    const pose = this.road.carPose(this.p);
-    this.hitFx = { grade: g, life: .5, x: pose.sx, y: pose.sy, w: pose.w };
+    // 叩いたレーンの判定ライン上で光らせる
+    const q = this.road.project(this.p, PX.ROAD_CONST.JUDGE_DZ, this.road.laneX(j.note.lane), {});
+    this.hitFx = { grade: g, life: .5, x: q.sx, y: q.sy, w: Math.max(6, q.sw * .28), lane: j.note.lane };
     PX.Audio.hit(g, this.combo);
     if (g === 'MISS') {
       this.combo = 0;
-      this.grooveRaw = M.clamp(this.grooveRaw - .11, 0, 1);
-      this.distort = Math.min(1.4, this.distort + .9);
-      this.road.kickOff(j.note.lane > this.input.steer ? -1 : 1);
+      this.grooveRaw = M.clamp(this.grooveRaw - .09, 0, 1);
+      this.distort = Math.min(1.4, this.distort + .7);
     } else {
+      // 叩いたレーンへ車が少し寄る（自分の演奏で車が動いている感触）
+      this.laneNudge = this.road.laneX(j.note.lane) * 1.25;
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       const pts = g === 'PERFECT' ? 300 : g === 'GROOVY' ? 180 : 70;
       this.score += Math.round(pts * mul);
       this.grooveRaw = M.clamp(this.grooveRaw + (g === 'PERFECT' ? .052 : g === 'GROOVY' ? .026 : -.004), 0, 1);
+      /* ★ 叩くほど世界がトリップする ★
+         成功のたびに tripCharge を溜め、エフェクト強度・色相・世界の密度に乗せる。 */
+      const gain = g === 'PERFECT' ? .13 : g === 'GROOVY' ? .08 : .03;
+      this.tripCharge = Math.min(1.6, this.tripCharge + gain);
+      this.burstCol = C.css(C.mix(PX.LANE_COL[j.note.lane], [255, 255, 255], .3));
+      this.burst(q.sx, q.sy, g === 'PERFECT' ? 10 : g === 'GROOVY' ? 6 : 2);
+      this.burstCol = null;
+      this.ripple = Math.min(1.2, this.ripple + (g === 'PERFECT' ? .55 : .3));
+      this.rippleX = q.sx / this.p.w; this.rippleY = q.sy / this.p.h;
       if (g === 'PERFECT') {
-        if (this.combo % 8 === 0) this.burst(this.p.w * .5, this.p.h * .52, 14 + this.combo / 4);
-        if (this.trip.level > 7 && this.combo % 4 === 0) this.burst(this.p.w * (.2 + Math.random() * .6), this.p.h * .3, 8);
+        this.flash = Math.min(.5, this.flash + .16);
+        if (this.combo % 8 === 0) {
+          this.burst(this.p.w * .5, this.p.h * .5, 18 + this.combo / 4);
+          this.shake = Math.min(.5, this.shake + .22);
+          PX.Audio.sfx('shimmer', this.combo / 16);
+        }
+        if (this.combo % 24 === 0) this.hueBlip = .3;   // 世界の色が一段回る
       }
     }
     this.judgeText = { g, life: .5, x: this.p.w * .5 };
@@ -5329,7 +5334,7 @@ class Game {
       this.particles.push({
         x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 20,
         life: .5 + Math.random() * .9, max: 1.4,
-        c: C.rainbow(Math.random(), .62)
+        c: this.burstCol || C.rainbow(Math.random(), .62)
       });
     }
     if (this.particles.length > 460) this.particles.splice(0, this.particles.length - 460);
@@ -5363,7 +5368,6 @@ class Game {
     road.render(p, pal, cond.env, trip);
     road.renderNotes(p, pal, cond, trip);
     this.world.renderObjects(p, pal, cond, trip, road);
-    road.renderGuide(p, pal, M.sat(1.2 - trip.level / 6) * .8, cond.env);
 
     // ドットの花火
     for (const q of this.particles) {
@@ -5375,6 +5379,7 @@ class Game {
     const tun = this.tl.out.v.tunnelDark;
     if (tun > .02) this.drawTunnel(tun);
 
+    this.drawLanes();
     this.drawCar();
     this.drawHit();
     this.drawHUD();
@@ -5436,14 +5441,41 @@ class Game {
     });
   }
 
+  /* 押されたレーンを光らせる（指の下が反応する手応え） */
+  drawLanes() {
+    const p = this.p, pal = this.pal, road = this.road;
+    const F = this.input.laneFlash;
+    const L = PX.LANES, JD = PX.ROAD_CONST.JUDGE_DZ;
+    const q = {};
+    for (let i = 0; i < L; i++) {
+      const f = F[i];
+      if (f <= .02) continue;
+      road.project(p, JD, road.laneX(i), q);
+      const x1 = (i + .5) * (p.w / L);
+      const w0 = Math.max(2, q.sc * (PX.ROAD_CONST.ROAD_HALF * 2 * .92 / L) * (p.w * .58));
+      const steps = Math.max(2, Math.round((p.h - q.sy) / 4));
+      p.ctx.globalAlpha = f * .32;
+      p.ctx.fillStyle = C.css(C.mix(PX.LANE_COL[i], [255, 255, 255], .35));
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const x = M.lerp(q.sx, x1, t * t);
+        const w = M.lerp(w0, p.w / L * .9, t);
+        p.ctx.fillRect(Math.round(x - w / 2), Math.round(M.lerp(q.sy, p.h, t)), Math.max(1, Math.round(w)), 4);
+      }
+      p.ctx.globalAlpha = 1;
+    }
+    if (this.emptyTap > .01) p.rectA(0, p.h - 3, p.w, 3, [255, 120, 140], this.emptyTap * .5);
+  }
+
   /* 判定の瞬間を自車の足元で光らせる */
   drawHit() {
     const h = this.hitFx;
     if (!h) return;
     const p = this.p, pal = this.pal;
     const k = M.sat(h.life / .5);
-    const col = h.grade === 'PERFECT' ? [255, 244, 150] : h.grade === 'GROOVY' ? [150, 255, 225]
-      : h.grade === 'GOOD' ? [205, 205, 225] : [255, 120, 140];
+    const col = h.grade === 'MISS' ? [255, 110, 130]
+      : h.lane !== undefined ? C.mix(PX.LANE_COL[h.lane], [255, 255, 255], h.grade === 'PERFECT' ? .5 : .2)
+      : [255, 244, 150];
     const r = h.w * (.9 + (1 - k) * 1.7);
     p.ring(h.x, h.y - 2, r, C.css(col), k * k * .75, 1);
     if (h.grade === 'PERFECT') p.ring(h.x, h.y - 2, r * .55, C.css(col), k * .5, 1);
@@ -5468,6 +5500,18 @@ class Game {
       p.text(txt, p.w - PX.textWidth(txt, s, 1) - 4, 4, C.cssa(col, .8), s, 1);
     }
 
+    // 最初の数秒だけ操作を教える
+    if (this.songTime < 14) {
+      const a = M.sat((this.songTime - 3) / 1.5) * M.sat((14 - this.songTime) / 3);
+      if (a > .02) {
+        p.textC('TAP THE LANES', p.w * .5, Math.round(p.h * .60), C.cssa(pal.line, a * .75), 1, 1);
+        for (let i = 0; i < PX.LANES; i++) {
+          const x = (i + .5) * (p.w / PX.LANES);
+          p.rectA(x - 6, p.h - 8, 12, 2, pal.accentA, a * (.25 + .25 * Math.sin(performance.now() / 300 + i)));
+        }
+      }
+    }
+
     // 判定表示（小さく、一瞬だけ）
     if (this.judgeText) {
       const j = this.judgeText;
@@ -5488,7 +5532,7 @@ class Game {
     const fx = p.fx;
     p.resetFx();
     const lv = M.sat(trip.level / 10);
-    const gK = M.lerp(.84, 1.16, trip.grooveBoost);
+    const gK = M.lerp(.84, 1.16, trip.grooveBoost) * (1 + this.tripCharge * .22);
     const Q = this.qual;   // 自動品質（重い端末では静かに下がる）
     /* 解像度を下げてもまだ重い端末では、最も高価な効果から順に切る。
        万華鏡とトンネルは画素ごとに極座標演算が要るので真っ先に落とす。 */
@@ -5507,8 +5551,9 @@ class Game {
     fx.waveFreq = 1 + lv * 1.4;
     fx.waveSpeed = .8 + lv;
     fx.vwave = K.fx.vwave * X.vwave + this.distort * .06;
-    fx.ripple = Math.min(X.ripple * 1.6, (K.fx.ripple * X.ripple + this.distort * .22) * gK);
-    fx.rippleCX = .5; fx.rippleCY = this.road.horizon;
+    fx.ripple = Math.min(X.ripple * 2.2, (K.fx.ripple * X.ripple + this.distort * .22 + this.ripple * .30) * gK);
+    fx.rippleCX = this.ripple > .05 ? this.rippleX : .5;
+    fx.rippleCY = this.ripple > .05 ? this.rippleY : this.road.horizon;
     fx.rgb = K.fx.rgb * X.rgb * (.72 + beat * .5) * gK;
     fx.hue = K.fx.hue * X.hue * Math.sin(now / 4200) + this.hueBlip * .5;
     fx.sat = K.fx.sat * X.sat * gK;
@@ -5525,7 +5570,7 @@ class Game {
     fx.scan = .09 + lv * .10;
     fx.zoom = 1 + beat * .010 * lv + bass * .006;
     fx.rot = Math.sin(now / 5200) * .014 * lv;
-    fx.shakeX = (Math.random() - .5) * this.shake * 6 + this.input.wheelKick * (Math.random() - .5) * 1.6;
+    fx.shakeX = (Math.random() - .5) * this.shake * 6;
     fx.shakeY = (Math.random() - .5) * this.shake * 4;
     fx.flash = M.sat(this.flash * .9 + K.fx.flash * this.flash);
     fx.flashColor = [255, 252, 245];

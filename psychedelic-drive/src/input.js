@@ -1,9 +1,9 @@
 /* =====================================================================
-   input.js — 片手ドラッグステアリング / タップ / ジャイロ(オプション)
+   input.js — 5レーンのタップ入力 / マルチタッチ / ジャイロ(オプション)
    ---------------------------------------------------------------------
-   ・画面のどこを触っても良いが、下部 45% は「ハンドル領域」として扱い
-     指の横移動量がそのままステアリングに乗る（実車シムではなく音ゲー感）。
-   ・タップ（短時間・小移動）は tap イベントとして通知（キノコ等）。
+   ・判定は touchstart の瞬間に取る（touchend まで待つと必ず遅れる）。
+   ・マルチタッチ対応。同時押しのノーツが叩ける。
+   ・hits[] は音ゲーの判定用、taps[] はキノコ等の UI 用。
    ===================================================================== */
 (function (PX) {
 'use strict';
@@ -19,23 +19,33 @@ class Input {
     this.touchX = 0; this.touchY = 0;
     this.startX = 0; this.startY = 0; this.startT = 0;
     this.anchor = 0;
-    this.taps = [];        // {x,y} 内部解像度座標
+    this.taps = [];        // {x,y} 内部解像度座標（UI 用）
+    this.hits = [];        // {x,y,lane,t} 音ゲー判定用（touchstart の瞬間）
+    this.lanes = 5;
+    this.laneFlash = [0, 0, 0, 0, 0];   // 押された余韻（描画用）
     this.gyro = false; this.gyroBase = null; this.gyroVal = 0;
     this.sensitivity = 1.55;
     this.lastMoveT = 0;
-    this.wheelKick = 0;    // 演出用: 急な操作量
 
     const opts = { passive: false };
-    el.addEventListener('touchstart', e => this._down(e.changedTouches[0], e), opts);
-    el.addEventListener('touchmove', e => this._move(e.changedTouches[0], e), opts);
-    el.addEventListener('touchend', e => this._up(e.changedTouches[0], e), opts);
-    el.addEventListener('touchcancel', e => this._up(e.changedTouches[0], e), opts);
+    // マルチタッチ: changedTouches を全部処理する
+    el.addEventListener('touchstart', e => {
+      if (e.preventDefault) e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) this._down(e.changedTouches[i], e);
+    }, opts);
+    el.addEventListener('touchmove', e => { if (e.preventDefault) e.preventDefault(); }, opts);
+    el.addEventListener('touchend', e => {
+      for (let i = 0; i < e.changedTouches.length; i++) this._up(e.changedTouches[i], e);
+    }, opts);
+    el.addEventListener('touchcancel', e => {
+      for (let i = 0; i < e.changedTouches.length; i++) this._up(e.changedTouches[i], e);
+    }, opts);
     el.addEventListener('mousedown', e => this._down(e, e));
     window.addEventListener('mousemove', e => { if (this.active) this._move(e, e); });
     window.addEventListener('mouseup', e => this._up(e, e));
     window.addEventListener('keydown', e => this._key(e, 1));
     window.addEventListener('keyup', e => this._key(e, 0));
-    this.keyL = 0; this.keyR = 0;
+    this.keyHeld = [0, 0, 0, 0, 0];
   }
 
   _pt(t) {
@@ -47,29 +57,24 @@ class Input {
   }
 
   _down(t, e) {
-    if (e.preventDefault) e.preventDefault();
+    if (e && e.preventDefault && e.type === 'mousedown') e.preventDefault();
     const p = this._pt(t);
     this.active = true;
     this.touchX = p.x; this.touchY = p.y;
     this.startX = p.x; this.startY = p.y;
     this.startT = performance.now();
-    this.anchor = p.x - this.raw * (this.pixel.w * .34);
+    // 画面を横に5等分したものがそのままレーン
+    const lane = M.clamp(Math.floor(p.x / (this.pixel.w / this.lanes)), 0, this.lanes - 1);
+    // 誰も取りに来ない場面（導入シーン等）で溜まり続けないよう上限を設ける
+    if (this.hits.length > 12) this.hits.shift();
+    this.hits.push({ x: p.x, y: p.y, lane, t: performance.now() });
+    this.laneFlash[lane] = 1;
   }
 
   _move(t, e) {
-    if (e.preventDefault) e.preventDefault();
     if (!this.active) return;
     const p = this._pt(t);
     this.touchX = p.x; this.touchY = p.y;
-    const prev = this.raw;
-    /* 完全な相対ドラッグ。指を動かした分だけ動く。
-       以前は絶対位置を 35% ブレンドしていたので、触れた瞬間に指の位置へ
-       引っ張られて「車が勝手にずれる」感触になっていた。 */
-    const rel = (p.x - this.anchor) / (this.pixel.w * .34);
-    this.raw = M.clamp(rel * this.sensitivity, -1.25, 1.25);
-    const d = Math.abs(this.raw - prev);
-    if (d > .09) this.wheelKick = Math.min(1, this.wheelKick + d);
-    this.lastMoveT = performance.now();
   }
 
   _up(t, e) {
@@ -82,9 +87,19 @@ class Input {
     this.active = false;
   }
 
+  /* PC 確認用: S D F J K が左から5レーンに対応 */
   _key(e, v) {
-    if (e.key === 'ArrowLeft' || e.key === 'a') { this.keyL = v; e.preventDefault(); }
-    if (e.key === 'ArrowRight' || e.key === 'd') { this.keyR = v; e.preventDefault(); }
+    const idx = 'sdfjk'.indexOf(e.key.toLowerCase());
+    if (idx >= 0) {
+      e.preventDefault();
+      if (v && !this.keyHeld[idx]) {
+        const x = (idx + .5) * (this.pixel.w / this.lanes);
+        this.hits.push({ x, y: this.pixel.h * .8, lane: idx, t: performance.now() });
+        this.laneFlash[idx] = 1;
+      }
+      this.keyHeld[idx] = v;
+      return;
+    }
     if (v && (e.key === ' ' || e.key === 'Enter')) this.taps.push({ x: this.pixel.w / 2, y: this.pixel.h / 2 });
   }
 
@@ -105,17 +120,10 @@ class Input {
   disableGyro() { this.gyro = false; this.gyroBase = null; }
 
   takeTaps() { const t = this.taps; this.taps = []; return t; }
+  takeHits() { const h = this.hits; this.hits = []; return h; }
 
   update(dt) {
-    let target = this.raw;
-    if (this.keyL || this.keyR) target = M.clamp(target + (this.keyR - this.keyL) * 1.15, -1.2, 1.2);
-    if (this.gyro) target = M.clamp(target + this.gyroVal, -1.3, 1.3);
-    /* 指を離しても値は保持する。勝手にセンターへ戻すと、
-       手を止めた瞬間に車がラインから外れていくため。 */
-    const prev = this.steer;
-    this.steer = M.approach(this.steer, M.clamp(target, -1.15, 1.15), 17, dt);
-    this.vel = (this.steer - prev) / Math.max(.0001, dt);
-    this.wheelKick = M.approach(this.wheelKick, 0, 3.5, dt);
+    for (let i = 0; i < this.lanes; i++) this.laneFlash[i] = M.approach(this.laneFlash[i], 0, 7, dt);
   }
 }
 
