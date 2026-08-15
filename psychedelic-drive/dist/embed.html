@@ -1555,6 +1555,7 @@ const Audio = PX.Audio = {
   engineNodes: null,
   _lookahead: .18, _timer: null, _nextStep: 0, _stepTime: 0,
   volume: .9,
+  userOffset: 0,
   externalSource: null, externalBuffer: null,
   muted: false,
 
@@ -1664,7 +1665,32 @@ const Audio = PX.Audio = {
      これが Conductor と譜面の共通時計になる。 */
   now() {
     if (!this.ctx) return 0;
-    return this.ctx.currentTime - this.startAt - ((this.track && this.track.offset) || 0);
+    return this.ctx.currentTime - this.startAt
+      - ((this.track && this.track.offset) || 0)
+      - this.latency();
+  },
+
+  /* 実際に耳へ届くまでの遅れ。
+     ctx.currentTime で鳴らした音は outputLatency ぶん遅れて聞こえるので、
+     これを引かないと「音より判定が早い」状態になる。
+     userOffset はプレイヤー調整（localStorage に保存）。 */
+  latency() {
+    const c = this.ctx;
+    if (!c) return this.userOffset || 0;
+    const base = (c.outputLatency || 0) || (c.baseLatency || 0) * 2;
+    return M.clamp(base, 0, .35) + (this.userOffset || 0);
+  },
+
+  setUserOffset(sec) {
+    this.userOffset = M.clamp(sec, -.3, .3);
+    try { localStorage.setItem('pxOffset', String(this.userOffset)); } catch (e) {}
+  },
+  loadUserOffset() {
+    try {
+      const v = parseFloat(localStorage.getItem('pxOffset'));
+      if (isFinite(v)) this.userOffset = M.clamp(v, -.3, .3);
+    } catch (e) {}
+    return this.userOffset || 0;
   },
 
   /* ---------------------------------------------------- 16分スケジューラ */
@@ -2159,6 +2185,246 @@ class Input {
 }
 
 PX.Input = Input;
+})(window.PX);
+
+;
+/* ===== src/playfield.js ===== */
+/* =====================================================================
+   playfield.js — タップ面（5レーン・ノーツ・判定ライン）
+   ---------------------------------------------------------------------
+   ★ここだけドット絵ではない★
+
+   世界はドット絵の低解像度バッファに描き、歪み・溶け・回転といった
+   ポストエフェクトを全面に掛ける。しかし「叩く対象」までが一緒に歪むと
+   ゲームとして成立しない。
+
+   そこでタップ面は
+     ・ポストエフェクト適用後の実解像度キャンバスに描く（＝一切歪まない）
+     ・道路の投影ではなく固定のスクリーン座標系で組む（＝道路が波打っても不動）
+     ・ドットではなく滑らかな図形で描く（＝小さくても輪郭が読める）
+   という別レイヤーにしてある。
+
+   レーンは判定ラインから画面下端へ扇状に開き、画面を横に5等分した
+   タップ領域と中心が一致する（lane i の中心 = (i+0.5)/5）。
+   ===================================================================== */
+(function (PX) {
+'use strict';
+const M = PX.M, C = PX.C;
+
+const LANES = 5;
+const VP_Y = 0.395;        // 消失点の高さ（画面比）
+const JUDGE_Y = 0.845;     // 判定ラインの高さ（画面比）
+const Z_NEAR = 1.0;        // 判定ラインの深さ
+const Z_FAR = 9.0;         // 出現位置の深さ
+const LOOKAHEAD = 2.3;     // 何拍先から見えるか
+
+/* レーン色 — 彩度を上げつつ、隣同士が混ざらない5色 */
+const LANE_COL = [
+  '#ff4d7e', '#ffa62b', '#5cff9d', '#3fc9ff', '#c07bff'
+];
+const LANE_GLOW = [
+  'rgba(255,77,126,', 'rgba(255,166,43,', 'rgba(92,255,157,',
+  'rgba(63,201,255,', 'rgba(192,123,255,'
+];
+PX.LANE_COL_CSS = LANE_COL;
+
+function rrect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w * .5, h * .5);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+class Playfield {
+  constructor() {
+    this.hits = [];        // 判定エフェクト
+    this.sparks = [];      // 弾ける粒
+    this.laneFlash = [0, 0, 0, 0, 0];
+    this.time = 0;
+  }
+
+  /* 深さ z における画面座標 */
+  yAt(z, H) { const vy = VP_Y * H; return vy + (JUDGE_Y * H - vy) / z; }
+  xAt(lane, z, W) { return W * .5 + (lane - (LANES - 1) / 2) * (W / LANES) / z; }
+  zAt(dBeat) { return Z_NEAR + Math.max(0, dBeat) * (Z_FAR - Z_NEAR) / LOOKAHEAD; }
+
+  addHit(lane, grade) {
+    this.hits.push({ lane, grade, life: 1 });
+    this.laneFlash[lane] = 1;
+    const n = grade === 'PERFECT' ? 14 : grade === 'GROOVY' ? 9 : grade === 'GOOD' ? 5 : 0;
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (Math.random() - .5) * 2.4;
+      const sp = .35 + Math.random() * .95;
+      this.sparks.push({ lane, x: (Math.random() - .5) * .5, y: 0,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, grade });
+    }
+  }
+
+  update(dt) {
+    this.time += dt;
+    for (let i = 0; i < LANES; i++) this.laneFlash[i] = M.approach(this.laneFlash[i], 0, 6, dt);
+    for (let i = this.hits.length - 1; i >= 0; i--) {
+      this.hits[i].life -= dt * 2.6;
+      if (this.hits[i].life <= 0) this.hits.splice(i, 1);
+    }
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i];
+      s.x += s.vx * dt; s.y += s.vy * dt; s.vy += dt * 1.9;
+      s.life -= dt * 1.5;
+      if (s.life <= 0) this.sparks.splice(i, 1);
+    }
+    if (this.sparks.length > 260) this.sparks.splice(0, this.sparks.length - 260);
+  }
+
+  /* ctx は実解像度の表示キャンバス。W,H はそのピクセルサイズ */
+  render(ctx, W, H, chart, songBeat, cond, trip) {
+    const u = H / 844;                       // 基準スケール
+    const jy = JUDGE_Y * H;
+    const beatPulse = cond ? cond.env.kick : 0;
+    const lit = M.sat(.25 + (trip ? trip.level / 10 : 0) * .5);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    /* ---- レーンの床（消失点 → 画面下端へ扇状に開く） ---- */
+    const zBot = 0.52;
+    ctx.lineWidth = Math.max(1, u * 1.2);
+    for (let i = 0; i <= LANES; i++) {
+      const l = i - .5;
+      const x0 = this.xAt(l, Z_FAR, W), y0 = this.yAt(Z_FAR, H);
+      const x1 = this.xAt(l, zBot, W), y1 = this.yAt(zBot, H);
+      const g = ctx.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(.45, 'rgba(255,255,255,' + (.05 + lit * .06).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(255,255,255,' + (.14 + lit * .12).toFixed(3) + ')');
+      ctx.strokeStyle = g;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    }
+
+    /* ---- 押されたレーンの光柱 ---- */
+    for (let i = 0; i < LANES; i++) {
+      const f = this.laneFlash[i];
+      if (f <= .02) continue;
+      const xa = this.xAt(i - .5, Z_NEAR, W), xb = this.xAt(i + .5, Z_NEAR, W);
+      const xa2 = this.xAt(i - .5, zBot, W), xb2 = this.xAt(i + .5, zBot, W);
+      const g = ctx.createLinearGradient(0, this.yAt(Z_NEAR * 1.9, H), 0, this.yAt(zBot, H));
+      g.addColorStop(0, LANE_GLOW[i] + '0)');
+      g.addColorStop(1, LANE_GLOW[i] + (f * .30).toFixed(3) + ')');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(this.xAt(i - .5, Z_NEAR * 1.9, W), this.yAt(Z_NEAR * 1.9, H));
+      ctx.lineTo(this.xAt(i + .5, Z_NEAR * 1.9, W), this.yAt(Z_NEAR * 1.9, H));
+      ctx.lineTo(xb2, this.yAt(zBot, H));
+      ctx.lineTo(xa2, this.yAt(zBot, H));
+      ctx.closePath(); ctx.fill();
+    }
+
+    /* ---- 判定ライン ---- */
+    const lw = Math.max(2, u * 3);
+    const lx0 = this.xAt(-.5, Z_NEAR, W), lx1 = this.xAt(LANES - .5, Z_NEAR, W);
+    ctx.shadowBlur = u * 10 * (.4 + beatPulse * .8);
+    ctx.shadowColor = 'rgba(255,255,255,.55)';
+    ctx.strokeStyle = 'rgba(255,255,255,' + (.55 + beatPulse * .4).toFixed(3) + ')';
+    ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(lx0, jy); ctx.lineTo(lx1, jy); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    /* 受け皿（どこを押すかを色で示す） */
+    for (let i = 0; i < LANES; i++) {
+      const xa = this.xAt(i - .46, Z_NEAR, W), xb = this.xAt(i + .46, Z_NEAR, W);
+      ctx.strokeStyle = LANE_GLOW[i] + (.45 + this.laneFlash[i] * .5).toFixed(3) + ')';
+      ctx.lineWidth = Math.max(2, u * 4);
+      ctx.beginPath(); ctx.moveTo(xa, jy + lw * 1.6); ctx.lineTo(xb, jy + lw * 1.6); ctx.stroke();
+    }
+
+    /* ---- ノーツ ---- */
+    if (chart) {
+      const notes = chart.notes;
+      let lo = 0, hi = notes.length - 1, start = notes.length;
+      const minB = songBeat - .35;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (notes[mid].beat >= minB) { start = mid; hi = mid - 1; } else lo = mid + 1;
+      }
+      for (let i = start; i < notes.length; i++) {
+        const n = notes[i];
+        const d = n.beat - songBeat;
+        if (d > LOOKAHEAD) break;
+        if (n.judged && n.hit) continue;
+        const z = this.zAt(d);
+        const y = this.yAt(z, H);
+        const x = this.xAt(n.lane, z, W);
+        const w = (W / LANES) * .82 / z;
+        const h = Math.max(2, u * (n.kind === 'accent' ? 26 : 19) / z);
+        const near = M.sat(1 - Math.abs(d) / .85);
+        const fade = d < 0 ? M.sat(1 + d / .3) : M.sat((LOOKAHEAD - d) / .7);
+        if (fade <= .01) continue;
+
+        ctx.globalAlpha = fade;
+        // 影で路面から浮かせる
+        ctx.fillStyle = 'rgba(0,0,0,.35)';
+        rrect(ctx, x - w / 2, y - h / 2 + h * .5, w, h * .7, h * .3); ctx.fill();
+        // 本体（上が明るいグラデーション）
+        const g = ctx.createLinearGradient(0, y - h / 2, 0, y + h / 2);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(.32, LANE_COL[n.lane]);
+        g.addColorStop(1, LANE_GLOW[n.lane] + '.75)');
+        ctx.fillStyle = g;
+        if (near > .1) { ctx.shadowBlur = u * 9 * near; ctx.shadowColor = LANE_COL[n.lane]; }
+        rrect(ctx, x - w / 2, y - h / 2, w, h, h * .34); ctx.fill();
+        ctx.shadowBlur = 0;
+        // 縁
+        ctx.strokeStyle = 'rgba(255,255,255,' + (.5 + near * .5).toFixed(2) + ')';
+        ctx.lineWidth = Math.max(1, u * 1.1);
+        rrect(ctx, x - w / 2, y - h / 2, w, h, h * .34); ctx.stroke();
+        // アクセントは中央に一本
+        if (n.kind === 'accent') {
+          ctx.strokeStyle = 'rgba(255,255,255,.9)';
+          ctx.lineWidth = Math.max(1, u * 1.4);
+          ctx.beginPath(); ctx.moveTo(x - w * .3, y); ctx.lineTo(x + w * .3, y); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    /* ---- 判定エフェクト ---- */
+    for (const hit of this.hits) {
+      const k = M.sat(hit.life);
+      const x = this.xAt(hit.lane, Z_NEAR, W);
+      const col = hit.grade === 'MISS' ? 'rgba(255,90,110,' : LANE_GLOW[hit.lane];
+      const r = (W / LANES) * (.32 + (1 - k) * .95);
+      ctx.strokeStyle = col + (k * k * .85).toFixed(3) + ')';
+      ctx.lineWidth = Math.max(1.5, u * 3 * k);
+      ctx.beginPath(); ctx.ellipse(x, jy, r, r * .42, 0, 0, Math.PI * 2); ctx.stroke();
+      if (hit.grade === 'PERFECT') {
+        ctx.strokeStyle = 'rgba(255,255,255,' + (k * .7).toFixed(3) + ')';
+        ctx.lineWidth = Math.max(1, u * 1.6 * k);
+        ctx.beginPath(); ctx.ellipse(x, jy, r * .55, r * .23, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    /* ---- 粒 ---- */
+    for (const s of this.sparks) {
+      const k = M.sat(s.life);
+      const x = this.xAt(s.lane + s.x, Z_NEAR, W);
+      const y = jy + s.y * H * .10;
+      const rr = u * (s.grade === 'PERFECT' ? 3.4 : 2.4) * k;
+      ctx.fillStyle = (s.grade === 'PERFECT' ? 'rgba(255,255,255,' : LANE_GLOW[s.lane]) + (k * .9).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+PX.Playfield = Playfield;
+PX.PF_LANES = LANES;
 })(window.PX);
 
 ;
@@ -2907,6 +3173,115 @@ P.tree2 = function (p, x, base, h, o) {
   ctx.globalAlpha = 1;
 };
 
+/* =====================================================================
+   対称構造 — サイケデリックを「美しく」するための道具
+   ---------------------------------------------------------------------
+   ランダムに物を散らしても混沌にしかならない。
+   実際のサイケデリック体験の視覚は、放射対称・入れ子・自己相似で構成される。
+   ここではその3つを明示的に描く。
+   ===================================================================== */
+
+/* 調和の取れた配色を作る（黄金角で回すので隣接色が濁らない） */
+P.harmony = function (baseHue, i, light) {
+  const GOLD = 0.381966;
+  return C.hsl(M.mod(baseHue + i * GOLD, 1), .82, light === undefined ? .58 : light);
+};
+
+/*
+  mandala — N回対称の曼荼羅。
+  半径は等比数列（自己相似）、リングごとに逆回転、拍で脈動する。
+  N は 6/8/12 のように割り切れる数にすると図形として決まる。
+*/
+P.mandala = function (p, cx, cy, R, o) {
+  o = o || {};
+  const ctx = p.ctx;
+  const N = o.fold || 8;
+  const rings = o.rings || 5;
+  const ratio = o.ratio || 0.68;
+  const rot = o.rot || 0;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  const hue = o.hue || 0;
+  const beat = o.beat || 0;
+  if (a <= .01 || R < 3) return;
+
+  for (let ri = 0; ri < rings; ri++) {
+    const rr = R * Math.pow(ratio, ri) * (1 + beat * .05 * (ri % 2 ? -1 : 1));
+    if (rr < 1.5) break;
+    const dir = ri % 2 ? -1 : 1;
+    const ang0 = rot * dir * (1 + ri * .35);
+    const col = P.harmony(hue, ri, .52 + (ri % 2) * .16);
+    const ringA = a * (.85 - ri * .09) * (.7 + beat * .3);
+    // リングの円弧そのもの
+    if (ri < rings - 1) p.ring(cx, cy, rr, C.css(col), ringA * .32, 1);
+    // N回対称のモチーフ
+    for (let k = 0; k < N; k++) {
+      const th = ang0 + k / N * Math.PI * 2;
+      const x = cx + Math.cos(th) * rr;
+      const y = cy + Math.sin(th) * rr * (o.squash || 1);
+      const s = Math.max(1, rr * .17 * (1 + beat * .12));
+      const motif = (ri + (o.motif || 0)) % 4;
+      if (motif === 0) p.circle(x, y, s, C.css(col), ringA);
+      else if (motif === 1) P.star(p, x, y, s * 1.25, C.css(col), ringA);
+      else if (motif === 2) {
+        // ひし形
+        ctx.globalAlpha = ringA; ctx.fillStyle = C.css(col);
+        const si = Math.max(1, Math.round(s));
+        for (let d = -si; d <= si; d++) {
+          const w = si - Math.abs(d);
+          if (w <= 0) continue;
+          ctx.fillRect(Math.round(x - w), Math.round(y + d), w * 2, 1);
+        }
+        ctx.globalAlpha = 1;
+      } else {
+        // 花弁（中心へ向かう楔）
+        ctx.globalAlpha = ringA; ctx.fillStyle = C.css(col);
+        const steps = Math.max(2, Math.round(s * 1.6));
+        for (let d = 0; d < steps; d++) {
+          const t = d / steps;
+          const px2 = M.lerp(x, cx, t), py2 = M.lerp(y, cy, t);
+          const w = Math.max(1, Math.round(s * (1 - t) * .8));
+          ctx.fillRect(Math.round(px2 - w / 2), Math.round(py2 - w / 2), w, w);
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  // 中心
+  p.circle(cx, cy, Math.max(1, R * .06 * (1 + beat * .3)), C.css(P.harmony(hue, rings, .85)), a * .9);
+};
+
+/*
+  recursiveFrames — 入れ子の多角形が消失点へ吸い込まれていく。
+  一定比率で縮小しながら一定角度ずつ回転するので、無限後退に見える。
+  「気づいたら同じ景色の内側にいる」というあの感覚の視覚化。
+*/
+P.recursiveFrames = function (p, cx, cy, R, o) {
+  o = o || {};
+  const sides = o.sides || 6;
+  const n = o.depth || 9;
+  const ratio = o.ratio || .78;
+  const twist = o.twist || .22;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  const hue = o.hue || 0;
+  const phase = o.phase || 0;      // 0..1 でひとつ内側へスクロール
+  if (a <= .01) return;
+  for (let i = 0; i < n; i++) {
+    const t = i + phase;
+    const rr = R * Math.pow(ratio, t);
+    if (rr < 1.2) break;
+    const rot = (o.rot || 0) + t * twist;
+    const col = P.harmony(hue, i, .5 + (i % 2) * .2);
+    const al = a * (1 - i / n) * .8;
+    let px0 = 0, py0 = 0;
+    for (let k = 0; k <= sides; k++) {
+      const th = rot + k / sides * Math.PI * 2;
+      const x = cx + Math.cos(th) * rr, y = cy + Math.sin(th) * rr * (o.squash || 1);
+      if (k > 0) p.line(px0, py0, x, y, C.css(col), al);
+      px0 = x; py0 = y;
+    }
+  }
+};
+
 /* 4方向の星 */
 P.star = function (p, x, y, r, col, a) {
   const ctx = p.ctx;
@@ -3216,7 +3591,9 @@ class World {
     for (const k of WORLDS) this.w[k] = M.approach(this.w[k], this.target[k], rate, dt);
 
     // 密度: トリップ強度とグルーヴで路肩が賑やかになる
-    this.density = M.lerp(1, 3.4, M.sat(trip.level / 10)) * M.lerp(.75, 1.75, trip.groove);
+    this.density = M.lerp(1, 2.8, M.sat(trip.level / 10)) * M.lerp(.8, 1.5, trip.groove);
+    // 対称性: 深いほど左右が鏡像になる
+    this.symmetry = M.sat((trip.level - 5.5) / 3.5);
     this.spawnGap = M.lerp(5.2, 1.5, M.sat((this.density - 1) / 3.4));
 
     // スポーン
@@ -3244,6 +3621,14 @@ class World {
   }
 
   _pickKind() {
+    /* トリップが深いところでは種類を絞る。
+       いろいろな物を同時に出すほど「使い回しを適当に置いた」感が出る。
+       主役を2種に決め、それを左右対称に並べたほうが美しい。 */
+    if (this.symmetry > .5) {
+      const r = this.rng();
+      if (this.w.climax > .3) return r < .62 ? 'figure' : 'crystal';
+      if (this.w.abstract > .3) return r < .5 ? 'crystal' : 'monolith';
+    }
     const tbl = {};
     let tot = 0;
     for (const wname of WORLDS) {
@@ -3283,12 +3668,25 @@ class World {
   }
 
   _spawnAt(z) {
-    // 両サイド
+    /* トリップが深いほど左右対称に配置する。
+       サイケデリックの視覚は対称で構成されるので、
+       ここをランダムのままにすると「適当に置いただけ」に見える。 */
+    const sym = M.sat((this.symmetry || 0));
+    const mirror = this.rng() < sym;
+    let mKind = null, mNear = 0, mZ = 0, mSeed = 0;
     for (let s = -1; s <= 1; s += 2) {
-      if (this.rng() > .90) continue;
-      const kind = this._pickKind();
-      const near = this._clearance(kind) + this.rng() * .95;
-      const o = this._mk(kind, z + this.rng() * 1.5, s * near);
+      if (!mirror && this.rng() > .90) continue;
+      let kind, near, zz;
+      if (mirror && s > 0 && mKind) { kind = mKind; near = mNear; zz = mZ; }
+      else {
+        kind = this._pickKind();
+        near = this._clearance(kind) + this.rng() * .95;
+        zz = z + this.rng() * 1.5;
+        mKind = kind; mNear = near; mZ = zz;
+      }
+      const o = this._mk(kind, zz, s * near);
+      if (mirror && s > 0) { o.seed = mSeed; o.sc = this.mSc; o.phase = this.mPhase; }
+      else { mSeed = o.seed; this.mSc = o.sc; this.mPhase = o.phase; }
       this.objects.push(o);
       // 群衆: figure は密度に応じて横一列に増える（10人→100人）
       if (kind === 'figure') {
@@ -3306,12 +3704,14 @@ class World {
   _updateProps(dt, trip) {
     const want = [];
     const t = this.w.tropical, sp = this.w.space, ab = this.w.abstract, cl = this.w.climax, oc = this.w.ocean, ci = this.w.city;
-    if (t > .12 || oc > .12 || cl > .1) want.push('fish', 'fish', 'fish');
-    if (t > .25 || sp > .2 || cl > .2) want.push('whale');
-    if (sp > .2 || ab > .2 || cl > .2) want.push('ufo');
-    if (ab > .25 || cl > .3) want.push('eye');
-    if (cl > .3 || ab > .3) want.push('record', 'record');
-    if (sp > .25 || ab > .2) want.push('island', 'island');
+    /* 同時に出す種類を絞る。全部いっぺんに出すと散らかって見える。
+       主役を1〜2種類に決め、それを対称に配置する。 */
+    if (t > .12 || oc > .12) want.push('fish', 'fish');
+    if (t > .3 || cl > .35) want.push('whale');
+    if (sp > .3) want.push('ufo');
+    if (ab > .35) want.push('eye');
+    if (cl > .45) want.push('record');
+    if (sp > .35 || ab > .3) want.push('island', 'island');
 
     // 足りない分を足す
     const counts = {};
@@ -3332,6 +3732,8 @@ class World {
         counts[k] = (counts[k] || 0) + 1;
       }
     }
+    // 深部では漂流物を減らす（構造を見せたいので）
+    if (trip.level > 8.2 && this.props.length > 3) this.props.length = 3;
     for (let i = this.props.length - 1; i >= 0; i--) {
       const p = this.props[i];
       p.life += dt;
@@ -3348,6 +3750,9 @@ class World {
     this._sky(p, pal, cond, trip, hz, road);
     this._farLayer(p, pal, cond, trip, hz, road);
     this._midLayer(p, pal, cond, trip, hz, road);
+    // 対称構造は最後に描く。空の主役にする。
+    const geo = M.sat(this.w.abstract * 1.2 + this.w.climax * .9);
+    if (geo > .03) this._geoOverlay(p, pal, cond, trip, hz, geo);
     this._props(p, pal, cond, trip, hz);
   }
 
@@ -3414,7 +3819,8 @@ class World {
     }
 
     // 雲（顔になる）
-    const cloudA = M.sat(this.w.suburb + this.w.tropical * 1.1 + this.w.weird + this.w.night * .5 + this.w.climax * .6);
+    const cloudA = M.sat(this.w.suburb + this.w.tropical * 1.1 + this.w.weird + this.w.night * .5)
+      * M.lerp(1, .25, M.sat((trip.level - 6) / 4));
     if (cloudA > .03) {
       for (const c of this.clouds) {
         c.x += c.v * .016 + road.z * 0;
@@ -3424,10 +3830,6 @@ class World {
           C.mix(pal.cloud, pal.accentA, trip.level / 22), face, cloudA * .85);
       }
     }
-
-    // 万華鏡的な幾何オーバーレイ（抽象/クライマックス）
-    const geo = M.sat(this.w.abstract * 1.2 + this.w.climax * .8);
-    if (geo > .03) this._geoOverlay(p, pal, cond, trip, hz, geo);
 
     // 逆さまの都市（抽象ゾーン）
     if (this.w.abstract > .3) {
@@ -3445,25 +3847,41 @@ class World {
     }
   }
 
+  /*
+    サイケデリック層 — ランダムな散らかしではなく、対称と再帰で構成する。
+      ・曼荼羅（N回対称・等比半径・リングごとに逆回転）
+      ・入れ子多角形（消失点へ無限後退）
+    どちらも消失点を中心に置くので、道路の一点透視と構図が一致する。
+  */
   _geoOverlay(p, pal, cond, trip, hz, amt) {
-    const ctx = p.ctx;
     const cx = p.w * .5, cy = hz * .62;
-    const n = 5;
-    ctx.globalAlpha = amt * (.18 + cond.env.kick * .22);
-    for (let i = 0; i < n; i++) {
-      const r = ((this.time * 26 + i * 40) % 190) * (.4 + trip.level / 22);
-      const col = C.rainbow(i * .17 + this.time * .12, .6);
-      p.ring(cx, cy, r, C.css(col), amt * (1 - r / 200) * .5, 1 + (i % 2));
-    }
-    // 六角の格子
-    ctx.globalAlpha = amt * .16;
-    const seg = 6;
-    for (let i = 0; i < seg; i++) {
-      const a = i / seg * Math.PI * 2 + this.time * .12;
-      const L = p.w * .8;
-      p.line(cx, cy, cx + Math.cos(a) * L, cy + Math.sin(a) * L, C.css(C.rainbow(i / seg + this.time * .2, .65)), amt * .3);
-    }
-    ctx.globalAlpha = 1;
+    const beat = cond.env.kick;
+    const lvl = M.sat(trip.level / 10);
+    const hue = trip.hueSpin * .35 + this.w.abstract * .2;
+
+    // 入れ子の多角形（奥へ吸い込まれる）
+    D.recursiveFrames(p, cx, cy, p.w * .62, {
+      sides: 6 + Math.floor(lvl * 3) * 2,
+      depth: 10, ratio: .76,
+      twist: .16 + lvl * .18,
+      rot: this.time * .06,
+      phase: M.mod(this.time * .22, 1),
+      squash: .62,
+      hue: hue + .5,
+      alpha: M.sat(amt * (.5 + beat * .2))
+    });
+
+    // 曼荼羅
+    D.mandala(p, cx, cy, p.w * (.42 + lvl * .22), {
+      fold: 6 + Math.floor(lvl * 3) * 2,
+      rings: 5, ratio: .66,
+      rot: this.time * .10,
+      squash: .78,
+      motif: Math.floor(this.time * .12) % 4,
+      hue: hue,
+      beat: beat,
+      alpha: M.sat(amt * (1.15 + beat * .45))
+    });
   }
 
   /* ------ 遠景 ---------------------------------------------------- */
@@ -3522,13 +3940,24 @@ class World {
     }
     // クライマックス: 全部の地平線が重なる
     if (wCl > .1) {
+      /* クライマックスの遠景は「重ねる」のではなく「対称に置く」。
+         消失点を軸に左右鏡像のシルエットを並べると構図が締まる。 */
       const a = M.sat(wCl);
-      D.mountains(p, hz + 1, p.h * .06, C.mix(pal.far, pal.accentB, .3), 1.3, scroll * .05, a * .5);
-      for (let i = 0; i < 16; i++) {
-        const bx = M.mod(i * 22 - scroll * .05, p.w + 50) - 25;
-        const h = 8 + M.hash(i * 4.4) * p.h * .16;
-        D.building(p, bx, hz + 2, 7 + M.hash(i * 2.2) * 7, h, 1,
-          { alpha: a * .45, body: C.mix(pal.mid, pal.accentC, .2), win: [255, 255, 255], winOff: pal.near, seed: i + 9, beatWin: cond.env.kick });
+      D.mountains(p, hz + 1, p.h * .055, C.mix(pal.far, pal.accentB, .35), 1.3, scroll * .05, a * .45);
+      const n = 5;
+      for (let i = 1; i <= n; i++) {
+        const dx = i * (p.w * .105);
+        const h = p.h * (.20 - i * .028);
+        const w2 = 9 + (n - i) * 2;
+        for (const sgn of [-1, 1]) {
+          D.building2(p, p.w * .5 + sgn * dx, hz + 2, {
+            w: w2, h, tall: 1, alpha: a * .5,
+            vx: p.w * .5, vy: hz, k: .28, dir: sgn,
+            body: C.mix(pal.mid, pal.accentC, .18),
+            win: [255, 255, 255], winOff: pal.near, seed: i + 9,
+            beatWin: cond.env.kick, antenna: pal.accentA
+          });
+        }
       }
     }
   }
@@ -3538,22 +3967,23 @@ class World {
     const ctx = p.ctx;
     const scroll = road.z * 2.6;
     // 群衆バンド: 南国/クライマックスで地平線までフラダンサー
-    const crowd = M.sat((this.w.tropical + this.w.climax) * (0.4 + trip.groove * .9) * (trip.level / 6));
+    const crowd = M.sat((this.w.tropical + this.w.climax) * (0.4 + trip.groove * .9) * (trip.level / 6))
+      * M.lerp(1, .28, M.sat((trip.level - 7.5) / 2.5));
     if (crowd > .06 && PX.SPR.hula1) {
-      const rows = 1 + Math.floor(crowd * 2.4);
+      const rows = 1 + Math.floor(crowd * 1.6);
       for (let r = 0; r < rows; r++) {
         const yy = hz + 1 + r * 2;
         const sc = 1;
         const a = crowd * (1 - r * .18);
-        const count = Math.floor(p.w / 7) + 3;
+        const count = Math.floor(p.w / 11) + 2;
         const beatOff = (cond.env.kick > .4 ? 1 : 0);
         for (let i = 0; i < count; i++) {
-          const x = M.mod(i * 5 - scroll * (.02 + r * .004) + r * 2.5, p.w + 12) - 6;
+          const x = M.mod(i * 11 - scroll * (.02 + r * .004) + r * 5.5, p.w + 22) - 11;
           const ph = M.hash2(i * 1.7, r * 3.1);
           const f = (Math.floor(cond.beat * 2 + ph * 2) % 2) ? PX.SPR.hula2 : PX.SPR.hula1;
           // 地平線の群衆は 1px スケール。sway は使わず描画コールを 1 回に抑える
           p.sprite(f, x, yy + 1 - beatOff, {
-            scale: sc, ax: .5, ay: 1, alpha: a * .9, hue: trip.hueSpin + ph * .3
+            scale: sc + (r === 0 ? 1 : 0), ax: .5, ay: 1, alpha: a * .9, hue: trip.hueSpin + ph * .3
           });
         }
       }
@@ -3809,14 +4239,26 @@ class World {
         ctx.fillStyle = C.css(C.mix(pal.near, [0, 0, 0], .45));
         ctx.fillRect(Math.round(x - w / 2), Math.round(base - h), Math.max(1, Math.round(w)), Math.round(h));
         // 表面に流れる幾何紋様
-        const gap = Math.max(2, Math.round(unit * .13));
+        /* 表面の紋様は左右対称のひし形を縦に積む。
+           虹の横縞にするとバーコードのようで美しくないため。 */
+        const gap = Math.max(3, Math.round(unit * .22));
         const n = Math.max(2, Math.round(h / gap));
+        const baseHue = (o.seed % 100) / 100;
         for (let i = 0; i < n; i++) {
-          const yy = base - h + i * gap + M.mod(this.time * gap * 2, gap);
-          if (yy > base) continue;
-          ctx.fillStyle = C.css(C.rainbow(i * .08 + this.time * .25, .55));
-          ctx.fillRect(Math.round(x - w / 2 + 1), Math.round(yy), Math.max(1, Math.round(w - 2)), Math.max(1, Math.round(gap * .45)));
+          const yy = base - h + i * gap + gap * .5;
+          if (yy > base - 1) continue;
+          const k = 1 - Math.abs(i / (n - 1) - .5) * 2;      // 中央が太い
+          const ww = Math.max(1, Math.round((w - 2) * (.25 + k * .6)));
+          const col = D.harmony(baseHue + this.time * .04, i % 3, .55);
+          ctx.fillStyle = C.css(col);
+          ctx.fillRect(Math.round(x - ww / 2), Math.round(yy), ww, Math.max(1, Math.round(gap * .34)));
         }
+        // 縁を締める
+        ctx.fillStyle = C.css(C.mix(pal.lightGlow, [255, 255, 255], .4));
+        ctx.globalAlpha = fade * .5;
+        ctx.fillRect(Math.round(x - w / 2), Math.round(base - h), 1, Math.round(h));
+        ctx.fillRect(Math.round(x + w / 2) - 1, Math.round(base - h), 1, Math.round(h));
+        ctx.globalAlpha = fade;
         ctx.globalAlpha = 1;
         break;
       }
@@ -4095,10 +4537,7 @@ class Road {
   /* 道路のうねり（見た目のみ。判定には無関係） */
   laneAtDz(dz) { return this.chart.pathAt(this.beat + dz * this.beatsPerUnit) * LANE_AMP; }
 
-  /* 判定ラインは自車の少し前。そこに届いた拍が「今」 */
-  judgeLead() { return JUDGE_DZ * this.beatsPerUnit; }
-
-  /* レーン中心の横位置（world units） */
+  /* 判定はタップ面(playfield)が持つので、道路側に先読みは不要 */
   laneX(lane) { return (lane - (PX.LANES - 1) / 2) * (ROAD_HALF * 2 * .92 / PX.LANES); }
 
   /* 車の目標位置（＝プレイヤーのステア） */
@@ -4218,7 +4657,7 @@ class Road {
         const sx = M.lerp(b.sx, a.sx, t);
         let sw = M.lerp(b.sw, a.sw, t);
         sw *= 1 + beatPulse * .05 * (1 + W.breathe * 3);
-        if (W.liquid) sw *= 1 + Math.sin(y * .35 - this.time * 7) * .14 * W.liquid;
+        if (W.liquid) sw *= 1 + Math.sin(y * .055 - this.time * 2.2) * .05 * W.liquid;
 
         // --- 色の再計算（3行ごと）
         if (y - cCache >= 3 || cG === null) {
@@ -4305,127 +4744,6 @@ class Road {
           ctx.globalAlpha = 1;
         }
       }
-    }
-  }
-
-  /*
-    レーンとノーツ — 音ゲー部分の本体。
-    5車線の路面をノーツが手前へ流れ、判定ラインに着弾した瞬間にタップする。
-    レーンは判定ラインから画面下端へ向かって外側に開くので、
-    「路面のどのレーン」と「画面のどこを押すか」が視覚的に繋がる。
-  */
-  renderNotes(p, pal, cond, trip) {
-    const notes = this.chart.notes;
-    if (!notes.length) return;
-    const ctx = p.ctx;
-    const beat = this.beat, bpu = this.beatsPerUnit, lead = this.judgeLead();
-    const jb = beat + lead;
-    const q = {}, qj = {};
-    const FAR = 40;
-    const L = PX.LANES;
-
-    this.project(p, JUDGE_DZ, 0, qj);
-    const laneW = qj.sc * (ROAD_HALF * 2 * .92 / L) * (p.w * .58);   // 判定ライン上のレーン幅(px)
-
-    /* --- レーンの床（判定ラインから画面下端へ開く） --- */
-    const botY = p.h;
-    for (let i = 0; i <= L; i++) {
-      const wx = (i - L / 2) * (ROAD_HALF * 2 * .92 / L);
-      this.project(p, JUDGE_DZ, wx, q);
-      const x0 = q.sx;
-      const x1 = (i / L) * p.w;                  // 画面下端では等分割 = タップ領域と一致
-      ctx.globalAlpha = .16 + cond.env.kick * .06;
-      ctx.fillStyle = C.css(C.mix(pal.line, pal.accentA, .3));
-      const steps = Math.max(2, Math.round((botY - qj.sy) / 3));
-      for (let k = 0; k <= steps; k++) {
-        const t = k / steps;
-        const y = Math.round(M.lerp(qj.sy, botY, t));
-        ctx.fillRect(Math.round(M.lerp(x0, x1, t * t)), y, 1, 3);
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    /* --- 判定ライン --- */
-    const pulse = .55 + cond.env.kick * .45;
-    const jw = qj.sw * 1.02;
-    ctx.globalAlpha = .30 + pulse * .30;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy) + 3, Math.max(2, Math.round(jw * 2)), 3);
-    ctx.globalAlpha = .55 + pulse * .40;
-    ctx.fillStyle = C.css(C.mix(pal.line, pal.accentB, .35));
-    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy), Math.max(2, Math.round(jw * 2)), 4);
-    ctx.globalAlpha = .85 * pulse;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy), Math.max(2, Math.round(jw * 2)), 2);
-    // レーン区切りの目印
-    ctx.globalAlpha = .5 + pulse * .3;
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i <= L; i++) {
-      const wx = (i - L / 2) * (ROAD_HALF * 2 * .92 / L);
-      this.project(p, JUDGE_DZ, wx, q);
-      ctx.fillRect(Math.round(q.sx) - 1, Math.round(q.sy) - 4, 2, 10);
-    }
-    // 各レーンの受け皿（色で押す場所を示す）
-    for (let i = 0; i < L; i++) {
-      this.project(p, JUDGE_DZ, this.laneX(i), q);
-      ctx.globalAlpha = .30 + pulse * .18;
-      ctx.fillStyle = C.css(LANE_COL[i]);
-      ctx.fillRect(Math.round(q.sx - laneW * .42), Math.round(q.sy) + 4, Math.max(2, Math.round(laneW * .84)), 2);
-    }
-    ctx.globalAlpha = 1;
-
-    /* --- ノーツ --- */
-    let lo = 0, hi = notes.length - 1, start = notes.length;
-    const minBeat = jb - .5;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (notes[mid].beat >= minBeat) { start = mid; hi = mid - 1; } else lo = mid + 1;
-    }
-    for (let i = start; i < notes.length; i++) {
-      const n = notes[i];
-      const dz = JUDGE_DZ + (n.beat - jb) / bpu;
-      if (dz > FAR) break;
-      if (dz < .5) continue;
-      if (n.judged && n.hit) continue;                 // 叩いた瞬間に消える
-      this.project(p, dz, this.laneX(n.lane), q);
-      if (q.sy < this.horizonY(p) - 4 || q.sy > p.h + 10) continue;
-      const app = M.sat((FAR - dz) / (FAR - JUDGE_DZ));
-      const near = M.sat(1 - Math.abs(dz - JUDGE_DZ) / 2.2);
-      const gone = M.sat((JUDGE_DZ - dz) / 1.0);          // ラインを過ぎたら素早く消える
-      if (gone > .98) continue;
-      const accent = n.kind === 'accent';
-      const w = Math.max(2, q.sc * (ROAD_HALF * 2 * .92 / L) * .94 * (p.w * .58));
-      const h = Math.max(2, Math.round(q.sc * (accent ? 16 : 11)));
-      // レーンごとに固有の色。5色に分かれていると押す場所が一瞬で分かる。
-      const col = LANE_COL[n.lane];
-
-      ctx.globalAlpha = M.sat((.30 + app * .55) * (1 - gone));
-      // 影（路面に落ちる）
-      ctx.fillStyle = '#000';
-      ctx.globalAlpha *= .5;
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy + h * .4), Math.max(1, Math.round(w)), Math.max(1, h));
-      // 本体
-      ctx.globalAlpha = M.sat((.42 + app * .55) * (1 - gone));
-      ctx.fillStyle = C.css(col);
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy - h / 2), Math.max(1, Math.round(w)), Math.max(1, h));
-      // 上面のハイライトと縁取り
-      ctx.fillStyle = C.css(C.mix(col, [255, 255, 255], .55 + near * .4));
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy - h / 2), Math.max(1, Math.round(w)),
-        Math.max(1, Math.round(h * .38)));
-      ctx.fillStyle = C.css(C.mix(col, [0, 0, 0], .45));
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy + h / 2) - 1, Math.max(1, Math.round(w)), 1);
-      if (accent && w > 5) {   // 同時押し/アクセントは二重線で区別
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy), Math.max(1, Math.round(w)), 1);
-      }
-      // 着弾間際に光る
-      if (near > .35 && w > 3) {
-        ctx.globalAlpha = (near - .35) / .65 * .5;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(Math.round(q.sx - w * .6), Math.round(q.sy - h * .9), Math.max(1, Math.round(w * 1.2)),
-          Math.max(1, Math.round(h * 1.8)));
-      }
-      ctx.globalAlpha = 1;
     }
   }
 
@@ -5096,9 +5414,14 @@ class Timeline {
 
 /* エンジン側が決めるエフェクトの最大振れ幅。
    ここを絞ることで「終盤 100%」でも走行ラインが読める状態を担保する。 */
+/* 役割を明確に分けてある。
+   ・形を「壊す」もの（melt / trails / wave）は美しさを損なうので最小限。
+     画面が溶けて混ざると、ただの泥になる。
+   ・形を「整える」もの（kaleido = 放射対称, posterize = 色の階調整理）は強めに。
+     サイケデリックの美しさは対称と自己相似から来るので、こちらを主役にする。 */
 const FX_MAX = {
-  wave: .28, vwave: .20, ripple: .26, rgb: .42, hue: .05, sat: .50,
-  trails: .22, melt: .12, kaleido: .38, tunnel: .38, posterize: .70, invert: .26
+  wave: .15, vwave: .10, ripple: .20, rgb: .30, hue: .05, sat: .46,
+  trails: .12, melt: .035, kaleido: .58, tunnel: .34, posterize: .55, invert: .20
 };
 
 /* ------------------------------------------------------------ Game */
@@ -5127,6 +5450,8 @@ class Game {
     this.resLadder = [192, 176, 160, 144, 128];
     this.resStep = 0; this.resCool = 3;
     this.exhaust = [];
+    this.playfield = new PX.Playfield();
+    PX.Audio.loadUserOffset();
 
     window.addEventListener('resize', () => this.p.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.p.resize(), 250));
@@ -5279,14 +5604,17 @@ class Game {
 
     /* --- グルーヴ → トリップ強度 --------------------------------- */
     this.road.setTiming(this.track.bpm, this.cond.beat);
-    /* --- タップ判定 --- 判定ラインに着弾した拍を叩く */
-    const jBeat = this.cond.beat + this.road.judgeLead();
+    /* --- タップ判定 ---
+       判定拍は cond.beat そのもの。ノーツは自分の beat ちょうどに
+       判定ラインへ着弾する（以前は道路の先読み分だけ 60〜100ms 早かった）。 */
+    const jBeat = this.cond.beat;
     for (const h of this.input.takeHits()) {
       const res = this.chart.tryHit(jBeat, h.lane);
       if (res) this.onJudge(res);
       else { this.emptyTap = .25; PX.Audio.sfx('tapMiss'); }   // 空打ちは減点しない
     }
     for (const j of this.chart.update(jBeat)) this.onJudge(j);
+    this.playfield.update(dt);
     this.trip.groove = M.approach(this.trip.groove, this.grooveRaw, 1.6, dt);
     this.grooveRaw = M.clamp(this.grooveRaw + this.tripCharge * dt * .35, 0, 1);
     const gb = this.trip.grooveBoost = M.sat((this.trip.groove - .42) / .48);
@@ -5387,9 +5715,7 @@ class Game {
   onJudge(j) {
     const g = j.grade;
     const mul = Math.min(4, 1 + this.combo / 50);
-    // 叩いたレーンの判定ライン上で光らせる
-    const q = this.road.project(this.p, PX.ROAD_CONST.JUDGE_DZ, this.road.laneX(j.note.lane), {});
-    this.hitFx = { grade: g, life: .5, x: q.sx, y: q.sy, w: Math.max(6, q.sw * .28), lane: j.note.lane };
+    this.playfield.addHit(j.note.lane, g);
     PX.Audio.hit(g, this.combo);
     if (g === 'MISS') {
       this.combo = 0;
@@ -5398,6 +5724,7 @@ class Game {
     } else {
       // 叩いたレーンへ車が少し寄る（自分の演奏で車が動いている感触）
       this.laneNudge = this.road.laneX(j.note.lane) * 1.25;
+      this.playfield.laneFlash[j.note.lane] = 1;
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       const pts = g === 'PERFECT' ? 300 : g === 'GROOVY' ? 180 : 70;
@@ -5407,11 +5734,8 @@ class Game {
          成功のたびに tripCharge を溜め、エフェクト強度・色相・世界の密度に乗せる。 */
       const gain = g === 'PERFECT' ? .13 : g === 'GROOVY' ? .08 : .03;
       this.tripCharge = Math.min(1.6, this.tripCharge + gain);
-      this.burstCol = C.css(C.mix(PX.LANE_COL[j.note.lane], [255, 255, 255], .3));
-      this.burst(q.sx, q.sy, g === 'PERFECT' ? 10 : g === 'GROOVY' ? 6 : 2);
-      this.burstCol = null;
       this.ripple = Math.min(1.2, this.ripple + (g === 'PERFECT' ? .55 : .3));
-      this.rippleX = q.sx / this.p.w; this.rippleY = q.sy / this.p.h;
+      this.rippleX = (j.note.lane + .5) / PX.PF_LANES; this.rippleY = .845;
       if (g === 'PERFECT') {
         this.flash = Math.min(.5, this.flash + .16);
         if (this.combo % 8 === 0) {
@@ -5479,6 +5803,11 @@ class Game {
     }
     p.time = performance.now() / 1000;
     p.present();
+    // ★ここから実解像度レイヤー★ 歪みの影響を受けないタップ面を重ねる
+    if (this.scene === 'drive') {
+      this.playfield.render(p.vctx, p.view.width, p.view.height,
+        this.chart, this.cond.beat, this.cond, this.trip);
+    }
   }
 
   renderDrive() {
@@ -5487,7 +5816,6 @@ class Game {
 
     this.world.render(p, pal, cond, trip, road);
     road.render(p, pal, cond.env, trip);
-    road.renderNotes(p, pal, cond, trip);
     this.world.renderObjects(p, pal, cond, trip, road);
 
     // ドットの花火
@@ -5500,9 +5828,7 @@ class Game {
     const tun = this.tl.out.v.tunnelDark;
     if (tun > .02) this.drawTunnel(tun);
 
-    this.drawLanes();
     this.drawCar();
-    this.drawHit();
     this.drawHUD();
     this.applyFx();
   }
@@ -5562,47 +5888,7 @@ class Game {
     });
   }
 
-  /* 押されたレーンを光らせる（指の下が反応する手応え） */
-  drawLanes() {
-    const p = this.p, pal = this.pal, road = this.road;
-    const F = this.input.laneFlash;
-    const L = PX.LANES, JD = PX.ROAD_CONST.JUDGE_DZ;
-    const q = {};
-    for (let i = 0; i < L; i++) {
-      const f = F[i];
-      if (f <= .02) continue;
-      road.project(p, JD, road.laneX(i), q);
-      const x1 = (i + .5) * (p.w / L);
-      const w0 = Math.max(2, q.sc * (PX.ROAD_CONST.ROAD_HALF * 2 * .92 / L) * (p.w * .58));
-      const steps = Math.max(2, Math.round((p.h - q.sy) / 4));
-      p.ctx.globalAlpha = f * .32;
-      p.ctx.fillStyle = C.css(C.mix(PX.LANE_COL[i], [255, 255, 255], .35));
-      for (let k = 0; k <= steps; k++) {
-        const t = k / steps;
-        const x = M.lerp(q.sx, x1, t * t);
-        const w = M.lerp(w0, p.w / L * .9, t);
-        p.ctx.fillRect(Math.round(x - w / 2), Math.round(M.lerp(q.sy, p.h, t)), Math.max(1, Math.round(w)), 4);
-      }
-      p.ctx.globalAlpha = 1;
-    }
-    if (this.emptyTap > .01) p.rectA(0, p.h - 3, p.w, 3, [255, 120, 140], this.emptyTap * .5);
-  }
 
-  /* 判定の瞬間を自車の足元で光らせる */
-  drawHit() {
-    const h = this.hitFx;
-    if (!h) return;
-    const p = this.p, pal = this.pal;
-    const k = M.sat(h.life / .5);
-    const col = h.grade === 'MISS' ? [255, 110, 130]
-      : h.lane !== undefined ? C.mix(PX.LANE_COL[h.lane], [255, 255, 255], h.grade === 'PERFECT' ? .5 : .2)
-      : [255, 244, 150];
-    const r = h.w * (.9 + (1 - k) * 1.7);
-    p.ring(h.x, h.y - 2, r, C.css(col), k * k * .75, 1);
-    if (h.grade === 'PERFECT') p.ring(h.x, h.y - 2, r * .55, C.css(col), k * .5, 1);
-    // 路面に残る光
-    p.rectA(h.x - h.w, h.y - 1, h.w * 2, 2, col, k * .45);
-  }
 
   /* ---------------------------------------------------------- HUD */
   drawHUD() {

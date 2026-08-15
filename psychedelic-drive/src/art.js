@@ -742,6 +742,115 @@ P.tree2 = function (p, x, base, h, o) {
   ctx.globalAlpha = 1;
 };
 
+/* =====================================================================
+   対称構造 — サイケデリックを「美しく」するための道具
+   ---------------------------------------------------------------------
+   ランダムに物を散らしても混沌にしかならない。
+   実際のサイケデリック体験の視覚は、放射対称・入れ子・自己相似で構成される。
+   ここではその3つを明示的に描く。
+   ===================================================================== */
+
+/* 調和の取れた配色を作る（黄金角で回すので隣接色が濁らない） */
+P.harmony = function (baseHue, i, light) {
+  const GOLD = 0.381966;
+  return C.hsl(M.mod(baseHue + i * GOLD, 1), .82, light === undefined ? .58 : light);
+};
+
+/*
+  mandala — N回対称の曼荼羅。
+  半径は等比数列（自己相似）、リングごとに逆回転、拍で脈動する。
+  N は 6/8/12 のように割り切れる数にすると図形として決まる。
+*/
+P.mandala = function (p, cx, cy, R, o) {
+  o = o || {};
+  const ctx = p.ctx;
+  const N = o.fold || 8;
+  const rings = o.rings || 5;
+  const ratio = o.ratio || 0.68;
+  const rot = o.rot || 0;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  const hue = o.hue || 0;
+  const beat = o.beat || 0;
+  if (a <= .01 || R < 3) return;
+
+  for (let ri = 0; ri < rings; ri++) {
+    const rr = R * Math.pow(ratio, ri) * (1 + beat * .05 * (ri % 2 ? -1 : 1));
+    if (rr < 1.5) break;
+    const dir = ri % 2 ? -1 : 1;
+    const ang0 = rot * dir * (1 + ri * .35);
+    const col = P.harmony(hue, ri, .52 + (ri % 2) * .16);
+    const ringA = a * (.85 - ri * .09) * (.7 + beat * .3);
+    // リングの円弧そのもの
+    if (ri < rings - 1) p.ring(cx, cy, rr, C.css(col), ringA * .32, 1);
+    // N回対称のモチーフ
+    for (let k = 0; k < N; k++) {
+      const th = ang0 + k / N * Math.PI * 2;
+      const x = cx + Math.cos(th) * rr;
+      const y = cy + Math.sin(th) * rr * (o.squash || 1);
+      const s = Math.max(1, rr * .17 * (1 + beat * .12));
+      const motif = (ri + (o.motif || 0)) % 4;
+      if (motif === 0) p.circle(x, y, s, C.css(col), ringA);
+      else if (motif === 1) P.star(p, x, y, s * 1.25, C.css(col), ringA);
+      else if (motif === 2) {
+        // ひし形
+        ctx.globalAlpha = ringA; ctx.fillStyle = C.css(col);
+        const si = Math.max(1, Math.round(s));
+        for (let d = -si; d <= si; d++) {
+          const w = si - Math.abs(d);
+          if (w <= 0) continue;
+          ctx.fillRect(Math.round(x - w), Math.round(y + d), w * 2, 1);
+        }
+        ctx.globalAlpha = 1;
+      } else {
+        // 花弁（中心へ向かう楔）
+        ctx.globalAlpha = ringA; ctx.fillStyle = C.css(col);
+        const steps = Math.max(2, Math.round(s * 1.6));
+        for (let d = 0; d < steps; d++) {
+          const t = d / steps;
+          const px2 = M.lerp(x, cx, t), py2 = M.lerp(y, cy, t);
+          const w = Math.max(1, Math.round(s * (1 - t) * .8));
+          ctx.fillRect(Math.round(px2 - w / 2), Math.round(py2 - w / 2), w, w);
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  // 中心
+  p.circle(cx, cy, Math.max(1, R * .06 * (1 + beat * .3)), C.css(P.harmony(hue, rings, .85)), a * .9);
+};
+
+/*
+  recursiveFrames — 入れ子の多角形が消失点へ吸い込まれていく。
+  一定比率で縮小しながら一定角度ずつ回転するので、無限後退に見える。
+  「気づいたら同じ景色の内側にいる」というあの感覚の視覚化。
+*/
+P.recursiveFrames = function (p, cx, cy, R, o) {
+  o = o || {};
+  const sides = o.sides || 6;
+  const n = o.depth || 9;
+  const ratio = o.ratio || .78;
+  const twist = o.twist || .22;
+  const a = o.alpha === undefined ? 1 : o.alpha;
+  const hue = o.hue || 0;
+  const phase = o.phase || 0;      // 0..1 でひとつ内側へスクロール
+  if (a <= .01) return;
+  for (let i = 0; i < n; i++) {
+    const t = i + phase;
+    const rr = R * Math.pow(ratio, t);
+    if (rr < 1.2) break;
+    const rot = (o.rot || 0) + t * twist;
+    const col = P.harmony(hue, i, .5 + (i % 2) * .2);
+    const al = a * (1 - i / n) * .8;
+    let px0 = 0, py0 = 0;
+    for (let k = 0; k <= sides; k++) {
+      const th = rot + k / sides * Math.PI * 2;
+      const x = cx + Math.cos(th) * rr, y = cy + Math.sin(th) * rr * (o.squash || 1);
+      if (k > 0) p.line(px0, py0, x, y, C.css(col), al);
+      px0 = x; py0 = y;
+    }
+  }
+};
+
 /* 4方向の星 */
 P.star = function (p, x, y, r, col, a) {
   const ctx = p.ctx;

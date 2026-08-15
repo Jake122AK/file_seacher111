@@ -141,6 +141,7 @@ const Audio = PX.Audio = {
   engineNodes: null,
   _lookahead: .18, _timer: null, _nextStep: 0, _stepTime: 0,
   volume: .9,
+  userOffset: 0,
   externalSource: null, externalBuffer: null,
   muted: false,
 
@@ -250,7 +251,32 @@ const Audio = PX.Audio = {
      これが Conductor と譜面の共通時計になる。 */
   now() {
     if (!this.ctx) return 0;
-    return this.ctx.currentTime - this.startAt - ((this.track && this.track.offset) || 0);
+    return this.ctx.currentTime - this.startAt
+      - ((this.track && this.track.offset) || 0)
+      - this.latency();
+  },
+
+  /* 実際に耳へ届くまでの遅れ。
+     ctx.currentTime で鳴らした音は outputLatency ぶん遅れて聞こえるので、
+     これを引かないと「音より判定が早い」状態になる。
+     userOffset はプレイヤー調整（localStorage に保存）。 */
+  latency() {
+    const c = this.ctx;
+    if (!c) return this.userOffset || 0;
+    const base = (c.outputLatency || 0) || (c.baseLatency || 0) * 2;
+    return M.clamp(base, 0, .35) + (this.userOffset || 0);
+  },
+
+  setUserOffset(sec) {
+    this.userOffset = M.clamp(sec, -.3, .3);
+    try { localStorage.setItem('pxOffset', String(this.userOffset)); } catch (e) {}
+  },
+  loadUserOffset() {
+    try {
+      const v = parseFloat(localStorage.getItem('pxOffset'));
+      if (isFinite(v)) this.userOffset = M.clamp(v, -.3, .3);
+    } catch (e) {}
+    return this.userOffset || 0;
   },
 
   /* ---------------------------------------------------- 16分スケジューラ */

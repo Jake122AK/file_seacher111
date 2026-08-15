@@ -79,7 +79,9 @@ class World {
     for (const k of WORLDS) this.w[k] = M.approach(this.w[k], this.target[k], rate, dt);
 
     // 密度: トリップ強度とグルーヴで路肩が賑やかになる
-    this.density = M.lerp(1, 3.4, M.sat(trip.level / 10)) * M.lerp(.75, 1.75, trip.groove);
+    this.density = M.lerp(1, 2.8, M.sat(trip.level / 10)) * M.lerp(.8, 1.5, trip.groove);
+    // 対称性: 深いほど左右が鏡像になる
+    this.symmetry = M.sat((trip.level - 5.5) / 3.5);
     this.spawnGap = M.lerp(5.2, 1.5, M.sat((this.density - 1) / 3.4));
 
     // スポーン
@@ -107,6 +109,14 @@ class World {
   }
 
   _pickKind() {
+    /* トリップが深いところでは種類を絞る。
+       いろいろな物を同時に出すほど「使い回しを適当に置いた」感が出る。
+       主役を2種に決め、それを左右対称に並べたほうが美しい。 */
+    if (this.symmetry > .5) {
+      const r = this.rng();
+      if (this.w.climax > .3) return r < .62 ? 'figure' : 'crystal';
+      if (this.w.abstract > .3) return r < .5 ? 'crystal' : 'monolith';
+    }
     const tbl = {};
     let tot = 0;
     for (const wname of WORLDS) {
@@ -146,12 +156,25 @@ class World {
   }
 
   _spawnAt(z) {
-    // 両サイド
+    /* トリップが深いほど左右対称に配置する。
+       サイケデリックの視覚は対称で構成されるので、
+       ここをランダムのままにすると「適当に置いただけ」に見える。 */
+    const sym = M.sat((this.symmetry || 0));
+    const mirror = this.rng() < sym;
+    let mKind = null, mNear = 0, mZ = 0, mSeed = 0;
     for (let s = -1; s <= 1; s += 2) {
-      if (this.rng() > .90) continue;
-      const kind = this._pickKind();
-      const near = this._clearance(kind) + this.rng() * .95;
-      const o = this._mk(kind, z + this.rng() * 1.5, s * near);
+      if (!mirror && this.rng() > .90) continue;
+      let kind, near, zz;
+      if (mirror && s > 0 && mKind) { kind = mKind; near = mNear; zz = mZ; }
+      else {
+        kind = this._pickKind();
+        near = this._clearance(kind) + this.rng() * .95;
+        zz = z + this.rng() * 1.5;
+        mKind = kind; mNear = near; mZ = zz;
+      }
+      const o = this._mk(kind, zz, s * near);
+      if (mirror && s > 0) { o.seed = mSeed; o.sc = this.mSc; o.phase = this.mPhase; }
+      else { mSeed = o.seed; this.mSc = o.sc; this.mPhase = o.phase; }
       this.objects.push(o);
       // 群衆: figure は密度に応じて横一列に増える（10人→100人）
       if (kind === 'figure') {
@@ -169,12 +192,14 @@ class World {
   _updateProps(dt, trip) {
     const want = [];
     const t = this.w.tropical, sp = this.w.space, ab = this.w.abstract, cl = this.w.climax, oc = this.w.ocean, ci = this.w.city;
-    if (t > .12 || oc > .12 || cl > .1) want.push('fish', 'fish', 'fish');
-    if (t > .25 || sp > .2 || cl > .2) want.push('whale');
-    if (sp > .2 || ab > .2 || cl > .2) want.push('ufo');
-    if (ab > .25 || cl > .3) want.push('eye');
-    if (cl > .3 || ab > .3) want.push('record', 'record');
-    if (sp > .25 || ab > .2) want.push('island', 'island');
+    /* 同時に出す種類を絞る。全部いっぺんに出すと散らかって見える。
+       主役を1〜2種類に決め、それを対称に配置する。 */
+    if (t > .12 || oc > .12) want.push('fish', 'fish');
+    if (t > .3 || cl > .35) want.push('whale');
+    if (sp > .3) want.push('ufo');
+    if (ab > .35) want.push('eye');
+    if (cl > .45) want.push('record');
+    if (sp > .35 || ab > .3) want.push('island', 'island');
 
     // 足りない分を足す
     const counts = {};
@@ -195,6 +220,8 @@ class World {
         counts[k] = (counts[k] || 0) + 1;
       }
     }
+    // 深部では漂流物を減らす（構造を見せたいので）
+    if (trip.level > 8.2 && this.props.length > 3) this.props.length = 3;
     for (let i = this.props.length - 1; i >= 0; i--) {
       const p = this.props[i];
       p.life += dt;
@@ -211,6 +238,9 @@ class World {
     this._sky(p, pal, cond, trip, hz, road);
     this._farLayer(p, pal, cond, trip, hz, road);
     this._midLayer(p, pal, cond, trip, hz, road);
+    // 対称構造は最後に描く。空の主役にする。
+    const geo = M.sat(this.w.abstract * 1.2 + this.w.climax * .9);
+    if (geo > .03) this._geoOverlay(p, pal, cond, trip, hz, geo);
     this._props(p, pal, cond, trip, hz);
   }
 
@@ -277,7 +307,8 @@ class World {
     }
 
     // 雲（顔になる）
-    const cloudA = M.sat(this.w.suburb + this.w.tropical * 1.1 + this.w.weird + this.w.night * .5 + this.w.climax * .6);
+    const cloudA = M.sat(this.w.suburb + this.w.tropical * 1.1 + this.w.weird + this.w.night * .5)
+      * M.lerp(1, .25, M.sat((trip.level - 6) / 4));
     if (cloudA > .03) {
       for (const c of this.clouds) {
         c.x += c.v * .016 + road.z * 0;
@@ -287,10 +318,6 @@ class World {
           C.mix(pal.cloud, pal.accentA, trip.level / 22), face, cloudA * .85);
       }
     }
-
-    // 万華鏡的な幾何オーバーレイ（抽象/クライマックス）
-    const geo = M.sat(this.w.abstract * 1.2 + this.w.climax * .8);
-    if (geo > .03) this._geoOverlay(p, pal, cond, trip, hz, geo);
 
     // 逆さまの都市（抽象ゾーン）
     if (this.w.abstract > .3) {
@@ -308,25 +335,41 @@ class World {
     }
   }
 
+  /*
+    サイケデリック層 — ランダムな散らかしではなく、対称と再帰で構成する。
+      ・曼荼羅（N回対称・等比半径・リングごとに逆回転）
+      ・入れ子多角形（消失点へ無限後退）
+    どちらも消失点を中心に置くので、道路の一点透視と構図が一致する。
+  */
   _geoOverlay(p, pal, cond, trip, hz, amt) {
-    const ctx = p.ctx;
     const cx = p.w * .5, cy = hz * .62;
-    const n = 5;
-    ctx.globalAlpha = amt * (.18 + cond.env.kick * .22);
-    for (let i = 0; i < n; i++) {
-      const r = ((this.time * 26 + i * 40) % 190) * (.4 + trip.level / 22);
-      const col = C.rainbow(i * .17 + this.time * .12, .6);
-      p.ring(cx, cy, r, C.css(col), amt * (1 - r / 200) * .5, 1 + (i % 2));
-    }
-    // 六角の格子
-    ctx.globalAlpha = amt * .16;
-    const seg = 6;
-    for (let i = 0; i < seg; i++) {
-      const a = i / seg * Math.PI * 2 + this.time * .12;
-      const L = p.w * .8;
-      p.line(cx, cy, cx + Math.cos(a) * L, cy + Math.sin(a) * L, C.css(C.rainbow(i / seg + this.time * .2, .65)), amt * .3);
-    }
-    ctx.globalAlpha = 1;
+    const beat = cond.env.kick;
+    const lvl = M.sat(trip.level / 10);
+    const hue = trip.hueSpin * .35 + this.w.abstract * .2;
+
+    // 入れ子の多角形（奥へ吸い込まれる）
+    D.recursiveFrames(p, cx, cy, p.w * .62, {
+      sides: 6 + Math.floor(lvl * 3) * 2,
+      depth: 10, ratio: .76,
+      twist: .16 + lvl * .18,
+      rot: this.time * .06,
+      phase: M.mod(this.time * .22, 1),
+      squash: .62,
+      hue: hue + .5,
+      alpha: M.sat(amt * (.5 + beat * .2))
+    });
+
+    // 曼荼羅
+    D.mandala(p, cx, cy, p.w * (.42 + lvl * .22), {
+      fold: 6 + Math.floor(lvl * 3) * 2,
+      rings: 5, ratio: .66,
+      rot: this.time * .10,
+      squash: .78,
+      motif: Math.floor(this.time * .12) % 4,
+      hue: hue,
+      beat: beat,
+      alpha: M.sat(amt * (1.15 + beat * .45))
+    });
   }
 
   /* ------ 遠景 ---------------------------------------------------- */
@@ -385,13 +428,24 @@ class World {
     }
     // クライマックス: 全部の地平線が重なる
     if (wCl > .1) {
+      /* クライマックスの遠景は「重ねる」のではなく「対称に置く」。
+         消失点を軸に左右鏡像のシルエットを並べると構図が締まる。 */
       const a = M.sat(wCl);
-      D.mountains(p, hz + 1, p.h * .06, C.mix(pal.far, pal.accentB, .3), 1.3, scroll * .05, a * .5);
-      for (let i = 0; i < 16; i++) {
-        const bx = M.mod(i * 22 - scroll * .05, p.w + 50) - 25;
-        const h = 8 + M.hash(i * 4.4) * p.h * .16;
-        D.building(p, bx, hz + 2, 7 + M.hash(i * 2.2) * 7, h, 1,
-          { alpha: a * .45, body: C.mix(pal.mid, pal.accentC, .2), win: [255, 255, 255], winOff: pal.near, seed: i + 9, beatWin: cond.env.kick });
+      D.mountains(p, hz + 1, p.h * .055, C.mix(pal.far, pal.accentB, .35), 1.3, scroll * .05, a * .45);
+      const n = 5;
+      for (let i = 1; i <= n; i++) {
+        const dx = i * (p.w * .105);
+        const h = p.h * (.20 - i * .028);
+        const w2 = 9 + (n - i) * 2;
+        for (const sgn of [-1, 1]) {
+          D.building2(p, p.w * .5 + sgn * dx, hz + 2, {
+            w: w2, h, tall: 1, alpha: a * .5,
+            vx: p.w * .5, vy: hz, k: .28, dir: sgn,
+            body: C.mix(pal.mid, pal.accentC, .18),
+            win: [255, 255, 255], winOff: pal.near, seed: i + 9,
+            beatWin: cond.env.kick, antenna: pal.accentA
+          });
+        }
       }
     }
   }
@@ -401,22 +455,23 @@ class World {
     const ctx = p.ctx;
     const scroll = road.z * 2.6;
     // 群衆バンド: 南国/クライマックスで地平線までフラダンサー
-    const crowd = M.sat((this.w.tropical + this.w.climax) * (0.4 + trip.groove * .9) * (trip.level / 6));
+    const crowd = M.sat((this.w.tropical + this.w.climax) * (0.4 + trip.groove * .9) * (trip.level / 6))
+      * M.lerp(1, .28, M.sat((trip.level - 7.5) / 2.5));
     if (crowd > .06 && PX.SPR.hula1) {
-      const rows = 1 + Math.floor(crowd * 2.4);
+      const rows = 1 + Math.floor(crowd * 1.6);
       for (let r = 0; r < rows; r++) {
         const yy = hz + 1 + r * 2;
         const sc = 1;
         const a = crowd * (1 - r * .18);
-        const count = Math.floor(p.w / 7) + 3;
+        const count = Math.floor(p.w / 11) + 2;
         const beatOff = (cond.env.kick > .4 ? 1 : 0);
         for (let i = 0; i < count; i++) {
-          const x = M.mod(i * 5 - scroll * (.02 + r * .004) + r * 2.5, p.w + 12) - 6;
+          const x = M.mod(i * 11 - scroll * (.02 + r * .004) + r * 5.5, p.w + 22) - 11;
           const ph = M.hash2(i * 1.7, r * 3.1);
           const f = (Math.floor(cond.beat * 2 + ph * 2) % 2) ? PX.SPR.hula2 : PX.SPR.hula1;
           // 地平線の群衆は 1px スケール。sway は使わず描画コールを 1 回に抑える
           p.sprite(f, x, yy + 1 - beatOff, {
-            scale: sc, ax: .5, ay: 1, alpha: a * .9, hue: trip.hueSpin + ph * .3
+            scale: sc + (r === 0 ? 1 : 0), ax: .5, ay: 1, alpha: a * .9, hue: trip.hueSpin + ph * .3
           });
         }
       }
@@ -672,14 +727,26 @@ class World {
         ctx.fillStyle = C.css(C.mix(pal.near, [0, 0, 0], .45));
         ctx.fillRect(Math.round(x - w / 2), Math.round(base - h), Math.max(1, Math.round(w)), Math.round(h));
         // 表面に流れる幾何紋様
-        const gap = Math.max(2, Math.round(unit * .13));
+        /* 表面の紋様は左右対称のひし形を縦に積む。
+           虹の横縞にするとバーコードのようで美しくないため。 */
+        const gap = Math.max(3, Math.round(unit * .22));
         const n = Math.max(2, Math.round(h / gap));
+        const baseHue = (o.seed % 100) / 100;
         for (let i = 0; i < n; i++) {
-          const yy = base - h + i * gap + M.mod(this.time * gap * 2, gap);
-          if (yy > base) continue;
-          ctx.fillStyle = C.css(C.rainbow(i * .08 + this.time * .25, .55));
-          ctx.fillRect(Math.round(x - w / 2 + 1), Math.round(yy), Math.max(1, Math.round(w - 2)), Math.max(1, Math.round(gap * .45)));
+          const yy = base - h + i * gap + gap * .5;
+          if (yy > base - 1) continue;
+          const k = 1 - Math.abs(i / (n - 1) - .5) * 2;      // 中央が太い
+          const ww = Math.max(1, Math.round((w - 2) * (.25 + k * .6)));
+          const col = D.harmony(baseHue + this.time * .04, i % 3, .55);
+          ctx.fillStyle = C.css(col);
+          ctx.fillRect(Math.round(x - ww / 2), Math.round(yy), ww, Math.max(1, Math.round(gap * .34)));
         }
+        // 縁を締める
+        ctx.fillStyle = C.css(C.mix(pal.lightGlow, [255, 255, 255], .4));
+        ctx.globalAlpha = fade * .5;
+        ctx.fillRect(Math.round(x - w / 2), Math.round(base - h), 1, Math.round(h));
+        ctx.fillRect(Math.round(x + w / 2) - 1, Math.round(base - h), 1, Math.round(h));
+        ctx.globalAlpha = fade;
         ctx.globalAlpha = 1;
         break;
       }

@@ -245,10 +245,7 @@ class Road {
   /* 道路のうねり（見た目のみ。判定には無関係） */
   laneAtDz(dz) { return this.chart.pathAt(this.beat + dz * this.beatsPerUnit) * LANE_AMP; }
 
-  /* 判定ラインは自車の少し前。そこに届いた拍が「今」 */
-  judgeLead() { return JUDGE_DZ * this.beatsPerUnit; }
-
-  /* レーン中心の横位置（world units） */
+  /* 判定はタップ面(playfield)が持つので、道路側に先読みは不要 */
   laneX(lane) { return (lane - (PX.LANES - 1) / 2) * (ROAD_HALF * 2 * .92 / PX.LANES); }
 
   /* 車の目標位置（＝プレイヤーのステア） */
@@ -368,7 +365,7 @@ class Road {
         const sx = M.lerp(b.sx, a.sx, t);
         let sw = M.lerp(b.sw, a.sw, t);
         sw *= 1 + beatPulse * .05 * (1 + W.breathe * 3);
-        if (W.liquid) sw *= 1 + Math.sin(y * .35 - this.time * 7) * .14 * W.liquid;
+        if (W.liquid) sw *= 1 + Math.sin(y * .055 - this.time * 2.2) * .05 * W.liquid;
 
         // --- 色の再計算（3行ごと）
         if (y - cCache >= 3 || cG === null) {
@@ -455,127 +452,6 @@ class Road {
           ctx.globalAlpha = 1;
         }
       }
-    }
-  }
-
-  /*
-    レーンとノーツ — 音ゲー部分の本体。
-    5車線の路面をノーツが手前へ流れ、判定ラインに着弾した瞬間にタップする。
-    レーンは判定ラインから画面下端へ向かって外側に開くので、
-    「路面のどのレーン」と「画面のどこを押すか」が視覚的に繋がる。
-  */
-  renderNotes(p, pal, cond, trip) {
-    const notes = this.chart.notes;
-    if (!notes.length) return;
-    const ctx = p.ctx;
-    const beat = this.beat, bpu = this.beatsPerUnit, lead = this.judgeLead();
-    const jb = beat + lead;
-    const q = {}, qj = {};
-    const FAR = 40;
-    const L = PX.LANES;
-
-    this.project(p, JUDGE_DZ, 0, qj);
-    const laneW = qj.sc * (ROAD_HALF * 2 * .92 / L) * (p.w * .58);   // 判定ライン上のレーン幅(px)
-
-    /* --- レーンの床（判定ラインから画面下端へ開く） --- */
-    const botY = p.h;
-    for (let i = 0; i <= L; i++) {
-      const wx = (i - L / 2) * (ROAD_HALF * 2 * .92 / L);
-      this.project(p, JUDGE_DZ, wx, q);
-      const x0 = q.sx;
-      const x1 = (i / L) * p.w;                  // 画面下端では等分割 = タップ領域と一致
-      ctx.globalAlpha = .16 + cond.env.kick * .06;
-      ctx.fillStyle = C.css(C.mix(pal.line, pal.accentA, .3));
-      const steps = Math.max(2, Math.round((botY - qj.sy) / 3));
-      for (let k = 0; k <= steps; k++) {
-        const t = k / steps;
-        const y = Math.round(M.lerp(qj.sy, botY, t));
-        ctx.fillRect(Math.round(M.lerp(x0, x1, t * t)), y, 1, 3);
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    /* --- 判定ライン --- */
-    const pulse = .55 + cond.env.kick * .45;
-    const jw = qj.sw * 1.02;
-    ctx.globalAlpha = .30 + pulse * .30;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy) + 3, Math.max(2, Math.round(jw * 2)), 3);
-    ctx.globalAlpha = .55 + pulse * .40;
-    ctx.fillStyle = C.css(C.mix(pal.line, pal.accentB, .35));
-    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy), Math.max(2, Math.round(jw * 2)), 4);
-    ctx.globalAlpha = .85 * pulse;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(Math.round(qj.sx - jw), Math.round(qj.sy), Math.max(2, Math.round(jw * 2)), 2);
-    // レーン区切りの目印
-    ctx.globalAlpha = .5 + pulse * .3;
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i <= L; i++) {
-      const wx = (i - L / 2) * (ROAD_HALF * 2 * .92 / L);
-      this.project(p, JUDGE_DZ, wx, q);
-      ctx.fillRect(Math.round(q.sx) - 1, Math.round(q.sy) - 4, 2, 10);
-    }
-    // 各レーンの受け皿（色で押す場所を示す）
-    for (let i = 0; i < L; i++) {
-      this.project(p, JUDGE_DZ, this.laneX(i), q);
-      ctx.globalAlpha = .30 + pulse * .18;
-      ctx.fillStyle = C.css(LANE_COL[i]);
-      ctx.fillRect(Math.round(q.sx - laneW * .42), Math.round(q.sy) + 4, Math.max(2, Math.round(laneW * .84)), 2);
-    }
-    ctx.globalAlpha = 1;
-
-    /* --- ノーツ --- */
-    let lo = 0, hi = notes.length - 1, start = notes.length;
-    const minBeat = jb - .5;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (notes[mid].beat >= minBeat) { start = mid; hi = mid - 1; } else lo = mid + 1;
-    }
-    for (let i = start; i < notes.length; i++) {
-      const n = notes[i];
-      const dz = JUDGE_DZ + (n.beat - jb) / bpu;
-      if (dz > FAR) break;
-      if (dz < .5) continue;
-      if (n.judged && n.hit) continue;                 // 叩いた瞬間に消える
-      this.project(p, dz, this.laneX(n.lane), q);
-      if (q.sy < this.horizonY(p) - 4 || q.sy > p.h + 10) continue;
-      const app = M.sat((FAR - dz) / (FAR - JUDGE_DZ));
-      const near = M.sat(1 - Math.abs(dz - JUDGE_DZ) / 2.2);
-      const gone = M.sat((JUDGE_DZ - dz) / 1.0);          // ラインを過ぎたら素早く消える
-      if (gone > .98) continue;
-      const accent = n.kind === 'accent';
-      const w = Math.max(2, q.sc * (ROAD_HALF * 2 * .92 / L) * .94 * (p.w * .58));
-      const h = Math.max(2, Math.round(q.sc * (accent ? 16 : 11)));
-      // レーンごとに固有の色。5色に分かれていると押す場所が一瞬で分かる。
-      const col = LANE_COL[n.lane];
-
-      ctx.globalAlpha = M.sat((.30 + app * .55) * (1 - gone));
-      // 影（路面に落ちる）
-      ctx.fillStyle = '#000';
-      ctx.globalAlpha *= .5;
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy + h * .4), Math.max(1, Math.round(w)), Math.max(1, h));
-      // 本体
-      ctx.globalAlpha = M.sat((.42 + app * .55) * (1 - gone));
-      ctx.fillStyle = C.css(col);
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy - h / 2), Math.max(1, Math.round(w)), Math.max(1, h));
-      // 上面のハイライトと縁取り
-      ctx.fillStyle = C.css(C.mix(col, [255, 255, 255], .55 + near * .4));
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy - h / 2), Math.max(1, Math.round(w)),
-        Math.max(1, Math.round(h * .38)));
-      ctx.fillStyle = C.css(C.mix(col, [0, 0, 0], .45));
-      ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy + h / 2) - 1, Math.max(1, Math.round(w)), 1);
-      if (accent && w > 5) {   // 同時押し/アクセントは二重線で区別
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(Math.round(q.sx - w / 2), Math.round(q.sy), Math.max(1, Math.round(w)), 1);
-      }
-      // 着弾間際に光る
-      if (near > .35 && w > 3) {
-        ctx.globalAlpha = (near - .35) / .65 * .5;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(Math.round(q.sx - w * .6), Math.round(q.sy - h * .9), Math.max(1, Math.round(w * 1.2)),
-          Math.max(1, Math.round(h * 1.8)));
-      }
-      ctx.globalAlpha = 1;
     }
   }
 

@@ -76,9 +76,14 @@ class Timeline {
 
 /* エンジン側が決めるエフェクトの最大振れ幅。
    ここを絞ることで「終盤 100%」でも走行ラインが読める状態を担保する。 */
+/* 役割を明確に分けてある。
+   ・形を「壊す」もの（melt / trails / wave）は美しさを損なうので最小限。
+     画面が溶けて混ざると、ただの泥になる。
+   ・形を「整える」もの（kaleido = 放射対称, posterize = 色の階調整理）は強めに。
+     サイケデリックの美しさは対称と自己相似から来るので、こちらを主役にする。 */
 const FX_MAX = {
-  wave: .28, vwave: .20, ripple: .26, rgb: .42, hue: .05, sat: .50,
-  trails: .22, melt: .12, kaleido: .38, tunnel: .38, posterize: .70, invert: .26
+  wave: .15, vwave: .10, ripple: .20, rgb: .30, hue: .05, sat: .46,
+  trails: .12, melt: .035, kaleido: .58, tunnel: .34, posterize: .55, invert: .20
 };
 
 /* ------------------------------------------------------------ Game */
@@ -107,6 +112,8 @@ class Game {
     this.resLadder = [192, 176, 160, 144, 128];
     this.resStep = 0; this.resCool = 3;
     this.exhaust = [];
+    this.playfield = new PX.Playfield();
+    PX.Audio.loadUserOffset();
 
     window.addEventListener('resize', () => this.p.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.p.resize(), 250));
@@ -259,14 +266,17 @@ class Game {
 
     /* --- グルーヴ → トリップ強度 --------------------------------- */
     this.road.setTiming(this.track.bpm, this.cond.beat);
-    /* --- タップ判定 --- 判定ラインに着弾した拍を叩く */
-    const jBeat = this.cond.beat + this.road.judgeLead();
+    /* --- タップ判定 ---
+       判定拍は cond.beat そのもの。ノーツは自分の beat ちょうどに
+       判定ラインへ着弾する（以前は道路の先読み分だけ 60〜100ms 早かった）。 */
+    const jBeat = this.cond.beat;
     for (const h of this.input.takeHits()) {
       const res = this.chart.tryHit(jBeat, h.lane);
       if (res) this.onJudge(res);
       else { this.emptyTap = .25; PX.Audio.sfx('tapMiss'); }   // 空打ちは減点しない
     }
     for (const j of this.chart.update(jBeat)) this.onJudge(j);
+    this.playfield.update(dt);
     this.trip.groove = M.approach(this.trip.groove, this.grooveRaw, 1.6, dt);
     this.grooveRaw = M.clamp(this.grooveRaw + this.tripCharge * dt * .35, 0, 1);
     const gb = this.trip.grooveBoost = M.sat((this.trip.groove - .42) / .48);
@@ -367,9 +377,7 @@ class Game {
   onJudge(j) {
     const g = j.grade;
     const mul = Math.min(4, 1 + this.combo / 50);
-    // 叩いたレーンの判定ライン上で光らせる
-    const q = this.road.project(this.p, PX.ROAD_CONST.JUDGE_DZ, this.road.laneX(j.note.lane), {});
-    this.hitFx = { grade: g, life: .5, x: q.sx, y: q.sy, w: Math.max(6, q.sw * .28), lane: j.note.lane };
+    this.playfield.addHit(j.note.lane, g);
     PX.Audio.hit(g, this.combo);
     if (g === 'MISS') {
       this.combo = 0;
@@ -378,6 +386,7 @@ class Game {
     } else {
       // 叩いたレーンへ車が少し寄る（自分の演奏で車が動いている感触）
       this.laneNudge = this.road.laneX(j.note.lane) * 1.25;
+      this.playfield.laneFlash[j.note.lane] = 1;
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       const pts = g === 'PERFECT' ? 300 : g === 'GROOVY' ? 180 : 70;
@@ -387,11 +396,8 @@ class Game {
          成功のたびに tripCharge を溜め、エフェクト強度・色相・世界の密度に乗せる。 */
       const gain = g === 'PERFECT' ? .13 : g === 'GROOVY' ? .08 : .03;
       this.tripCharge = Math.min(1.6, this.tripCharge + gain);
-      this.burstCol = C.css(C.mix(PX.LANE_COL[j.note.lane], [255, 255, 255], .3));
-      this.burst(q.sx, q.sy, g === 'PERFECT' ? 10 : g === 'GROOVY' ? 6 : 2);
-      this.burstCol = null;
       this.ripple = Math.min(1.2, this.ripple + (g === 'PERFECT' ? .55 : .3));
-      this.rippleX = q.sx / this.p.w; this.rippleY = q.sy / this.p.h;
+      this.rippleX = (j.note.lane + .5) / PX.PF_LANES; this.rippleY = .845;
       if (g === 'PERFECT') {
         this.flash = Math.min(.5, this.flash + .16);
         if (this.combo % 8 === 0) {
@@ -459,6 +465,11 @@ class Game {
     }
     p.time = performance.now() / 1000;
     p.present();
+    // ★ここから実解像度レイヤー★ 歪みの影響を受けないタップ面を重ねる
+    if (this.scene === 'drive') {
+      this.playfield.render(p.vctx, p.view.width, p.view.height,
+        this.chart, this.cond.beat, this.cond, this.trip);
+    }
   }
 
   renderDrive() {
@@ -467,7 +478,6 @@ class Game {
 
     this.world.render(p, pal, cond, trip, road);
     road.render(p, pal, cond.env, trip);
-    road.renderNotes(p, pal, cond, trip);
     this.world.renderObjects(p, pal, cond, trip, road);
 
     // ドットの花火
@@ -480,9 +490,7 @@ class Game {
     const tun = this.tl.out.v.tunnelDark;
     if (tun > .02) this.drawTunnel(tun);
 
-    this.drawLanes();
     this.drawCar();
-    this.drawHit();
     this.drawHUD();
     this.applyFx();
   }
@@ -542,47 +550,7 @@ class Game {
     });
   }
 
-  /* 押されたレーンを光らせる（指の下が反応する手応え） */
-  drawLanes() {
-    const p = this.p, pal = this.pal, road = this.road;
-    const F = this.input.laneFlash;
-    const L = PX.LANES, JD = PX.ROAD_CONST.JUDGE_DZ;
-    const q = {};
-    for (let i = 0; i < L; i++) {
-      const f = F[i];
-      if (f <= .02) continue;
-      road.project(p, JD, road.laneX(i), q);
-      const x1 = (i + .5) * (p.w / L);
-      const w0 = Math.max(2, q.sc * (PX.ROAD_CONST.ROAD_HALF * 2 * .92 / L) * (p.w * .58));
-      const steps = Math.max(2, Math.round((p.h - q.sy) / 4));
-      p.ctx.globalAlpha = f * .32;
-      p.ctx.fillStyle = C.css(C.mix(PX.LANE_COL[i], [255, 255, 255], .35));
-      for (let k = 0; k <= steps; k++) {
-        const t = k / steps;
-        const x = M.lerp(q.sx, x1, t * t);
-        const w = M.lerp(w0, p.w / L * .9, t);
-        p.ctx.fillRect(Math.round(x - w / 2), Math.round(M.lerp(q.sy, p.h, t)), Math.max(1, Math.round(w)), 4);
-      }
-      p.ctx.globalAlpha = 1;
-    }
-    if (this.emptyTap > .01) p.rectA(0, p.h - 3, p.w, 3, [255, 120, 140], this.emptyTap * .5);
-  }
 
-  /* 判定の瞬間を自車の足元で光らせる */
-  drawHit() {
-    const h = this.hitFx;
-    if (!h) return;
-    const p = this.p, pal = this.pal;
-    const k = M.sat(h.life / .5);
-    const col = h.grade === 'MISS' ? [255, 110, 130]
-      : h.lane !== undefined ? C.mix(PX.LANE_COL[h.lane], [255, 255, 255], h.grade === 'PERFECT' ? .5 : .2)
-      : [255, 244, 150];
-    const r = h.w * (.9 + (1 - k) * 1.7);
-    p.ring(h.x, h.y - 2, r, C.css(col), k * k * .75, 1);
-    if (h.grade === 'PERFECT') p.ring(h.x, h.y - 2, r * .55, C.css(col), k * .5, 1);
-    // 路面に残る光
-    p.rectA(h.x - h.w, h.y - 1, h.w * 2, 2, col, k * .45);
-  }
 
   /* ---------------------------------------------------------- HUD */
   drawHUD() {
