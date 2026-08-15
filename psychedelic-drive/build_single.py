@@ -34,6 +34,18 @@ def main():
         bundle.append('/* ===== %s ===== */\n%s' % (rel, src))
     js = '\n;\n'.join(bundle)
 
+    # 音源を data URI で埋め込む（1枚で完結させるため）
+    audio_tag = ''
+    mp3 = os.path.join(ROOT, 'music', 'track.mp3')
+    if os.path.isfile(mp3):
+        import base64
+        with open(mp3, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode('ascii')
+        audio_tag = ('<script>window.PX_AUDIO_DATA='
+                     '"data:audio/mpeg;base64,%s";</script>\n' % b64)
+        print('  embedded music/track.mp3 (%.1f MB -> %.1f MB base64)'
+              % (os.path.getsize(mp3) / 1048576.0, len(b64) / 1048576.0))
+
     body = re.search(r'<body>(.*?)</body>', html, re.S).group(1)
     body = re.sub(r'\s*<!--.*?-->\s*', '\n', body, flags=re.S)
     body = re.sub(r'\s*<script src="[^"]+"></script>', '', body)
@@ -50,6 +62,7 @@ def main():
         '<style>\n' + css + '</style>\n'
         '</head>\n<body>\n'
         + body.strip() + '\n'
+        + audio_tag +
         '<script>\n' + js + '\n</script>\n'
         '</body>\n</html>\n'
     )
@@ -64,6 +77,7 @@ def main():
     frag = ('<title>Midnight Mushroom Drive</title>\n'
             '<style>\n' + css + '</style>\n'
             + body.strip() + '\n'
+            + audio_tag +
             '<script>\n' + js + '\n</script>\n')
     frag_path = os.path.join(OUT_DIR, 'embed.html')
     with io.open(frag_path, 'w', encoding='utf-8') as f:

@@ -92,6 +92,8 @@ class Game {
     this.scene = 'house';
     this.stage = PX.STAGES.stage1;
     this.track = PX.TRACKS[this.stage.track] || PX.TRACKS.default;
+    // 音源は起動直後から落とし始める（導入シーンの間にデコードまで終わる）
+    if (this.track.audioUrl) PX.Audio.preload(this.track.audioUrl);
     this.house = new PX.HouseScene(this.p, this.input);
     this.outro = null;
     this.acc = 0; this.last = 0;
@@ -145,7 +147,7 @@ class Game {
     this.camTimer = 0; this.camZoom = 0;   // closeUp 演出（カメラが一瞬寄る）
     this.hitFx = null; this.laneNudge = 0;
     this.tripCharge = 0; this.ripple = 0; this.rippleX = .5; this.rippleY = .5;
-    this.emptyTap = 0;
+    this.emptyTap = 0; this.audioPending = false;
     this.shake = 0;
     this.deepest = 0;
     this.pal = {};
@@ -154,8 +156,14 @@ class Game {
     PX.Audio.setTrack(tr);
     PX.Audio.startEngine();   // 走行中は常にエンジン音（導入を飛ばした場合の保険も兼ねる）
     if (tr.audioUrl) {
-      PX.Audio.loadExternal(tr.audioUrl).then(() => PX.Audio.play(offset)).catch(() => PX.Audio.play(offset));
+      /* 実音源は「鳴り始めるまで曲時間を進めない」。
+         先に進めてしまうと譜面と音がズレたまま最後まで走る。 */
+      this.audioPending = true;
+      PX.Audio.loadExternal(tr.audioUrl).then(() => {
+        PX.Audio.play(offset); this.audioPending = false;
+      }).catch(() => { PX.Audio.play(offset); this.audioPending = false; });
     } else {
+      this.audioPending = false;
       PX.Audio.play(offset);
     }
     PX.Audio.fadeMusic(1, .8);
@@ -241,7 +249,8 @@ class Game {
   updateDrive(dt) {
     const p = this.p;
     // 音楽時計（音源があればそれが正、無ければ内部時計）
-    if (PX.Audio.ready && PX.Audio.playing) this.songTime = PX.Audio.now();
+    if (this.audioPending) dt = 0;                 // 音が鳴るまで曲時間を止める
+    else if (PX.Audio.ready && PX.Audio.playing) this.songTime = PX.Audio.now();
     else this.songTime += dt;
     const t = this.songTime;
 
@@ -590,6 +599,12 @@ class Game {
       const col = this.combo >= 50 ? C.rainbow(performance.now() / 900, .65) : pal.line;
       const txt = this.combo + 'x';
       p.text(txt, p.w - PX.textWidth(txt, s, 1) - 4, 4, C.cssa(col, .8), s, 1);
+    }
+
+    // 音源の読み込み待ち
+    if (this.audioPending) {
+      const a = .5 + .5 * Math.sin(performance.now() / 260);
+      p.textC('LOADING', p.w * .5, Math.round(p.h * .5), C.cssa(pal.line, a * .8), 1, 1);
     }
 
     // 最初の数秒だけ操作を教える

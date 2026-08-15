@@ -1,24 +1,20 @@
 /* =====================================================================
    data/stage1.js — STAGE 1 タイムライン（コンテンツ層）
    ---------------------------------------------------------------------
-   エンジンはこのデータを時間で補間するだけ。ここを書き換えれば
-   Stage 2, Stage 3 が無限に作れる（engine 側のコード変更は不要）。
+   曲 "Thuong Thi Thoi (Jank AIR Remix)" の実際の構成に合わせてある。
+   132.82 BPM / 1小節 = 1.807秒 / 全147小節 / 4:26
 
-   ★ 全体を約4分40秒に凝縮。密度を上げ、間延びを無くしてある。
-     data/track_default.js の sections[].bar と 1:1 で対応させること
-     （1小節 = 60/84*4 = 2.857秒）。
+   ★ 音源解析で見つけた構成をそのまま物語に割り当てた ★
+     bar  98-105 (2:57-3:11) は実際にキックが抜けるブレイクダウン
+       → ここを「トンネル」に。世界が一度暗転して静まる。
+     bar 106     (3:11)      でドロップが戻る
+       → ここを「クライマックス」に。全ワールドが一度に戻ってくる。
+     bar 132     (3:58)      でハットが抜けて減衰していく
+       → ここを「帰還」に。
 
    keys[] の各要素:
-     t        : 秒
-     level    : トリップレベル 0..10（世界の理解がどこまで壊れているか）
-     worlds   : ワールド重み（合計は自由。正規化される）
-     deep     : グルーヴが高いときに寄っていく“深い版”の世界重み
-                → 上手いほど深い世界が見える。この作品固有の分岐。
-     warp     : 道路の変形
-     fx       : ポストエフェクト強度（0..1。実振幅は game.js の FX_MAX が決める）
-     v        : その他の変数（月の大きさ・雲の顔・標識の語彙など）
-
-   events[] は一度きりのトリガ。
+     t / level / worlds / deep / warp / fx / v
+   （詳細は README を参照）
    ===================================================================== */
 (function () {
 'use strict';
@@ -32,217 +28,170 @@ const SIGNS = {
   none:   ['HOME', 'HOME', 'SLOW', 'STOP']
 };
 
-/* keys ------------------------------------------------------------- */
 const K = [
-/* ============ PHASE 1 : NORMAL (0:00-0:35) — 完全に普通 ============ */
+/* ===== NORMAL  0:00-0:22 (bar 0-11) — 完全に普通の住宅街 ===== */
 { t: 0,   level: 0,   worlds: { suburb: 1 },
-  warp: { widen: 1 }, fx: {}, v: { speed: 18, signSet: 'normal', horizon: .44 } },
-
-{ t: 12,  level: 0,   worlds: { suburb: 1 },
-  warp: {}, fx: {}, v: { speed: 19, signSet: 'normal' } },
-
-/* 0:16 — ごく小さな異常。信号が一瞬紫。電柱が1px呼吸する。 */
-{ t: 16,  level: 0.35, worlds: { suburb: 1 },
+  warp: { widen: 1 }, fx: {}, v: { speed: 19, signSet: 'normal', horizon: .44 } },
+{ t: 10,  level: 0,   worlds: { suburb: 1 },
+  warp: {}, fx: {}, v: { speed: 20, signSet: 'normal' } },
+/* 0:14 ごく小さな異常 */
+{ t: 14,  level: 0.35, worlds: { suburb: 1 },
   warp: {}, fx: { hue: .05 }, v: { speed: 20, signSet: 'normal' } },
 
-{ t: 28,  level: 0.7, worlds: { suburb: .94, weird: .06 },
-  warp: { snake: .04 }, fx: { hue: .10, sat: .05 },
-  v: { speed: 20, signSet: 'odd', moonSize: .06 } },
+/* ===== SOMETHING IS WRONG  0:22-0:34 (bar 12-18) ===== */
+{ t: 21.7, level: 1.4, worlds: { suburb: .88, weird: .12 },
+  warp: { snake: .08, breathe: .1 }, fx: { hue: .14, sat: .10 },
+  v: { speed: 21, signSet: 'odd', moonSize: .08, starBoost: .05 } },
+{ t: 28,  level: 2.3, worlds: { suburb: .68, weird: .32 },
+  warp: { snake: .16, breathe: .22, glow: .14 }, fx: { hue: .26, sat: .18, rgb: .07 },
+  v: { speed: 21, signSet: 'weird', moonSize: .14, starBoost: .14 } },
 
-/* ============ PHASE 2 : SOMETHING IS WRONG (0:35-1:00) ============ */
-{ t: 35,  level: 1.5, worlds: { suburb: .86, weird: .14 },
-  warp: { snake: .10, breathe: .1 }, fx: { hue: .16, sat: .12 },
-  v: { speed: 20, signSet: 'odd', moonSize: .10, starBoost: .05 } },
-
-{ t: 46,  level: 2.2, worlds: { suburb: .7, weird: .3, night: .05 },
-  warp: { snake: .16, breathe: .2, glow: .12 }, fx: { hue: .26, sat: .18, rgb: .06 },
-  v: { speed: 21, signSet: 'weird', moonSize: .14, starBoost: .12 } },
-
-{ t: 58,  level: 2.8, worlds: { suburb: .5, weird: .5 },
-  warp: { snake: .22, breathe: .32, glow: .2, wave: .06 },
-  fx: { hue: .38, sat: .24, rgb: .12, wave: .07 },
-  v: { speed: 22, signSet: 'weird', moonSize: .2, starBoost: .2, cloudFace: .1 } },
-
-/* ============ PHASE 3 : TRIP START (1:00-1:37) ==================== */
-{ t: 68,  level: 3.4, worlds: { suburb: .34, weird: .66 },
-  deep:  { suburb: .2, weird: .6, tropical: .2 },
-  warp: { snake: .3, breathe: .45, glow: .35, wave: .12, rainbow: .14 },
-  fx: { hue: .5, sat: .32, rgb: .18, wave: .13, ripple: .06, trails: .10 },
-  v: { speed: 22, signSet: 'trip', moonSize: .26, starBoost: .3, cloudFace: .45, moonFace: 1 } },
-
-{ t: 80,  level: 4.2, worlds: { suburb: .2, weird: .8 },
+/* ===== TRIP START  0:34-1:05 (bar 19-35) ===== */
+{ t: 34.4, level: 3.2, worlds: { suburb: .48, weird: .52 },
+  deep:  { suburb: .3, weird: .5, tropical: .2 },
+  warp: { snake: .26, breathe: .4, glow: .28, wave: .1, rainbow: .12 },
+  fx: { hue: .42, sat: .28, rgb: .16, wave: .12, ripple: .06, trails: .10 },
+  v: { speed: 22, signSet: 'weird', moonSize: .22, starBoost: .26, cloudFace: .3, moonFace: 1 } },
+{ t: 48,  level: 4.2, worlds: { suburb: .22, weird: .78 },
+  deep:  { weird: .68, tropical: .32 },
+  warp: { snake: .36, breathe: .6, glow: .48, wave: .2, rainbow: .3 },
+  fx: { hue: .6, sat: .4, rgb: .24, wave: .2, ripple: .12, trails: .18, posterize: .1 },
+  v: { speed: 22, signSet: 'trip', moonSize: .32, starBoost: .38, cloudFace: .8, moonFace: 1 } },
+{ t: 58,  level: 5.0, worlds: { weird: 1 },
   deep:  { weird: .7, tropical: .3 },
-  warp: { snake: .38, breathe: .6, glow: .5, wave: .22, rainbow: .3 },
-  fx: { hue: .62, sat: .42, rgb: .26, wave: .22, ripple: .12, trails: .18, posterize: .1 },
-  v: { speed: 23, signSet: 'trip', moonSize: .34, starBoost: .4, cloudFace: .8, moonFace: 1 } },
+  warp: { snake: .42, breathe: .78, glow: .66, wave: .3, rainbow: .45 },
+  fx: { hue: .72, sat: .48, rgb: .3, wave: .28, ripple: .16, trails: .24, posterize: .15 },
+  v: { speed: 23, signSet: 'trip', moonSize: .4, starBoost: .5, cloudFace: 1, moonFace: 1 } },
 
-{ t: 92,  level: 5.0, worlds: { weird: 1 },
-  deep:  { weird: .74, tropical: .26 },
-  warp: { snake: .45, breathe: .8, glow: .7, wave: .35, rainbow: .48 },
-  fx: { hue: .74, sat: .5, rgb: .32, wave: .3, ripple: .18, trails: .26, posterize: .16 },
-  v: { speed: 24, signSet: 'trip', moonSize: .4, starBoost: .5, cloudFace: 1, moonFace: 1 } },
-
-/* ============ トンネル (1:37-1:43) ================================ */
-{ t: 97,  level: 5.0, worlds: { weird: 1 },
-  warp: { snake: .3, rainbow: .3, glow: .5 },
-  fx: { hue: .7, sat: .3, rgb: .2, trails: .3, vignette: .3 },
-  v: { speed: 24, signSet: 'trip' } },
-
-{ t: 100, level: 4.6, worlds: { weird: .4, night: .6 },
-  warp: { widen: .86, rainbow: .06, glow: .9 },
-  fx: { vignette: 1.4, trails: .5, rgb: .1, bright: .55, tunnel: .35 },
-  v: { speed: 26, signSet: 'none', tunnelDark: 1 } },
-
-{ t: 102.5, level: 4.6, worlds: { night: 1 },
-  warp: { widen: .8, glow: 1 },
-  fx: { vignette: 1.7, trails: .6, bright: .34, tunnel: .55 },
-  v: { speed: 28, tunnelDark: 1 } },
-
-/* ============ 急激な南国化 (1:43-2:25) ============================ */
-{ t: 105, level: 6.0, worlds: { tropical: 1 },
+/* ===== PARADISE  1:05-1:36 (bar 36-52) — ハットが開いて世界が南国に ===== */
+{ t: 65.1, level: 6.0, worlds: { tropical: 1 },
   deep:  { tropical: .8, abstract: .2 },
-  warp: { rainbow: .35, glow: .8, wave: .2, widen: 1.05 },
-  fx: { sat: .55, hue: .3, rgb: .18, trails: .14, flash: .6 },
-  v: { speed: 25, signSet: 'trip', sunGlasses: 1, cloudFace: .5 } },
+  warp: { rainbow: .38, glow: .8, wave: .2, widen: 1.04 },
+  fx: { sat: .55, hue: .3, rgb: .18, trails: .14, flash: .5 },
+  v: { speed: 24, signSet: 'trip', sunGlasses: 1, cloudFace: .5 } },
+{ t: 78,  level: 6.4, worlds: { tropical: 1 },
+  deep:  { tropical: .76, space: .24 },
+  warp: { rainbow: .44, glow: .74, wave: .3, snake: .3 },
+  fx: { sat: .52, hue: .36, rgb: .22, wave: .24, trails: .22, ripple: .14 },
+  v: { speed: 24, sunGlasses: 1, cloudFace: .8, crowd: 1 } },
 
-{ t: 118, level: 6.3, worlds: { tropical: 1 },
-  deep:  { tropical: .78, space: .22 },
-  warp: { rainbow: .4, glow: .7, wave: .28, snake: .3 },
-  fx: { sat: .5, hue: .36, rgb: .22, wave: .24, trails: .22, ripple: .14 },
-  v: { speed: 25, sunGlasses: 1, cloudFace: .7, crowd: 1 } },
-
-{ t: 134, level: 6.8, worlds: { tropical: 1 },
-  deep:  { tropical: .7, space: .3 },
-  warp: { rainbow: .5, glow: .8, wave: .38, snake: .34, liquid: .2 },
-  fx: { sat: .55, hue: .44, rgb: .28, wave: .32, trails: .28, ripple: .2, kaleido: .06 },
-  v: { speed: 26, sunGlasses: 1, cloudFace: .9, crowd: 1 } },
-
-/* ============ 世界崩壊 (2:25-3:20) ================================ */
-{ t: 146, level: 7.0, worlds: { tropical: .55, space: .45 },
-  deep:  { tropical: .35, space: .65 },
-  warp: { rainbow: .55, glow: .9, wave: .4, sky: .12, liquid: .25 },
-  fx: { sat: .55, hue: .5, rgb: .32, wave: .34, trails: .34, ripple: .22, kaleido: .1 },
-  v: { speed: 26, signSet: 'deep', starBoost: .6 } },
-
-{ t: 158, level: 7.3, worlds: { space: 1 },
-  deep:  { space: .75, abstract: .25 },
+/* ===== COSMOS  1:36-2:05 (bar 53-68) ===== */
+{ t: 95.8, level: 7.0, worlds: { tropical: .5, space: .5 },
+  deep:  { tropical: .3, space: .7 },
+  warp: { rainbow: .55, glow: .9, wave: .38, sky: .12, liquid: .25 },
+  fx: { sat: .55, hue: .5, rgb: .3, wave: .32, trails: .32, ripple: .2, kaleido: .1 },
+  v: { speed: 25, signSet: 'deep', starBoost: .7 } },
+{ t: 110, level: 7.4, worlds: { space: 1 },
+  deep:  { space: .74, abstract: .26 },
   warp: { rainbow: .5, glow: 1, wave: .3, sky: .3, spiral: .12, liquid: .2 },
-  fx: { sat: .5, hue: .56, rgb: .34, wave: .32, trails: .4, ripple: .2, kaleido: .14, tunnel: .12 },
-  v: { speed: 27, starBoost: 1 } },
+  fx: { sat: .5, hue: .56, rgb: .34, wave: .3, trails: .38, ripple: .2, kaleido: .14, tunnel: .12 },
+  v: { speed: 26, starBoost: 1 } },
 
-{ t: 170, level: 7.5, worlds: { space: .45, city: .55 },
-  deep:  { space: .3, city: .5, abstract: .2 },
-  warp: { rainbow: .5, glow: .9, snake: .4, spiral: .1, keys: .1 },
-  fx: { sat: .5, hue: .62, rgb: .36, wave: .28, trails: .36, ripple: .18, kaleido: .12 },
-  v: { speed: 28, starBoost: .7 } },
-
-{ t: 180, level: 7.8, worlds: { city: 1 },
-  deep:  { city: .7, abstract: .3 },
-  warp: { rainbow: .55, glow: 1, snake: .45, wave: .3, keys: .18 },
-  fx: { sat: .55, hue: .68, rgb: .4, wave: .32, trails: .4, ripple: .22, kaleido: .16, melt: .1 },
-  v: { speed: 28 } },
-
-{ t: 190, level: 8.0, worlds: { city: .4, jungle: .6 },
-  deep:  { city: .25, jungle: .5, abstract: .25 },
-  warp: { rainbow: .55, glow: .9, snake: .5, wave: .38, breathe: 1 },
-  fx: { sat: .55, hue: .74, rgb: .38, wave: .36, trails: .4, ripple: .26, kaleido: .16, melt: .16 },
-  v: { speed: 28 } },
-
-{ t: 198, level: 8.2, worlds: { jungle: .45, ocean: .55 },
-  deep:  { jungle: .3, ocean: .45, abstract: .25 },
-  warp: { rainbow: .6, glow: 1, wave: .5, liquid: .5, snake: .4 },
-  fx: { sat: .6, hue: .8, rgb: .4, wave: .44, trails: .46, ripple: .32, kaleido: .18, melt: .12 },
-  v: { speed: 27 } },
-
-/* ============ 完全サイケデリックゾーン (3:20-4:11) ================= */
-{ t: 208, level: 8.6, worlds: { ocean: .4, abstract: .6 },
-  deep:  { ocean: .2, abstract: .8 },
-  warp: { rainbow: .75, glow: 1, spiral: .16, loop: .18, wave: .5, liquid: .5, keys: .16 },
-  fx: { sat: .65, hue: .86, rgb: .46, wave: .48, trails: .5, ripple: .34, kaleido: .3, tunnel: .2, melt: .1 },
-  v: { speed: 28, signSet: 'deep' } },
-
-{ t: 220, level: 9.0, worlds: { abstract: 1 },
-  deep:  { abstract: .8, climax: .2 },
-  warp: { rainbow: .85, glow: 1, spiral: .22, loop: .28, wave: .55, liquid: .7, keys: .22, sky: .2 },
-  fx: { sat: .7, hue: .92, rgb: .52, wave: .52, trails: .55, ripple: .4, kaleido: .42, tunnel: .3, melt: .18, posterize: .2 },
-  v: { speed: 28 } },
-
-{ t: 234, level: 9.3, worlds: { abstract: .8, space: .2 },
-  deep:  { abstract: .65, space: .15, climax: .2 },
-  warp: { rainbow: .9, glow: 1, spiral: .30, loop: .35, wave: .6, liquid: .8, keys: .28, sky: .35 },
-  fx: { sat: .75, hue: .96, rgb: .56, wave: .56, trails: .6, ripple: .44, kaleido: .55, tunnel: .4, melt: .22, posterize: .25, invert: .05 },
-  v: { speed: 29 } },
-
-{ t: 244, level: 9.6, worlds: { abstract: .6, climax: .4 },
-  deep:  { abstract: .4, climax: .6 },
-  warp: { rainbow: .95, glow: 1, spiral: .34, loop: .40, wave: .65, liquid: .9, keys: .32, sky: .5, tongue: .4 },
-  fx: { sat: .8, hue: 1, rgb: .6, wave: .6, trails: .65, ripple: .48, kaleido: .65, tunnel: .5, melt: .26, posterize: .3, invert: .07 },
-  v: { speed: 30 } },
-
-/* ============ 最大のクライマックス (4:11-4:33) ===================== */
-{ t: 251, level: 10, worlds: { climax: .5, abstract: .16, tropical: .12, space: .1, city: .06, jungle: .04, ocean: .02 },
-  deep:  { climax: .62, abstract: .12, tropical: .1, space: .08, city: .04, jungle: .03, ocean: .01 },
-  warp: { rainbow: 1, glow: 1, spiral: .38, loop: .45, wave: .7, liquid: 1, keys: .30, sky: .6, widen: 1.0 },
-  fx: { sat: .9, hue: 1, rgb: .7, wave: .68, trails: .58, ripple: .55, kaleido: .8, tunnel: .6, melt: .16, posterize: .35 },
-  v: { speed: 30, starBoost: 1, cloudFace: 1, sunGlasses: 1, moonFace: 1 } },
-
-{ t: 262, level: 10, worlds: { climax: .58, abstract: .14, tropical: .1, space: .1, city: .04, jungle: .03, ocean: .01 },
-  warp: { rainbow: 1, glow: 1, spiral: .42, loop: .5, wave: .8, liquid: 1, keys: .26, sky: 1.0, widen: 1.04 },
-  fx: { sat: 1, hue: 1, rgb: .85, wave: .8, trails: .62, ripple: .65, kaleido: 1, tunnel: .75, melt: .18, posterize: .4, invert: .06 },
-  v: { speed: 32, starBoost: 1 } },
-
-/* 車が空へ向かって走る */
-{ t: 268, level: 10, worlds: { climax: .6, space: .25, abstract: .15 },
-  warp: { rainbow: 1, glow: 1, spiral: .40, loop: .45, wave: .6, liquid: 1, sky: 1.6, widen: 1.0 },
-  fx: { sat: 1, hue: 1, rgb: .9, wave: .7, trails: .62, ripple: .6, kaleido: 1, tunnel: .9, melt: .16 },
-  v: { speed: 33, starBoost: 1 } },
-
-/* ============ 帰還 (4:33-4:40) ==================================== */
-{ t: 272, level: 10, worlds: { white: 1 },
-  warp: { rainbow: .3, glow: 1, sky: .3, widen: 1 },
-  fx: { bright: 2.6, sat: -.5, trails: .3, flash: .9 },
+/* ===== MEGACITY → JUNGLE  2:05-2:30 (bar 69-82) ===== */
+{ t: 124.7, level: 7.7, worlds: { space: .35, city: .65 },
+  deep:  { space: .25, city: .5, abstract: .25 },
+  warp: { rainbow: .52, glow: .95, snake: .42, spiral: .1, keys: .14 },
+  fx: { sat: .52, hue: .64, rgb: .38, wave: .3, trails: .38, ripple: .2, kaleido: .14 },
+  v: { speed: 26, starBoost: .6 } },
+{ t: 138, level: 8.1, worlds: { city: .38, jungle: .62 },
+  deep:  { city: .24, jungle: .5, abstract: .26 },
+  warp: { rainbow: .56, glow: .92, snake: .5, wave: .38, breathe: 1 },
+  fx: { sat: .55, hue: .74, rgb: .38, wave: .36, trails: .4, ripple: .26, kaleido: .16, melt: .14 },
   v: { speed: 26 } },
 
-{ t: 275, level: 2, worlds: { night: 1 },
+/* ===== PSYCHEDELIC ZONE  2:30-2:57 (bar 83-97) ===== */
+{ t: 150,  level: 8.6, worlds: { jungle: .35, ocean: .3, abstract: .35 },
+  deep:  { jungle: .2, ocean: .2, abstract: .6 },
+  warp: { rainbow: .7, glow: 1, wave: .48, liquid: .5, snake: .4, keys: .18 },
+  fx: { sat: .62, hue: .82, rgb: .44, wave: .44, trails: .46, ripple: .32, kaleido: .26, tunnel: .18, melt: .12 },
+  v: { speed: 27, signSet: 'deep' } },
+{ t: 164, level: 9.2, worlds: { abstract: .8, ocean: .2 },
+  deep:  { abstract: .78, climax: .22 },
+  warp: { rainbow: .88, glow: 1, spiral: .24, loop: .28, wave: .56, liquid: .75, keys: .3, sky: .22 },
+  fx: { sat: .7, hue: .92, rgb: .52, wave: .52, trails: .55, ripple: .4, kaleido: .45, tunnel: .32, melt: .18, posterize: .2 },
+  v: { speed: 28 } },
+
+/* ===== TUNNEL / BREAKDOWN  2:57-3:11 (bar 98-105) =====
+   ここは音源で実際にキックが抜ける。世界を一度暗転させて静める。 */
+{ t: 177.1, level: 8.0, worlds: { abstract: .5, night: .5 },
+  warp: { widen: .9, rainbow: .2, glow: .8, spiral: .1 },
+  fx: { vignette: 1.1, trails: .45, rgb: .14, bright: .62, tunnel: .3, sat: .2 },
+  v: { speed: 29, signSet: 'none', tunnelDark: 1 } },
+{ t: 181, level: 6.0, worlds: { night: 1 },
+  warp: { widen: .82, glow: 1 },
+  fx: { vignette: 1.7, trails: .55, bright: .32, tunnel: .5 },
+  v: { speed: 31, tunnelDark: 1 } },
+{ t: 187, level: 6.0, worlds: { night: 1 },
+  warp: { widen: .86, glow: 1 },
+  fx: { vignette: 1.5, trails: .5, bright: .40, tunnel: .42 },
+  v: { speed: 32, tunnelDark: 1 } },
+{ t: 190.4, level: 7.5, worlds: { night: .55, climax: .45 },
+  warp: { widen: .95, glow: 1, rainbow: .5 },
+  fx: { vignette: .7, trails: .4, bright: .8, tunnel: .2, sat: .5 },
+  v: { speed: 30, tunnelDark: .35 } },
+
+/* ===== CLIMAX  3:11-3:58 (bar 106-131) — ドロップが戻る ===== */
+{ t: 191.6, level: 10, worlds: { climax: .52, abstract: .14, tropical: .12, space: .1, city: .06, jungle: .04, ocean: .02 },
+  deep:  { climax: .64, abstract: .1, tropical: .1, space: .08, city: .04, jungle: .03, ocean: .01 },
+  warp: { rainbow: 1, glow: 1, spiral: .34, loop: .4, wave: .66, liquid: 1, keys: .28, sky: .5, widen: 1 },
+  fx: { sat: .88, hue: 1, rgb: .68, wave: .64, trails: .58, ripple: .5, kaleido: .72, tunnel: .5, melt: .16, posterize: .3, flash: .8 },
+  v: { speed: 29, starBoost: 1, cloudFace: 1, sunGlasses: 1, moonFace: 1 } },
+{ t: 206, level: 10, worlds: { climax: .58, abstract: .14, tropical: .1, space: .1, city: .04, jungle: .03, ocean: .01 },
+  warp: { rainbow: 1, glow: 1, spiral: .4, loop: .46, wave: .74, liquid: 1, keys: .24, sky: .7, widen: 1.02 },
+  fx: { sat: 1, hue: 1, rgb: .8, wave: .74, trails: .6, ripple: .6, kaleido: .9, tunnel: .66, melt: .18, posterize: .35 },
+  v: { speed: 30, starBoost: 1 } },
+{ t: 220.5, level: 10, worlds: { climax: .6, space: .2, abstract: .2 },
+  warp: { rainbow: 1, glow: 1, spiral: .42, loop: .48, wave: .7, liquid: 1, sky: 1.1, widen: 1 },
+  fx: { sat: 1, hue: 1, rgb: .85, wave: .72, trails: .62, ripple: .6, kaleido: 1, tunnel: .8, melt: .16 },
+  v: { speed: 31, starBoost: 1 } },
+{ t: 232, level: 10, worlds: { climax: .6, space: .26, abstract: .14 },
+  warp: { rainbow: 1, glow: 1, spiral: .4, loop: .45, wave: .6, liquid: 1, sky: 1.5, widen: 1 },
+  fx: { sat: 1, hue: 1, rgb: .88, wave: .68, trails: .62, ripple: .58, kaleido: 1, tunnel: .85, melt: .14 },
+  v: { speed: 32, starBoost: 1 } },
+
+/* ===== RETURN  3:58-4:26 (bar 132-147) — ハットが抜けて減衰 ===== */
+{ t: 238.6, level: 10, worlds: { white: 1 },
+  warp: { rainbow: .3, glow: 1, sky: .3, widen: 1 },
+  fx: { bright: 2.5, sat: -.5, trails: .3, flash: .9 },
+  v: { speed: 28 } },
+{ t: 242, level: 2, worlds: { night: 1 },
   warp: {}, fx: { bright: 1.1, trails: .1, vignette: .2 },
-  v: { speed: 21, signSet: 'none' } },
-
-{ t: 278, level: 0, worlds: { night: 1 },
+  v: { speed: 24, signSet: 'none' } },
+{ t: 248, level: 0, worlds: { night: 1 },
   warp: {}, fx: { vignette: .25 },
-  v: { speed: 18, signSet: 'none' } },
-
-{ t: 290, level: 0, worlds: { night: 1 },
+  v: { speed: 22, signSet: 'none' } },
+{ t: 266, level: 0, worlds: { night: 1 },
   warp: {}, fx: { vignette: .25 },
-  v: { speed: 16, signSet: 'none' } }
+  v: { speed: 18, signSet: 'none' } }
 ];
 
-/* events ----------------------------------------------------------- */
 const EVENTS = [
-  /* 同じ猫が3回現れる（プレイヤーは「気のせいか？」で済ませる） */
-  { t: 15,  type: 'cat' },
-  { t: 21,  type: 'cat' },
-  { t: 27,  type: 'cat' },
-  /* 信号が一瞬だけ紫 */
-  { t: 18,  type: 'hueBlip', amount: .12 },
-  { t: 31,  type: 'hueBlip', amount: .16 },
-  { t: 50,  type: 'hueBlip', amount: .25 },
+  /* 同じ猫が3回現れる */
+  { t: 12,  type: 'cat' },
+  { t: 16,  type: 'cat' },
+  { t: 20,  type: 'cat' },
+  { t: 15,  type: 'hueBlip', amount: .12 },
+  { t: 24,  type: 'hueBlip', amount: .16 },
+  { t: 31,  type: 'hueBlip', amount: .22 },
 
-  { t: 68,  type: 'shimmer' },
-  { t: 97,  type: 'whoosh' },
-  { t: 99.5, type: 'tunnelIn' },
-  { t: 104.4, type: 'tunnelOut' },
+  { t: 34.4, type: 'shimmer' },
+  { t: 65.1, type: 'whoosh' },
+  { t: 82,   type: 'closeUp', dur: 3.0 },
+  { t: 95.8, type: 'whoosh' },
+  { t: 118,  type: 'closeUp', dur: 2.4 },
+  { t: 138,  type: 'whoosh' },
+  { t: 164,  type: 'shimmer' },
 
-  { t: 126, type: 'closeUp', dur: 3.0 },
-  { t: 146, type: 'whoosh' },
-  { t: 174, type: 'closeUp', dur: 2.4 },
-  { t: 190, type: 'whoosh' },
-  { t: 214, type: 'shimmer' },
-  { t: 232, type: 'closeUp', dur: 2.8 },
-  { t: 251, type: 'shimmer' },
-  { t: 260, type: 'fireworks' },
-  { t: 268, type: 'whoosh' },
-  { t: 271.5, type: 'whiteout' },
-  { t: 275, type: 'musicOut' }
+  { t: 176.6, type: 'whoosh' },
+  { t: 178.4, type: 'tunnelIn' },
+  { t: 190.8, type: 'tunnelOut' },
+
+  { t: 206,  type: 'closeUp', dur: 2.8 },
+  { t: 214,  type: 'fireworks' },
+  { t: 228,  type: 'fireworks' },
+  { t: 232,  type: 'whoosh' },
+  { t: 238.2, type: 'whiteout' },
+  { t: 246,  type: 'musicOut' }
 ];
 
 window.PX = window.PX || {};
@@ -250,8 +199,8 @@ window.PX.STAGES = window.PX.STAGES || {};
 window.PX.STAGES.stage1 = {
   id: 'stage1',
   title: 'STAGE 1 — MIDNIGHT MUSHROOM DRIVE',
-  track: 'default',
-  driveEnd: 281,        // ここでドライブ終了 → 帰宅シーンへ
+  track: 'song',        // data/track_song.js
+  driveEnd: 258,        // ここでドライブ終了 → 帰宅シーンへ（曲の減衰に重なる）
   signSets: SIGNS,
   keys: K,
   events: EVENTS

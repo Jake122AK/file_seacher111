@@ -32,6 +32,22 @@ class Conductor {
     this.env = { kick: 0, snare: 0, hat: 0, bass: 0, chord: 0 };
     this.pulse = 0;      // 総合的な「ドン」感 0..1
     this.swing = track.swing || 0;
+    /* 実音源のエンベロープがあればそれを使う。
+       無ければ patterns のドラムグリッドから逆算する（仮トラック用）。 */
+    this.envData = null;
+    if (track.env) {
+      const dec = (b64) => {
+        const bin = atob(b64);
+        const a = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+        return a;
+      };
+      this.envData = {
+        fps: track.env.fps,
+        low: dec(track.env.low), mid: dec(track.env.mid), high: dec(track.env.high)
+      };
+      this.slowLow = 0; this.slowHigh = 0; this.slowMid = 0;
+    }
   }
   set(time) {
     const t = this.time = time;
@@ -56,14 +72,32 @@ class Conductor {
     this.sectionT = M.sat((this.bar - secs[si].bar) / Math.max(.001, nextBar - secs[si].bar));
     this.energy = secs[si].energy === undefined ? .5 : secs[si].energy;
 
-    // 打楽器エンベロープ（グリッドから逆算 = 音声解析不要）
-    const pat = PX.Track.patternFor(this.track, this.section);
     const E = this.env;
-    E.kick = this._envOf(pat.kick, st, 7.5);
-    E.snare = this._envOf(pat.snare, st, 9.0);
-    E.hat = this._envOf(pat.hat, st, 22.0);
-    E.bass = this._envOf(pat.bass, st, 5.0);
-    E.chord = this._envOf(pat.skank, st, 8.0);
+    if (this.envData) {
+      /* 実音源のエンベロープを読む。
+         そのままだと常時明るいので、遅い移動平均との差(=トランジェント)を取る。
+         これで「キックが鳴った瞬間」だけ世界が脈打つ。 */
+      const D = this.envData;
+      const i = M.clamp(Math.round(t * D.fps), 0, D.low.length - 1);
+      const lo = D.low[i] / 255, mi = D.mid[i] / 255, hi = D.high[i] / 255;
+      const k = .18;
+      this.slowLow += (lo - this.slowLow) * k;
+      this.slowMid += (mi - this.slowMid) * k;
+      this.slowHigh += (hi - this.slowHigh) * k;
+      E.kick = M.sat((lo - this.slowLow) * 4.5 + lo * .35);
+      E.bass = M.sat(lo * 1.15);
+      E.hat = M.sat((hi - this.slowHigh) * 5.0 + hi * .30);
+      E.snare = M.sat((mi - this.slowMid) * 4.5);
+      E.chord = M.sat(mi * 1.1);
+    } else {
+      // 仮トラック: ドラムグリッドから逆算
+      const pat = PX.Track.patternFor(this.track, this.section);
+      E.kick = this._envOf(pat.kick, st, 7.5);
+      E.snare = this._envOf(pat.snare, st, 9.0);
+      E.hat = this._envOf(pat.hat, st, 22.0);
+      E.bass = this._envOf(pat.bass, st, 5.0);
+      E.chord = this._envOf(pat.skank, st, 8.0);
+    }
     this.pulse = M.sat(E.kick * .85 + E.snare * .5 + E.bass * .35);
   }
   _envOf(grid, stepF, decay) {
@@ -85,6 +119,7 @@ PX.Conductor = Conductor;
 /* ------------------------------------------------------------- Track */
 PX.Track = {
   patternFor(track, section) {
+    if (!track.patterns) return null;
     const key = section && section.pattern ? section.pattern : 'basic';
     return track.patterns[key] || track.patterns.basic;
   },
@@ -154,12 +189,22 @@ const Audio = PX.Audio = {
     if (this.delay && track.bpm) this.delay.delayTime.value = (60 / track.bpm) * (track.delayBeats || .75);
   },
 
-  /* 実楽曲の差し替え: track.audioUrl があればそれを再生 */
+  /* 実楽曲の差し替え。
+     fetch は AudioContext 不要なので、ユーザー操作を待たずに先に落とす。
+     デコードは AudioContext ができてから。導入シーンの間に完了する。 */
+  preload(url) {
+    if (this._pre) return this._pre;
+    this._pre = fetch(url).then(r => r.arrayBuffer()).catch(() => null);
+    return this._pre;
+  },
+
   async loadExternal(url) {
+    if (this.externalBuffer) return this.externalBuffer;
     if (!this.ctx) this.init();
-    const res = await fetch(url);
-    const ab = await res.arrayBuffer();
-    this.externalBuffer = await this.ctx.decodeAudioData(ab);
+    const ab = await this.preload(url);
+    if (!ab) throw new Error('audio fetch failed');
+    // decodeAudioData は ArrayBuffer を消費するのでコピーを渡す
+    this.externalBuffer = await this.ctx.decodeAudioData(ab.slice(0));
     return this.externalBuffer;
   },
 
@@ -167,15 +212,17 @@ const Audio = PX.Audio = {
     if (!this.ready) return;
     if (this.ctx.state === 'suspended') this.ctx.resume();
     offset = offset || 0;
-    this.startAt = this.ctx.currentTime - offset;
+    const off0 = (this.track && this.track.offset) || 0;
+    this.startAt = this.ctx.currentTime - offset - off0;
     this.playing = true;
     if (this.externalBuffer) {
       const s = this.ctx.createBufferSource();
       s.buffer = this.externalBuffer;
       s.connect(this.musicGain);
-      s.start(this.ctx.currentTime, offset);
+      s.start(this.ctx.currentTime, M.clamp(offset + off0, 0, this.externalBuffer.duration - .05));
       this.externalSource = s;
     } else {
+      if (!this.track.patterns) return;   // 実音源なら合成演奏はしない
       this._nextStep = Math.floor(offset / (60 / this.track.bpm / 4));
       this._scheduler();
     }
@@ -199,7 +246,12 @@ const Audio = PX.Audio = {
     g.linearRampToValueAtTime(v, t + (sec || .5));
   },
 
-  now() { return this.ctx ? this.ctx.currentTime - this.startAt : 0; },
+  /* 曲頭から1拍目までのズレ(track.offset)を引いた「音楽時間」を返す。
+     これが Conductor と譜面の共通時計になる。 */
+  now() {
+    if (!this.ctx) return 0;
+    return this.ctx.currentTime - this.startAt - ((this.track && this.track.offset) || 0);
+  },
 
   /* ---------------------------------------------------- 16分スケジューラ */
   _scheduler() {
@@ -218,6 +270,7 @@ const Audio = PX.Audio = {
 
   _playStep(step, t, stepDur) {
     const tr = this.track;
+    if (!tr.patterns) return;
     // AudioContext 生成直後にシークすると t が負になり得るので必ず現在時刻以降へ
     if (t < this.ctx.currentTime) t = this.ctx.currentTime + .001;
     const bar = Math.floor(step / (tr.beatsPerBar * 4));
