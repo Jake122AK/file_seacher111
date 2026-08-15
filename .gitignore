@@ -1,0 +1,6 @@
+# 配布用に生成する一時パッケージ（中身は psychedelic-drive/ 以下の追跡済みソース）
+psychedelic-drive.zip
+
+# Python
+__pycache__/
+*.py[cod]
