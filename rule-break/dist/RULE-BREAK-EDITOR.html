@@ -1,0 +1,3583 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RULE//BREAK - STAGE EDITOR</title>
+<style>
+/* RULE//BREAK -- near-black, high contrast, everything squared off. */
+
+:root {
+  --bg: #050505;
+  --fg: #e8e8e8;
+  --dim: #7a7a7a;
+  --line: #262626;
+  --panel: #0d0d0d;
+  --accent: #7ad1ff;
+  --gold: #d8c23a;
+  --red: #e04a5a;
+  --font: ui-monospace, SFMono-Regular, "DejaVu Sans Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font);
+  font-size: 14px; letter-spacing: 0.08em;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
+}
+
+#app { position: fixed; inset: 0; }
+
+.screen {
+  position: absolute; inset: 0;
+  display: none; flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.screen.active { display: flex; }
+.hidden { display: none !important; }
+
+/* ---------------------------------------------------------------- title */
+
+#screen-title { align-items: center; justify-content: center; gap: 4vh; }
+
+.logo { font-size: clamp(28px, 9vw, 52px); font-weight: 700; letter-spacing: 0.12em; }
+.logo-slash { color: var(--dim); transition: color .2s; }
+.logo-slash.live {
+  color: var(--red); cursor: pointer;
+  animation: blink 1s steps(1) infinite;
+  padding: 0 2px;
+}
+.logo-slash.gone { display: none; }
+@keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .15; } }
+
+.logo-sub { color: var(--dim); font-size: 11px; min-height: 1.2em; text-align: center; }
+.title-menu { display: flex; flex-direction: column; gap: 10px; width: min(280px, 70vw); }
+.title-foot { position: absolute; bottom: 14px; color: #3a3a3a; font-size: 10px; text-align: center; width: 100%; }
+
+.root-panel {
+  border: 1px solid var(--line); background: var(--panel);
+  padding: 10px 12px; width: min(320px, 84vw);
+}
+.root-head { color: var(--red); font-size: 11px; margin-bottom: 8px; }
+.root-rule {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; border-bottom: 1px solid #161616; font-size: 12px; cursor: pointer;
+}
+.root-rule .state { color: var(--dim); }
+.root-rule.off .txt { text-decoration: line-through; color: #4a4a4a; }
+.root-rule.off .state { color: var(--red); }
+.root-note { color: #4a4a4a; font-size: 10px; margin-top: 8px; line-height: 1.6; }
+
+/* ---------------------------------------------------------------- shared */
+
+.btn {
+  background: #101010; color: var(--fg);
+  border: 1px solid var(--line); padding: 10px 12px;
+  font-family: var(--font); font-size: 12px; letter-spacing: 0.14em;
+  cursor: pointer; text-align: center;
+}
+.btn:active { background: #1c1c1c; }
+.btn.big { font-size: 16px; padding: 14px; border-color: #3a3a3a; }
+.btn.small { padding: 6px 8px; font-size: 11px; }
+.btn[disabled] { color: #333; border-color: #161616; }
+
+.bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--line);
+}
+.bar-title { flex: 1; text-align: center; font-size: 12px; color: var(--dim); }
+.bar-right { font-size: 11px; color: var(--dim); }
+
+/* ---------------------------------------------------------------- select */
+
+#node-map { flex: 1; overflow-y: auto; padding: 14px 10px 30px; }
+.node-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.node-group { color: #3a3a3a; font-size: 10px; margin: 14px 0 6px; }
+.node {
+  width: 46px; height: 46px; border: 1px solid var(--line); background: #0b0b0b;
+  color: var(--fg); font-family: var(--font); font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; position: relative;
+}
+.node.locked { color: #2a2a2a; border-color: #141414; }
+.node.cleared { border-color: var(--accent); color: var(--accent); }
+.node.hiddenstage { border-color: var(--red); color: var(--red); }
+.node.picked { background: #22222c; }
+.node .digit { pointer-events: none; }
+.node.surgery .digit { cursor: grab; }
+.sel-foot { padding: 8px 12px 16px; color: #4a4a4a; font-size: 10px; line-height: 1.6; border-top: 1px solid var(--line); }
+
+/* ---------------------------------------------------------------- play */
+
+#screen-play { display: none; }
+#screen-play.active { display: flex; }
+
+#hud { gap: 6px; }
+.chip {
+  border: 1px solid var(--line); padding: 6px 8px; font-size: 11px;
+  display: flex; gap: 1px; background: #0b0b0b; white-space: nowrap;
+}
+.chip-title { flex: 1; justify-content: center; color: var(--dim); overflow: hidden; }
+.chip .ch { display: inline-block; min-width: .62em; text-align: center; }
+.chip .ch.grabbable { color: var(--gold); cursor: grab; }
+
+#board-wrap { flex: 1; position: relative; min-height: 0; }
+#board { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
+
+#rot-handle {
+  position: absolute; right: 6px; bottom: 6px; width: 30px; height: 30px;
+  background: transparent; border: 1px solid #1c1c1c; color: #333;
+  font-size: 14px; cursor: pointer; line-height: 1;
+}
+#rot-handle:active { color: var(--fg); }
+
+.flash {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; opacity: 0; font-size: 18px; letter-spacing: .3em;
+  background: rgba(255,255,255,.06);
+}
+.flash.on { animation: flashin .5s ease-out; }
+@keyframes flashin { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+.tray { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 8px; }
+.tray:empty { display: none; }
+.tray .word-chip {
+  border: 1px dashed #3a3a44; color: var(--gold); background: #0b0b0b;
+  padding: 5px 7px; font-size: 11px; cursor: grab;
+}
+
+#controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px; }
+
+.note { border-top: 1px solid var(--line); background: var(--panel); max-height: 42vh; display: flex; flex-direction: column; }
+.note.closed .note-body { display: none; }
+.note-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.note-title { font-size: 11px; color: var(--dim); }
+.note-count { font-size: 10px; color: #3a3a3a; flex: 1; }
+.note-x { background: none; border: none; color: var(--dim); font-size: 18px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.note-body { overflow-y: auto; padding: 8px 10px 12px; }
+.note-obs { font-size: 11px; color: #9a9a9a; line-height: 1.7; margin-bottom: 8px; }
+.note-obs div::before { content: "> "; color: #3a3a3a; }
+.note-obs .empty { color: #3a3a3a; }
+.note-obs .empty::before { content: ""; }
+
+.guess-line { border: 1px solid var(--line); min-height: 30px; padding: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.guess-empty { color: #333; font-size: 10px; }
+.token-pool { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.token {
+  border: 1px solid var(--line); background: #101010; color: var(--fg);
+  padding: 4px 6px; font-size: 11px; cursor: pointer; font-family: var(--font);
+}
+.token.picked { border-color: var(--accent); color: var(--accent); }
+.guess-actions { display: flex; gap: 6px; }
+.known-rules { margin-top: 10px; font-size: 11px; color: var(--accent); line-height: 1.7; }
+.known-rules div::before { content: "\2713 "; }
+.known-rules .head { color: #3a3a3a; margin-bottom: 2px; }
+.known-rules .head::before { content: ""; }
+
+/* ---------------------------------------------------------------- overlay */
+
+.overlay {
+  position: fixed; inset: 0; background: rgba(5,5,5,.94);
+  display: flex; align-items: center; justify-content: center; z-index: 40;
+  padding: 24px;
+}
+.overlay .card { width: min(400px, 92vw); border: 1px solid var(--line); background: var(--panel); padding: 18px; }
+.overlay h2 { margin: 0 0 12px; font-size: 15px; letter-spacing: .2em; font-weight: 400; }
+.overlay p { font-size: 12px; line-height: 1.9; color: #b0b0b0; margin: 0 0 14px; }
+.overlay .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.overlay .row .btn { flex: 1; }
+.overlay .discovered h2 { color: var(--accent); }
+.big-word { font-size: clamp(20px, 7vw, 34px); letter-spacing: .28em; text-align: center; margin: 10px 0 18px; }
+.hint-tier { border: 1px solid var(--line); padding: 8px; margin-bottom: 8px; font-size: 12px; line-height: 1.8; color: #b0b0b0; }
+.hint-tier .lbl { color: #3a3a3a; font-size: 10px; display: block; margin-bottom: 4px; }
+
+.drag-ghost {
+  position: fixed; z-index: 60; pointer-events: none;
+  border: 1px solid var(--gold); background: #14140c; color: var(--gold);
+  padding: 4px 6px; font-size: 12px; font-family: var(--font); transform: translate(-50%, -50%);
+}
+
+.shake { animation: shake .18s linear; }
+@keyframes shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+
+  html, body { overflow: auto; }
+  #ed { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(300px, 480px); gap: 12px; padding: 12px; height: 100vh; }
+  @media (max-width: 780px) { #ed { grid-template-columns: 1fr; height: auto; } }
+  textarea {
+    width: 100%; height: 100%; min-height: 360px; background: #0b0b0b; color: #d8d8d8;
+    border: 1px solid #262626; font-family: var(--font); font-size: 12px; padding: 10px; line-height: 1.5;
+  }
+  .pane { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  #ed-canvas-wrap { position: relative; height: 300px; border: 1px solid #262626; }
+  #ed-canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+  #log { border: 1px solid #262626; background: #0b0b0b; padding: 8px; font-size: 11px;
+         line-height: 1.7; min-height: 90px; max-height: 220px; overflow: auto; white-space: pre-wrap; }
+  .ok { color: #7ad1ff; } .bad { color: #e04a5a; } .dim { color: #6a6a6a; }
+  h1 { font-size: 13px; letter-spacing: .2em; margin: 0; color: #7a7a7a; font-weight: 400; }
+  select { background: #0b0b0b; color: #d8d8d8; border: 1px solid #262626; font-family: var(--font); padding: 6px; }
+
+</style>
+</head>
+<body>
+
+<div id="ed">
+  <div class="pane">
+    <div class="row">
+      <h1>STAGE EDITOR</h1>
+    </div>
+    <div class="row">
+      <select id="pick"></select>
+      <button class="btn small" id="btn-load">読み込み</button>
+      <button class="btn small" id="btn-new">新規</button>
+      <button class="btn small" id="btn-fmt">整形</button>
+    </div>
+    <textarea id="src" spellcheck="false"></textarea>
+  </div>
+
+  <div class="pane">
+    <div class="row">
+      <button class="btn small" id="btn-check">検証（solution を再生）</button>
+      <button class="btn small" id="btn-reset">初期化</button>
+      <button class="btn small" id="btn-install">ゲームに追加</button>
+      <button class="btn small" id="btn-clearcustom">追加分を全消去</button>
+      <a class="btn small" href="RULE-BREAK.html">GAME へ</a>
+    </div>
+    <div id="ed-canvas-wrap"><canvas id="ed-canvas"></canvas></div>
+    <div class="row">
+      <button class="btn small" data-mv="up">↑</button>
+      <button class="btn small" data-mv="down">↓</button>
+      <button class="btn small" data-mv="left">←</button>
+      <button class="btn small" data-mv="right">→</button>
+      <button class="btn small" data-mv="undo">UNDO</button>
+    </div>
+    <div id="log" class="dim">ステージはすべてデータ。ここで書いて検証すれば、エンジンには一行も触れずに追加できる。</div>
+  </div>
+</div>
+
+
+<script>
+// RULE//BREAK -- single file build. Generated by tools/build.mjs.
+const __M = {};
+
+// ===== src/expr.js =====
+__M['expr'] = (function () {
+// expr.js -- tiny JSON expression language used by stage data.
+//
+// Everything a stage author needs to describe a hidden rule is expressed with
+// these forms, so new stages never require engine code changes.
+//
+//   42                       literal
+//   "text"                   literal
+//   {v:"turn"}               read a context variable (dotted path allowed)
+//   {op:"==", a:.., b:..}    operator
+//   {op:"and", args:[..]}    n-ary and / or
+//   {tileAt:[x,y]}           tile type name at a cell
+//   {objAt:[x,y]}            kind of the topmost object at a cell ("" if none)
+//   {countObj:"box"}         how many objects of a kind exist
+//   {objProp:["box#1","x"]}  read a property of an object (by id or kind)
+//   {visitsAt:[x,y]}         how many times the player stepped on a cell
+//   {has:"WALL IS SOLID"}    is that rule sentence currently active
+//   {label:"door1"}          text label of an object (LEVEL 5 puzzles)
+//   {textAt:[x,y]}           text of the word block sitting on a cell
+//   {global:"s12_box"}       cross-stage variable
+//   {at:["player","goal"]}   do two kinds share a cell
+//
+// Anything not recognised is returned as-is, so plain objects can be data.
+
+const OPS = {
+  '+': (a, b) => a + b,
+  '-': (a, b) => a - b,
+  '*': (a, b) => a * b,
+  '/': (a, b) => (b === 0 ? 0 : a / b),
+  '%': (a, b) => ((a % b) + b) % b, // always non-negative, easier to reason about
+  '==': (a, b) => a === b,
+  '!=': (a, b) => a !== b,
+  '<': (a, b) => a < b,
+  '<=': (a, b) => a <= b,
+  '>': (a, b) => a > b,
+  '>=': (a, b) => a >= b,
+};
+
+function ev(e, ctx) {
+  if (e === null || e === undefined) return e;
+  const t = typeof e;
+  if (t === 'number' || t === 'string' || t === 'boolean') return e;
+  if (Array.isArray(e)) return e.map((x) => ev(x, ctx));
+
+  if ('v' in e) return ctx.get(e.v);
+  if ('global' in e) return ctx.getGlobal(e.global);
+  if ('has' in e) return ctx.hasSentence(e.has);
+  if ('label' in e) return ctx.labelOf(e.label);
+  if ('textAt' in e) {
+    const [x, y] = ev(e.textAt, ctx);
+    return ctx.textAt(x, y);
+  }
+  if ('tileAt' in e) {
+    const [x, y] = ev(e.tileAt, ctx);
+    return ctx.tileAt(x, y);
+  }
+  if ('objAt' in e) {
+    const [x, y] = ev(e.objAt, ctx);
+    return ctx.objAt(x, y);
+  }
+  if ('countObj' in e) return ctx.countObj(ev(e.countObj, ctx));
+  if ('objProp' in e) {
+    const [ref, prop] = ev(e.objProp, ctx);
+    return ctx.objProp(ref, prop);
+  }
+  if ('visitsAt' in e) {
+    const [x, y] = ev(e.visitsAt, ctx);
+    return ctx.visitsAt(x, y);
+  }
+  if ('at' in e) {
+    const [a, b] = ev(e.at, ctx);
+    return ctx.sameCell(a, b);
+  }
+
+  if ('op' in e) {
+    const op = e.op;
+    if (op === 'and') return (e.args || []).every((x) => truthy(ev(x, ctx)));
+    if (op === 'or') return (e.args || []).some((x) => truthy(ev(x, ctx)));
+    if (op === 'not') return !truthy(ev(e.a !== undefined ? e.a : e.args?.[0], ctx));
+    if (op === 'if') return truthy(ev(e.a, ctx)) ? ev(e.b, ctx) : ev(e.c, ctx);
+    if (op === 'abs') return Math.abs(ev(e.a, ctx));
+    if (op === 'min') return Math.min(...(e.args || [e.a, e.b]).map((x) => ev(x, ctx)));
+    if (op === 'max') return Math.max(...(e.args || [e.a, e.b]).map((x) => ev(x, ctx)));
+    if (op === 'in') {
+      const a = ev(e.a, ctx);
+      const list = ev(e.b, ctx) || [];
+      return list.includes(a);
+    }
+    const f = OPS[op];
+    if (!f) throw new Error('unknown op: ' + op);
+    return f(ev(e.a, ctx), ev(e.b, ctx));
+  }
+  return e;
+}
+
+function truthy(x) {
+  if (x === undefined || x === null) return false;
+  if (typeof x === 'number') return x !== 0;
+  if (typeof x === 'string') return x.length > 0;
+  return !!x;
+}
+
+function test(e, ctx) {
+  if (e === undefined || e === null) return true; // "no condition" means always
+  return truthy(ev(e, ctx));
+}
+
+// Resolve a dotted path against a plain object graph.
+function dig(obj, path) {
+  let cur = obj;
+  for (const part of String(path).split('.')) {
+    if (cur === null || cur === undefined) return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+return { ev, truthy, test, dig };
+})();
+
+// ===== src/sentence.js =====
+__M['sentence'] = (function () {
+// sentence.js -- the rule sentences that literally sit on the board.
+//
+// From LEVEL 6 onward the board carries word blocks such as
+//   WALL IS SOLID / GOAL = CLEAR / PLAYER EXISTS
+// and those sentences *are* the engine's configuration. Push a word out of a
+// line and the world loses that law.
+//
+// Grammar (a sentence is a run of >=2 adjacent word blocks, read left-to-right
+// on a row or top-to-bottom on a column):
+//
+//   NOUN IS PROP           WALL IS SOLID
+//   NOUN IS NOUN           BOX IS WALL          (transform)
+//   NOUN = PROP            GOAL = CLEAR
+//   NOUN = NOUN            PLAYER = GOAL        (identity)
+//   NOUN CAN VERB          PLAYER CAN MOVE
+//   NOUN EXISTS            PLAYER EXISTS
+//   IGNORE NEXT RULE       directive
+//   IGNORE PREVIOUS RULE   directive
+//   THIS RULE IS FALSE     self-referential paradox
+//
+// Evaluation order is top-to-bottom, then left-to-right. The order is never
+// explained to the player; LEVEL 7 is about deducing it.
+
+const NOUNS = new Set([
+  'PLAYER', 'WALL', 'BOX', 'GOAL', 'KEY', 'DOOR', 'ENEMY', 'GHOST', 'TEXT',
+  'RED', 'BLUE', 'FLOOR', 'RULE', 'STAGE',
+]);
+
+const PROPS = new Set([
+  'SOLID', 'PUSH', 'WIN', 'YOU', 'STOP', 'OPEN', 'SHUT', 'CLEAR', 'FALSE',
+  'FLOAT', 'DEAD', 'SAFE', 'WEAK',
+]);
+
+const VERBS = new Set(['MOVE', 'PASS', 'UNDO', 'PUSH', 'WIN']);
+
+// Which kind of board object a noun refers to. Tile nouns map to tile types.
+const NOUN_TILE = { WALL: 'wall', RED: 'redwall', BLUE: 'bluefloor', FLOOR: 'floor' };
+const NOUN_OBJ = {
+  PLAYER: 'player', BOX: 'box', GOAL: 'goal', KEY: 'key',
+  DOOR: 'door', ENEMY: 'enemy', GHOST: 'ghost', TEXT: 'word',
+};
+
+function baseSemantics() {
+  return {
+    props: {},        // NOUN -> Set(PROP)
+    can: {},          // NOUN -> Set(VERB)
+    ident: [],        // [A, B] pairs from "A = B"
+    exists: new Set(),// nouns forced to exist
+    sentences: [],    // human readable list of the sentences in force
+    paradox: false,   // a THIS RULE IS FALSE is on the board
+  };
+}
+
+function addProp(sem, noun, prop) {
+  (sem.props[noun] || (sem.props[noun] = new Set())).add(prop);
+}
+function addCan(sem, noun, verb) {
+  (sem.can[noun] || (sem.can[noun] = new Set())).add(verb);
+}
+
+function hasProp(sem, noun, prop) {
+  return !!(sem.props[noun] && sem.props[noun].has(prop));
+}
+function canDo(sem, noun, verb) {
+  return !!(sem.can[noun] && sem.can[noun].has(verb));
+}
+
+// Collect maximal runs of adjacent word objects.
+function runs(words, w, h) {
+  const at = new Map();
+  for (const o of words) at.set(o.x + ',' + o.y, o);
+  const out = [];
+  const scan = (get, len1, len2) => {
+    for (let a = 0; a < len1; a++) {
+      let run = [];
+      for (let b = 0; b < len2; b++) {
+        const o = get(a, b);
+        if (o) run.push(o);
+        else {
+          if (run.length >= 2) out.push(run);
+          run = [];
+        }
+      }
+      if (run.length >= 2) out.push(run);
+    }
+  };
+  scan((y, x) => at.get(x + ',' + y), h, w);       // rows
+  scan((x, y) => at.get(x + ',' + y), w, h);       // columns
+  return out;
+}
+
+// Split a run of words into the sentences it contains.
+function sentencesIn(run) {
+  const t = run.map((o) => String(o.text).toUpperCase());
+  const out = [];
+  let i = 0;
+  while (i < t.length) {
+    const rest = t.length - i;
+    const take = (n, kind) => {
+      out.push({ kind, words: t.slice(i, i + n), objs: run.slice(i, i + n), text: t.slice(i, i + n).join(' ') });
+      i += n;
+    };
+    if (rest >= 4 && t[i] === 'THIS' && t[i + 1] === 'RULE' && t[i + 2] === 'IS' && t[i + 3] === 'FALSE') { take(4, 'paradox'); continue; }
+    if (rest >= 3 && t[i] === 'IGNORE' && (t[i + 1] === 'NEXT' || t[i + 1] === 'PREVIOUS') && t[i + 2] === 'RULE') { take(3, 'ignore'); continue; }
+    if (rest >= 3 && (t[i + 1] === 'IS' || t[i + 1] === '=') && (PROPS.has(t[i + 2]) || NOUNS.has(t[i + 2]))) {
+      if (NOUNS.has(t[i])) { take(3, t[i + 1] === '=' ? 'eq' : 'is'); continue; }
+    }
+    if (rest >= 3 && t[i + 1] === 'CAN' && VERBS.has(t[i + 2]) && NOUNS.has(t[i])) { take(3, 'can'); continue; }
+    if (rest >= 2 && t[i + 1] === 'EXISTS' && NOUNS.has(t[i])) { take(2, 'exists'); continue; }
+    i++; // this word is not part of any sentence -- yet
+  }
+  return out;
+}
+
+// Parse the board's word blocks into an ordered, directive-resolved rule list.
+function parseSentences(words, w, h, evalTick = 0) {
+  const found = [];
+  for (const run of runs(words, w, h)) {
+    for (const s of sentencesIn(run)) {
+      const first = s.objs[0];
+      found.push({ ...s, y: first.y, x: first.x });
+    }
+  }
+  // Reading order: top to bottom, then left to right.
+  found.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+
+  // Directives suppress their neighbours. Resolved in reading order, so
+  // IGNORE NEXT RULE beats an IGNORE PREVIOUS RULE placed below it.
+  const dead = new Set();
+  found.forEach((s, i) => {
+    if (s.kind !== 'ignore' || dead.has(i)) return;
+    if (s.words[1] === 'NEXT') {
+      for (let j = i + 1; j < found.length; j++) if (!dead.has(j)) { dead.add(j); break; }
+    } else {
+      for (let j = i - 1; j >= 0; j--) if (!dead.has(j)) { dead.add(j); break; }
+    }
+  });
+
+  // A paradox flips state every evaluation tick: true, false, true, ...
+  const paradoxOn = evalTick % 2 === 0;
+  found.forEach((s, i) => {
+    if (s.kind === 'paradox' && !paradoxOn) {
+      for (let j = i + 1; j < found.length; j++) if (!dead.has(j)) { dead.add(j); break; }
+    }
+  });
+
+  const active = found.filter((_, i) => !dead.has(i));
+  return { all: found, active, dead };
+}
+
+function semanticsFrom(words, w, h, evalTick = 0, defaults = null) {
+  const sem = baseSemantics();
+  const parsed = parseSentences(words, w, h, evalTick);
+
+  if (defaults) {
+    for (const [n, ps] of Object.entries(defaults.props || {})) for (const p of ps) addProp(sem, n, p);
+    for (const [n, vs] of Object.entries(defaults.can || {})) for (const v of vs) addCan(sem, n, v);
+    for (const pair of defaults.ident || []) sem.ident.push(pair);
+    for (const n of defaults.exists || []) sem.exists.add(n);
+  }
+
+  for (const s of parsed.active) {
+    sem.sentences.push(s.text);
+    if (s.kind === 'is' || s.kind === 'eq') {
+      const [a, , c] = s.words;
+      if (PROPS.has(c)) addProp(sem, a, c);
+      else if (s.kind === 'eq') sem.ident.push([a, c]);
+      else sem.ident.push([a, c]); // BOX IS WALL behaves as a transform too
+    } else if (s.kind === 'can') {
+      addCan(sem, s.words[0], s.words[2]);
+    } else if (s.kind === 'exists') {
+      sem.exists.add(s.words[0]);
+    } else if (s.kind === 'paradox') {
+      sem.paradox = true;
+    }
+  }
+  sem.parsed = parsed;
+  return sem;
+}
+
+function identityHolds(sem, a, b) {
+  return sem.ident.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+}
+
+return { baseSemantics, hasProp, canDo, parseSentences, semanticsFrom, identityHolds, NOUNS, PROPS, VERBS, NOUN_TILE, NOUN_OBJ };
+})();
+
+// ===== src/pixel.js =====
+__M['pixel'] = (function () {
+// pixel.js -- a 5x7 bitmap font and 8x8 sprites, drawn dot by dot.
+// Everything on the board is made of squares; nothing is anti-aliased.
+
+const F = {
+  A: '01110 10001 10001 11111 10001 10001 10001',
+  B: '11110 10001 10001 11110 10001 10001 11110',
+  C: '01110 10001 10000 10000 10000 10001 01110',
+  D: '11110 10001 10001 10001 10001 10001 11110',
+  E: '11111 10000 10000 11110 10000 10000 11111',
+  F: '11111 10000 10000 11110 10000 10000 10000',
+  G: '01110 10001 10000 10111 10001 10001 01111',
+  H: '10001 10001 10001 11111 10001 10001 10001',
+  I: '11111 00100 00100 00100 00100 00100 11111',
+  J: '00111 00010 00010 00010 00010 10010 01100',
+  K: '10001 10010 10100 11000 10100 10010 10001',
+  L: '10000 10000 10000 10000 10000 10000 11111',
+  M: '10001 11011 10101 10101 10001 10001 10001',
+  N: '10001 11001 10101 10011 10001 10001 10001',
+  O: '01110 10001 10001 10001 10001 10001 01110',
+  P: '11110 10001 10001 11110 10000 10000 10000',
+  Q: '01110 10001 10001 10001 10101 10010 01101',
+  R: '11110 10001 10001 11110 10100 10010 10001',
+  S: '01111 10000 10000 01110 00001 00001 11110',
+  T: '11111 00100 00100 00100 00100 00100 00100',
+  U: '10001 10001 10001 10001 10001 10001 01110',
+  V: '10001 10001 10001 10001 10001 01010 00100',
+  W: '10001 10001 10001 10101 10101 11011 10001',
+  X: '10001 01010 00100 00100 00100 01010 10001',
+  Y: '10001 01010 00100 00100 00100 00100 00100',
+  Z: '11111 00001 00010 00100 01000 10000 11111',
+  0: '01110 10001 10011 10101 11001 10001 01110',
+  1: '00100 01100 00100 00100 00100 00100 01110',
+  2: '01110 10001 00001 00110 01000 10000 11111',
+  3: '11111 00010 00100 00010 00001 10001 01110',
+  4: '00010 00110 01010 10010 11111 00010 00010',
+  5: '11111 10000 11110 00001 00001 10001 01110',
+  6: '00110 01000 10000 11110 10001 10001 01110',
+  7: '11111 00001 00010 00100 01000 01000 01000',
+  8: '01110 10001 10001 01110 10001 10001 01110',
+  9: '01110 10001 10001 01111 00001 00010 01100',
+  ' ': '00000 00000 00000 00000 00000 00000 00000',
+  '=': '00000 00000 11111 00000 11111 00000 00000',
+  '/': '00001 00010 00010 00100 01000 01000 10000',
+  '.': '00000 00000 00000 00000 00000 01100 01100',
+  ',': '00000 00000 00000 00000 01100 01100 11000',
+  ':': '00000 01100 01100 00000 01100 01100 00000',
+  '!': '00100 00100 00100 00100 00100 00000 00100',
+  '?': '01110 10001 00001 00110 00100 00000 00100',
+  '-': '00000 00000 00000 11111 00000 00000 00000',
+  '+': '00000 00100 00100 11111 00100 00100 00000',
+  '#': '01010 01010 11111 01010 11111 01010 01010',
+  '*': '00000 10101 01110 11111 01110 10101 00000',
+  '(': '00010 00100 01000 01000 01000 00100 00010',
+  ')': '01000 00100 00010 00010 00010 00100 01000',
+  '<': '00010 00100 01000 10000 01000 00100 00010',
+  '>': '01000 00100 00010 00001 00010 00100 01000',
+  '|': '00100 00100 00100 00100 00100 00100 00100',
+  '_': '00000 00000 00000 00000 00000 00000 11111',
+  '%': '11001 11010 00010 00100 01000 01011 10011',
+  '^': '00100 01110 10101 00100 00100 00100 00100',
+  '~': '00000 00000 01001 10110 00000 00000 00000',
+};
+
+const glyphCache = new Map();
+function glyph(ch) {
+  const key = String(ch).toUpperCase();
+  if (glyphCache.has(key)) return glyphCache.get(key);
+  const raw = F[key] || F['?'];
+  const rows = raw.split(' ');
+  glyphCache.set(key, rows);
+  return rows;
+}
+
+const GLYPH_W = 5, GLYPH_H = 7;
+
+// Draw text where every "pixel" is a px-by-px square.
+function drawText(c, text, x, y, px = 2, color = '#e8e8e8', spacing = 1) {
+  c.fillStyle = color;
+  let cx = x;
+  for (const ch of String(text)) {
+    const rows = glyph(ch);
+    for (let ry = 0; ry < GLYPH_H; ry++) {
+      const row = rows[ry] || '';
+      for (let rx = 0; rx < GLYPH_W; rx++) {
+        if (row[rx] === '1') c.fillRect(cx + rx * px, y + ry * px, px, px);
+      }
+    }
+    cx += (GLYPH_W + spacing) * px;
+  }
+  return cx - x;
+}
+
+function textWidth(text, px = 2, spacing = 1) {
+  return String(text).length * (GLYPH_W + spacing) * px - spacing * px;
+}
+
+// ---------------------------------------------------------------- sprites
+
+// 8x8 sprites. '.' transparent, '1' main colour, '2' accent, '3' shade.
+const S = {
+  player: [
+    '..1111..',
+    '.111111.',
+    '11111111',
+    '11111111',
+    '11111111',
+    '11111111',
+    '.111111.',
+    '..1111..'],
+  goal: [
+    '..2222..',
+    '.2....2.',
+    '2..22..2',
+    '2.2222.2',
+    '2.2222.2',
+    '2..22..2',
+    '.2....2.',
+    '..2222..'],
+  box: [
+    '11111111',
+    '1......1',
+    '1.1111.1',
+    '1.1..1.1',
+    '1.1..1.1',
+    '1.1111.1',
+    '1......1',
+    '11111111'],
+  key: [
+    '..111...',
+    '.1...1..',
+    '.1...1..',
+    '..111...',
+    '...1....',
+    '...111..',
+    '...1....',
+    '...11...'],
+  door: [
+    '11111111',
+    '1......1',
+    '1......1',
+    '1....2.1',
+    '1....2.1',
+    '1......1',
+    '1......1',
+    '11111111'],
+  enemy: [
+    '.1....1.',
+    '..1111..',
+    '.111111.',
+    '11.11.11',
+    '11111111',
+    '1.1111.1',
+    '1.1..1.1',
+    '..1..1..'],
+  switch: [
+    '........',
+    '........',
+    '..1111..',
+    '.122221.',
+    '.122221.',
+    '..1111..',
+    '........',
+    '........'],
+  ghost: [
+    '..1111..',
+    '.111111.',
+    '11.11.11',
+    '11111111',
+    '11111111',
+    '11111111',
+    '1.1.1.1.',
+    '.1.1.1.1'],
+  hole: [
+    '........',
+    '.111111.',
+    '11....11',
+    '1......1',
+    '1......1',
+    '11....11',
+    '.111111.',
+    '........'],
+};
+
+function drawSprite(c, name, x, y, px, color = '#e8e8e8', accent = '#7ad1ff') {
+  const s = S[name];
+  if (!s) return;
+  for (let ry = 0; ry < 8; ry++) {
+    for (let rx = 0; rx < 8; rx++) {
+      const v = s[ry][rx];
+      if (v === '.') continue;
+      c.fillStyle = v === '2' ? accent : color;
+      c.fillRect(x + rx * px, y + ry * px, px, px);
+    }
+  }
+}
+
+// Eyes drawn on top of the player so facing is always readable.
+function drawFace(c, dir, x, y, px, color = '#0a0a0a') {
+  const eye = (ex, ey) => c.fillRect(x + ex * px, y + ey * px, px, px);
+  c.fillStyle = color;
+  const p = { up: [[2, 2], [5, 2]], down: [[2, 5], [5, 5]], left: [[1, 3], [1, 5]], right: [[6, 3], [6, 5]] }[dir]
+    || [[2, 3], [5, 3]];
+  for (const [ex, ey] of p) eye(ex, ey);
+}
+
+// Tile fills: each tile is its own little dot pattern so the board reads as art.
+function drawTile(c, type, x, y, px, theme) {
+  const fill = (col) => { c.fillStyle = col; c.fillRect(x, y, px * 8, px * 8); };
+  const dot = (dx, dy, col) => { c.fillStyle = col; c.fillRect(x + dx * px, y + dy * px, px, px); };
+  switch (type) {
+    case 'wall':
+      fill(theme.wall);
+      dot(1, 1, theme.wallDot); dot(5, 2, theme.wallDot);
+      dot(2, 5, theme.wallDot); dot(6, 6, theme.wallDot);
+      break;
+    case 'redwall':
+      fill(theme.red);
+      for (let i = 1; i < 8; i += 3) for (let j = 1; j < 8; j += 3) dot(i, j, theme.redDot);
+      break;
+    case 'bluewall':
+      fill(theme.blueW);
+      for (let i = 1; i < 8; i += 3) for (let j = 1; j < 8; j += 3) dot(i, j, theme.blueWDot);
+      break;
+    case 'glass':
+      c.strokeStyle = theme.glass;
+      c.lineWidth = Math.max(1, px / 2);
+      c.strokeRect(x + px, y + px, px * 6, px * 6);
+      dot(0, 0, theme.glass); dot(7, 0, theme.glass); dot(0, 7, theme.glass); dot(7, 7, theme.glass);
+      break;
+    case 'grate':
+      fill(theme.floor);
+      for (let i = 0; i < 8; i++) { dot(i, 2, theme.grate); dot(i, 5, theme.grate); dot(2, i, theme.grate); dot(5, i, theme.grate); }
+      break;
+    case 'bluefloor':
+      fill(theme.blueF);
+      dot(1, 1, theme.blueFDot); dot(6, 1, theme.blueFDot); dot(1, 6, theme.blueFDot); dot(6, 6, theme.blueFDot);
+      break;
+    case 'yellowfloor':
+      fill(theme.yellowF);
+      dot(3, 3, theme.yellowFDot); dot(4, 4, theme.yellowFDot);
+      break;
+    case 'hole':
+      fill(theme.bg);
+      drawSprite(c, 'hole', x, y, px, theme.holeEdge, theme.holeEdge);
+      break;
+    case 'void':
+      break;
+    default:
+      fill(theme.floor);
+      dot(3, 3, theme.floorDot);
+      break;
+  }
+}
+
+return { drawText, textWidth, drawSprite, drawFace, drawTile, GLYPH_W, GLYPH_H };
+})();
+
+// ===== src/engine.js =====
+__M['engine'] = (function () {
+// engine.js -- the whole game world, with no DOM in sight.
+//
+// Every law of a stage arrives as data (tiles, hidden_rules, win_conditions...)
+// so adding a stage never means touching this file. The renderer and the UI
+// only read state and push actions in.
+
+const { ev, test } = __M['expr'];
+const { semanticsFrom, hasProp, canDo, identityHolds, NOUN_OBJ, NOUN_TILE } = __M['sentence'];
+const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const DIR_ORDER = ['up', 'right', 'down', 'left'];
+
+// Tile behaviour that stages inherit unless their legend overrides it.
+const TILE_DEFAULTS = {
+  floor: { solid: false },
+  wall: { solid: true },
+  redwall: { solid: true },
+  bluewall: { solid: true },
+  bluefloor: { solid: false },
+  yellowfloor: { solid: false },
+  glass: { solid: { op: '==', a: { v: 'parity' }, b: 1 } }, // solid on odd turns
+  hole: { solid: false, deadly: true },
+  void: { solid: true, empty: true },
+  ice: { solid: false },
+};
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+let uid = 0;
+const nextId = () => 'o' + (++uid);
+
+class Game {
+  constructor(stage, opts = {}) {
+    this.stage = stage;
+    this.globals = opts.globals || {};
+    this.discovered = opts.discovered || {};   // ruleId -> true (player figured it out)
+    this.onEvent = opts.onEvent || (() => {});
+    this.meta = { undos: 0, resets: 0, inputs: 0, evalTick: 0 };
+    // Root rules edited after the title breaks. Stages marked rootLocked
+    // sit outside them.
+    this.rootFlags = (stage.rootLocked || stage.nullStage) ? {} : (opts.rootFlags || {});
+    this.events = [];
+    this.reset(true);
+  }
+
+  // ---------------------------------------------------------------- setup
+
+  reset(hard = false) {
+    const st = this.stage;
+    const rows = st.grid.rows;
+    const w = st.grid.w ?? rows[0].length;
+    const h = st.grid.h ?? rows.length;
+    const tiles = [];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const ch = (rows[y] || '')[x] ?? ' ';
+        tiles.push(this.tileTypeOf(ch));
+      }
+    }
+    this.s = {
+      w, h, tiles,
+      objs: [],
+      turn: st.turn_conditions?.startTurn ?? 0,
+      facing: st.facing || 'up',
+      lastDir: null,
+      streak: { up: 0, down: 0, left: 0, right: 0 },
+      visits: {},
+      flags: clone(st.flags || {}),
+      rot: 0,
+      zoom: 1,
+      view: st.view ? { ...st.view } : { x: 0, y: 0, w, h },
+      pushes: 0,
+      boxPushes: {},
+      keys: {},
+      trail: [],
+      firedOnce: {},
+      dead: false,
+      won: false,
+      note: [],
+      ...clone(this.rootFlags || {}),
+    };
+    for (const o of st.objects || []) {
+      if (o.spawnIf !== undefined && !test(o.spawnIf, this.ctx())) continue;
+      this.s.objs.push({ id: o.id || nextId(), ...clone(o) });
+    }
+    this.history = [];
+    this.events = [];
+    // The full timeline. Undo rewinds the world, but not the record of it --
+    // which is what a ghost is replaying.
+    this.meta.fullTrail = [{ x: this.playerX, y: this.playerY }];
+    this.s.trail.push({ x: this.playerX, y: this.playerY });
+    if (!hard) this.meta.resets++;
+    this.fire('start', {});
+    this.fire('onReset', {});
+    this.checkWin();
+  }
+
+  tileTypeOf(ch) {
+    const lg = this.stage.grid.legend || {};
+    const d = lg[ch];
+    if (typeof d === 'string') return d;
+    if (d && d.type) return d.type;
+    return { '#': 'wall', '.': 'floor', ' ': 'void', 'r': 'redwall', 'b': 'bluefloor',
+      'y': 'yellowfloor', 'g': 'glass', 'o': 'hole', '~': 'void' }[ch] || 'floor';
+  }
+
+  tileDef(type) {
+    const lg = this.stage.grid.legend || {};
+    for (const d of Object.values(lg)) {
+      if (d && typeof d === 'object' && d.type === type) return { ...TILE_DEFAULTS[type], ...d };
+    }
+    return TILE_DEFAULTS[type] || { solid: false };
+  }
+
+  // ---------------------------------------------------------------- lookups
+
+  get player() { return this.s.objs.find((o) => o.kind === 'player'); }
+  get playerX() { return this.player ? this.player.x : -1; }
+  get playerY() { return this.player ? this.player.y : -1; }
+  get goal() { return this.s.objs.find((o) => o.kind === 'goal'); }
+
+  objsAt(x, y) { return this.s.objs.filter((o) => o.x === x && o.y === y); }
+  firstOf(kind) { return this.s.objs.find((o) => o.kind === kind); }
+  byRef(ref) {
+    if (!ref) return null;
+    if (ref[0] === '#') return this.s.objs.find((o) => o.id === ref.slice(1));
+    return this.firstOf(ref);
+  }
+  tileAt(x, y) {
+    if (x < 0 || y < 0 || x >= this.s.w || y >= this.s.h) return 'void';
+    return this.s.tiles[y * this.s.w + x];
+  }
+  setTile(x, y, type) {
+    if (x < 0 || y < 0 || x >= this.s.w || y >= this.s.h) return;
+    this.s.tiles[y * this.s.w + x] = type;
+  }
+  visitsAt(x, y) { return this.s.visits[x + ',' + y] || 0; }
+
+  // ---------------------------------------------------------------- semantics
+
+  semantics() {
+    const words = this.s.objs.filter((o) => o.kind === 'word');
+    const st = this.stage;
+    const def = st.semantics_defaults || (st.use_sentences
+      ? null
+      : { props: { WALL: ['SOLID'], RED: ['SOLID'], BOX: ['PUSH'], PLAYER: ['YOU'], GOAL: ['CLEAR'] } });
+    return semanticsFrom(words, this.s.w, this.s.h, this.meta.evalTick, def);
+  }
+
+  hasSentence(text) {
+    const want = String(text).toUpperCase().replace(/\s+/g, ' ').trim();
+    return this.semantics().sentences.some((s) => s === want);
+  }
+
+  // ---------------------------------------------------------------- context
+
+  ctx(extra = {}) {
+    const g = this;
+    const s = this.s;
+    return {
+      extra,
+      get: (path) => {
+        const p = String(path);
+        if (p.startsWith('flag.')) return digInto(s.flags, p.slice(5));
+        if (p.startsWith('global.')) return digInto(g.globals, p.slice(7));
+        if (p.startsWith('streak.')) return s.streak[p.slice(7)] || 0;
+        if (p.startsWith('key.')) return !!s.keys[p.slice(4)];
+        if (p.startsWith('ui.')) return digInto(extra.ui || {}, p.slice(3));
+        if (p.startsWith('arg.')) return digInto(extra, p.slice(4));
+        switch (p) {
+          case 'turn': case 'moves': return s.turn;
+          case 'parity': return ((s.turn + (s.flags.parityFlip || 0)) % 2 + 2) % 2;
+          case 'undos': return g.meta.undos;
+          case 'resets': return g.meta.resets;
+          case 'inputs': return g.meta.inputs;
+          case 'facing': return s.facing;
+          case 'dir': return extra.dir ?? s.lastDir;
+          case 'lastDir': return s.lastDir;
+          case 'px': return g.playerX;
+          case 'py': return g.playerY;
+          case 'gx': return g.goal ? g.goal.x : -1;
+          case 'gy': return g.goal ? g.goal.y : -1;
+          case 'rot': return s.rot;
+          case 'zoomed': return !!s.flags.zoomed;
+          case 'pushes': return s.pushes;
+          case 'w': return s.w;
+          case 'h': return s.h;
+          case 'tileHere': return g.tileAt(g.playerX, g.playerY);
+          case 'visitsHere': return g.visitsAt(g.playerX, g.playerY);
+          case 'prevX': return (s.from || {}).x ?? -1;
+          case 'prevY': return (s.from || {}).y ?? -1;
+          case 'visitsPrev': return s.from ? g.visitsAt(s.from.x, s.from.y) : 0;
+          case 'onGoal': return !!(g.goal && g.goal.x === g.playerX && g.goal.y === g.playerY);
+          case 'trailLen': return s.trail.length;
+          case 'evalTick': return g.meta.evalTick;
+          case 'boxes': return s.objs.filter((o) => o.kind === 'box').length;
+          case 'enemies': return s.objs.filter((o) => o.kind === 'enemy').length;
+          case 'ghosts': return s.objs.filter((o) => o.kind === 'ghost').length;
+          case 'words': return s.objs.filter((o) => o.kind === 'word').length;
+          default: return digInto(s.flags, p);
+        }
+      },
+      getGlobal: (k) => digInto(g.globals, k),
+      hasSentence: (t) => g.hasSentence(t),
+      tileAt: (x, y) => g.tileAt(x, y),
+      objAt: (x, y) => { const o = g.objsAt(x, y)[0]; return o ? o.kind : ''; },
+      countObj: (k) => s.objs.filter((o) => o.kind === k).length,
+      objProp: (ref, prop) => { const o = g.byRef(ref); return o ? o[prop] : undefined; },
+      visitsAt: (x, y) => g.visitsAt(x, y),
+      labelOf: (ref) => { const o = g.byRef(ref); return o ? String(o.label ?? '') : ''; },
+      textAt: (x, y) => {
+        const o = g.objsAt(x, y).find((q) => q.kind === 'word');
+        return o ? String(o.text).toUpperCase() : '';
+      },
+      sameCell: (a, b) => {
+        const A = g.byRef(a), B = g.byRef(b);
+        return !!(A && B && A.x === B.x && A.y === B.y);
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------- rules
+
+  orderedRules() {
+    const rules = this.stage.hidden_rules || [];
+    const pri = this.stage.rule_priority;
+    if (!pri || !pri.length) return rules;
+    const idx = new Map(pri.map((id, i) => [id, i]));
+    return [...rules].sort((a, b) => (idx.has(a.id) ? idx.get(a.id) : 999) - (idx.has(b.id) ? idx.get(b.id) : 999));
+  }
+
+  fire(when, extra = {}) {
+    const out = { cancel: false, redirect: null, fired: [] };
+    for (const rule of this.orderedRules()) {
+      if (rule.when !== when) continue;
+      if (rule.once && this.s.firedOnce[rule.id]) continue;
+      const ctx = this.ctx({ ...extra, rule });
+      if (!test(rule.if, ctx)) continue;
+      if (rule.once) this.s.firedOnce[rule.id] = true;
+      out.fired.push(rule.id);
+      for (const eff of rule.then || []) this.applyEffect(eff, ctx, out, rule);
+      if (rule.note) this.observe(rule.note, rule.id);
+      this.emit({ t: 'rule', id: rule.id, when });
+    }
+    return out;
+  }
+
+  applyEffect(eff, ctx, out, rule) {
+    const A = (k, d) => (eff[k] === undefined ? d : ev(eff[k], ctx));
+    const s = this.s;
+    switch (eff.do) {
+      case 'cancel': out.cancel = true; break;
+      case 'redirect': out.redirect = A('dir'); break;
+      case 'setFlag': setDeep(s.flags, A('flag'), A('value', true)); break;
+      case 'addFlag': {
+        const k = A('flag');
+        setDeep(s.flags, k, (digInto(s.flags, k) || 0) + A('by', 1));
+        break;
+      }
+      case 'toggleFlag': {
+        const k = A('flag');
+        setDeep(s.flags, k, !digInto(s.flags, k));
+        break;
+      }
+      case 'setGlobal': setDeep(this.globals, A('key'), A('value', true)); break;
+      case 'setTile': this.setTile(A('x', this.playerX), A('y', this.playerY), A('to', 'wall')); break;
+      case 'setTileHere': this.setTile(this.playerX, this.playerY, A('to', 'wall')); break;
+      case 'setTilePrev': {
+        const p = s.from;
+        if (p) this.setTile(p.x, p.y, A('to', 'wall'));
+        break;
+      }
+      case 'addTurn': s.turn += A('by', 1); break;
+      case 'setTurn': s.turn = A('to', 0); break;
+      case 'moveObj': {
+        const o = this.byRef(A('ref', 'goal'));
+        if (!o) break;
+        let dx = A('dx', 0), dy = A('dy', 0);
+        const mode = A('dir', null);
+        if (mode) {
+          const base = DIRS[mode === 'opposite' ? opposite(ctx.get('dir') || s.lastDir || 'up')
+            : mode === 'same' ? (ctx.get('dir') || s.lastDir || 'up') : mode];
+          if (base) { dx = base[0] * A('by', 1); dy = base[1] * A('by', 1); }
+        }
+        const nx = o.x + dx, ny = o.y + dy;
+        const force = A('force', false);
+        if (force !== true) {
+          if (force === 'objects') {
+            // Slides under boxes and doors, but still respects the walls.
+            const t = this.tileDef(this.tileAt(nx, ny));
+            let solid = t.solid;
+            if (typeof solid === 'object') solid = test(solid, this.ctx({ tx: nx, ty: ny }));
+            if (solid) break;
+          } else if (this.solidFor(nx, ny, o)) break;
+        }
+        o.x = nx; o.y = ny;
+        break;
+      }
+      case 'teleport': {
+        const o = this.byRef(A('ref', 'player'));
+        if (o) { o.x = A('x', o.x); o.y = A('y', o.y); }
+        break;
+      }
+      case 'swap': {
+        const a = this.byRef(A('a', 'player')), b = this.byRef(A('b', 'box'));
+        if (a && b) { const t = { x: a.x, y: a.y }; a.x = b.x; a.y = b.y; b.x = t.x; b.y = t.y; }
+        break;
+      }
+      case 'spawn': {
+        const o = { id: nextId(), kind: A('kind', 'box'), x: A('x', 0), y: A('y', 0), ...(eff.props || {}) };
+        s.objs.push(o);
+        break;
+      }
+      case 'remove': {
+        const o = this.byRef(A('ref', 'box'));
+        if (o) s.objs.splice(s.objs.indexOf(o), 1);
+        break;
+      }
+      case 'removeAll': {
+        const k = A('kind', 'enemy');
+        s.objs = s.objs.filter((o) => o.kind !== k);
+        break;
+      }
+      case 'setProp': {
+        const o = this.byRef(A('ref', 'player'));
+        if (o) o[A('prop', 'label')] = A('value', '');
+        break;
+      }
+      case 'setLabel': {
+        const o = this.byRef(A('ref', 'door'));
+        if (o) o.label = String(A('value', ''));
+        break;
+      }
+      case 'flipGravity': s.flags.gravDir = s.flags.gravDir === 'up' ? 'down' : 'up'; break;
+      case 'setGravity': s.flags.gravDir = A('dir', 'down'); break;
+      case 'rotate': s.rot = (((s.rot + A('by', 90)) % 360) + 360) % 360; break;
+      case 'setView': s.view = { x: A('x', 0), y: A('y', 0), w: A('w', s.w), h: A('h', s.h) }; break;
+      case 'spawnGhost': {
+        const from = A('from', 0);
+        const src = A('source', 'state') === 'full' ? (this.meta.fullTrail || []) : s.trail;
+        const path = src.slice(from).map((p) => ({ ...p }));
+        if (path.length) s.objs.push({ id: nextId(), kind: 'ghost', x: path[0].x, y: path[0].y, path, i: 0 });
+        break;
+      }
+      case 'revive': {
+        const dead = (s.flags.graveyard || []);
+        for (const d of dead) s.objs.push({ id: nextId(), ...d });
+        s.flags.graveyard = [];
+        break;
+      }
+      case 'win': s.won = true; break;
+      case 'fail': s.dead = true; break;
+      case 'note': this.observe(A('text', ''), rule && rule.id); break;
+      case 'discover': this.discover(A('rule', rule && rule.id)); break;
+      case 'unlock': this.emit({ t: 'unlock', stage: A('stage', '') }); break;
+      case 'flash': this.emit({ t: 'flash', text: A('text', ''), color: A('color', '#fff') }); break;
+      case 'sound': this.emit({ t: 'sound', name: A('name', 'blip') }); break;
+      default: this.emit({ t: 'unknownEffect', name: eff.do });
+    }
+  }
+
+  // ---------------------------------------------------------------- physics
+
+  // Is (x,y) impassable for `who`? Consults tile rules first, then the board's
+  // rule sentences, then objects standing there.
+  solidFor(x, y, who = null) {
+    if (x < 0 || y < 0 || x >= this.s.w || y >= this.s.h) return true;
+    const type = this.tileAt(x, y);
+    const def = this.tileDef(type);
+    const sem = this.semantics();
+
+    // On sentence-driven stages the words on the board decide what a wall is;
+    // everywhere else the tile keeps its own law.
+    const noun = Object.keys(NOUN_TILE).find((n) => NOUN_TILE[n] === type);
+    if (noun && this.stage.use_sentences) {
+      if (hasProp(sem, noun, 'SOLID') || hasProp(sem, noun, 'STOP')) return true;
+      return false;
+    }
+    if (this.s.flags.rootWallSoft && (type === 'wall' || type === 'redwall' || type === 'bluewall')) {
+      // The player edited "WALL IS SOLID" out of the root rules.
+      for (const o of this.objsAt(x, y)) if (o !== who && this.objSolid(o, who, sem)) return true;
+      return false;
+    }
+    let solid = def.solid;
+    if (typeof solid === 'object') solid = test(solid, this.ctx({ tx: x, ty: y }));
+    if (solid) return true;
+
+    for (const o of this.objsAt(x, y)) {
+      if (o === who) continue;
+      if (this.objSolid(o, who, sem)) return true;
+    }
+    return false;
+  }
+
+  objSolid(o, who, sem = this.semantics()) {
+    if (o.kind === 'box') return true;             // handled by the push pass
+    if (o.kind === 'word') return !this.stage.words_walkable;
+    if (o.kind === 'door') return !this.doorOpen(o);
+    if (o.kind === 'enemy') return false;          // walking in gets you caught
+    if (o.solid !== undefined) return !!o.solid;
+    const noun = Object.keys(NOUN_OBJ).find((n) => NOUN_OBJ[n] === o.kind);
+    if (noun && hasProp(sem, noun, 'SOLID')) return true;
+    return false;
+  }
+
+  doorOpen(d) {
+    if (d.open) return true;
+    if (d.needs && this.s.keys[d.needs]) return true;
+    if (d.link) {
+      return this.s.objs.some((o) => o.kind === 'switch' && o.link === d.link
+        && this.s.objs.some((p) => p !== o && p.x === o.x && p.y === o.y && ['player', 'box', 'ghost'].includes(p.kind)));
+    }
+    if (d.openIf) return test(d.openIf, this.ctx());
+    return false;
+  }
+
+  pushable(o, sem = this.semantics()) {
+    if (o.push === false) return false;   // bolted down: bumping it does something else
+    if (o.kind === 'box') return true;
+    if (o.kind === 'word') return !!this.stage.words_pushable;
+    const noun = Object.keys(NOUN_OBJ).find((n) => NOUN_OBJ[n] === o.kind);
+    return !!(noun && hasProp(sem, noun, 'PUSH'));
+  }
+
+  // ---------------------------------------------------------------- actions
+
+  apply(action) {
+    if (this.s.won) return { ok: false, reason: 'won' };
+    this.meta.inputs++;
+    switch (action.type) {
+      case 'move': return this.move(action.dir);
+      case 'wait': return this.commitTurn({ moved: false });
+      case 'undo': return this.undo();
+      case 'reset': this.reset(false); return { ok: true };
+      case 'ui': return this.uiAction(action.name, action.args || {});
+      default: return { ok: false, reason: 'unknown action' };
+    }
+  }
+
+  snapshot() { return { s: clone(this.s) }; }
+  restore(snap) { this.s = clone(snap.s); }
+  pushHistory() { this.history.push(this.snapshot()); if (this.history.length > 4000) this.history.shift(); }
+
+  // Screen direction -> world direction (the board can be rotated).
+  worldDir(dir) {
+    const steps = ((this.s.rot / 90) | 0) % 4;
+    const i = DIR_ORDER.indexOf(dir);
+    if (i < 0) return dir;
+    return DIR_ORDER[(i + steps + 4) % 4];
+  }
+
+  move(screenDir) {
+    const before = this.snapshot();
+    let dir = this.worldDir(screenDir);
+    if (this.s.flags.mirrorInput) dir = opposite(dir);
+
+    const p = this.player;
+    if (!p) { this.emit({ t: 'noPlayer' }); return { ok: false, reason: 'no player' }; }
+    this.s.from = { x: p.x, y: p.y };
+
+    // Rules get to see where the move is aiming before it happens.
+    const aim = DIRS[dir] || [0, 0];
+    const pre = this.fire('beforeMove', { dir, screenDir, tx: p.x + aim[0], ty: p.y + aim[1] });
+    if (pre.redirect) dir = pre.redirect;
+    if (pre.cancel) { this.pushHistoryFrom(before); return this.commitTurn({ moved: false, blocked: true, dir }); }
+
+    const sem = this.semantics();
+    if (this.stage.use_sentences && !hasProp(sem, 'PLAYER', 'YOU') && !sem.props.PLAYER) {
+      // Nothing is "you" any more.
+      this.emit({ t: 'notYou' });
+      return { ok: false, reason: 'not you' };
+    }
+    if (this.stage.use_sentences && sem.can.PLAYER && !canDo(sem, 'PLAYER', 'MOVE')) {
+      this.emit({ t: 'cannotMove' });
+      return { ok: false, reason: 'cannot move' };
+    }
+
+    this.s.facing = dir;
+    const [dx, dy] = DIRS[dir];
+    const nx = p.x + dx, ny = p.y + dy;
+
+    // Push chain.
+    const pushed = this.objsAt(nx, ny).filter((o) => this.pushable(o, sem));
+    if (pushed.length) {
+      const chain = this.pushChain(nx, ny, dx, dy, sem);
+      if (!chain) {
+        this.pushHistoryFrom(before);
+        this.fire('moveBlocked', { dir, byBox: true });
+        return this.commitTurn({ moved: false, blocked: true, dir });
+      }
+      this.pushHistoryFrom(before);
+      const ordered = [...chain].reverse(); // farthest first, so nothing overlaps mid-push
+      for (const o of ordered) {
+        o.x += dx; o.y += dy;
+        o.pushed = (o.pushed || 0) + 1;
+        this.s.boxPushes[o.id] = o.pushed;
+      }
+      const lead = ordered[0];
+      if (lead && lead.slide) {
+        for (let guard = 0; guard < 64; guard++) {
+          const tx = lead.x + dx, ty = lead.y + dy;
+          if (this.solidFor(tx, ty, lead)) break;
+          if (this.objsAt(tx, ty).some((o) => o.kind === 'player')) break;
+          lead.x = tx; lead.y = ty;
+        }
+      }
+      this.s.pushes++;
+      p.x = nx; p.y = ny;
+      this.fire('onPush', { dir, count: chain.length, ref: '#' + chain[0].id });
+      return this.commitTurn({ moved: true, dir, pushed: true });
+    }
+
+    if (this.solidFor(nx, ny, p)) {
+      this.pushHistoryFrom(before);
+      const blocker = this.objsAt(nx, ny).find((o) => this.objSolid(o, p, sem));
+      this.fire('moveBlocked', { dir, tile: this.tileAt(nx, ny), by: blocker ? blocker.kind : this.tileAt(nx, ny), ref: blocker ? '#' + blocker.id : null });
+      this.observeBlocked(nx, ny);
+      return this.commitTurn({ moved: false, blocked: true, dir });
+    }
+
+    this.pushHistoryFrom(before);
+    p.x = nx; p.y = ny;
+    return this.commitTurn({ moved: true, dir });
+  }
+
+  pushHistoryFrom(snap) { this.history.push(snap); }
+
+  pushChain(x, y, dx, dy, sem) {
+    const chain = [];
+    let cx = x, cy = y;
+    for (let guard = 0; guard < 64; guard++) {
+      const here = this.objsAt(cx, cy).filter((o) => this.pushable(o, sem));
+      if (!here.length) break;
+      chain.push(...here);
+      cx += dx; cy += dy;
+      if (cx < 0 || cy < 0 || cx >= this.s.w || cy >= this.s.h) return null;
+      const t = this.tileDef(this.tileAt(cx, cy));
+      let solid = t.solid;
+      if (typeof solid === 'object') solid = test(solid, this.ctx({ tx: cx, ty: cy }));
+      if (solid && !t.boxPass) return null;   // a grate stops people, not cargo
+      const blockers = this.objsAt(cx, cy).filter((o) => !this.pushable(o, sem) && this.objSolid(o, null, sem));
+      if (blockers.length) return null;
+    }
+    return chain.length ? chain : null;
+  }
+
+  commitTurn(info) {
+    const s = this.s;
+    const tc = this.stage.turn_conditions || {};
+    if (info.moved) {
+      s.lastDir = info.dir;
+      for (const d of Object.keys(s.streak)) s.streak[d] = d === info.dir ? s.streak[d] + 1 : 0;
+      s.turn += tc.step ?? 1;
+    } else if (info.blocked && tc.countBlocked) {
+      s.turn += tc.step ?? 1;
+    }
+    this.meta.evalTick++;
+
+    if (info.moved) {
+      this.fire('onEnter', { tile: this.tileAt(this.playerX, this.playerY), dir: info.dir });
+    }
+    this.fire('afterMove', { dir: info.dir, moved: !!info.moved, blocked: !!info.blocked });
+    this.gravity();
+    // Only the cell you come to rest on counts as a place you have been.
+    if (info.moved) {
+      s.visits[this.playerX + ',' + this.playerY] = this.visitsAt(this.playerX, this.playerY) + 1;
+      s.trail.push({ x: this.playerX, y: this.playerY });
+      (this.meta.fullTrail || (this.meta.fullTrail = [])).push({ x: this.playerX, y: this.playerY });
+      this.pickups();
+    }
+    this.stepActors(info);
+    this.fire('everyTurn', { dir: info.dir });
+    this.hazards();
+    this.applyExistence();
+    this.checkWin();
+    this.emit({ t: 'turn', turn: s.turn, moved: !!info.moved });
+    return { ok: true, moved: !!info.moved, won: s.won, dead: s.dead };
+  }
+
+  pickups() {
+    const p = this.player;
+    if (!p) return;
+    for (const o of this.objsAt(p.x, p.y)) {
+      if (o.kind === 'key') {
+        this.s.keys[o.keyId || 'k'] = true;
+        this.s.objs.splice(this.s.objs.indexOf(o), 1);
+        this.emit({ t: 'sound', name: 'get' });
+      }
+    }
+  }
+
+  gravity() {
+    const dir = this.s.flags.gravDir;
+    if (!dir) return;
+    const [dx, dy] = DIRS[dir];
+    for (let guard = 0; guard < 64; guard++) {
+      let moved = false;
+      for (const o of this.s.objs) {
+        if (!['player', 'box'].includes(o.kind)) continue;
+        if (o.float) continue;
+        if (!this.solidFor(o.x + dx, o.y + dy, o)) { o.x += dx; o.y += dy; moved = true; }
+      }
+      if (!moved) break;
+    }
+  }
+
+  stepActors(info) {
+    for (const o of this.s.objs) {
+      if (o.kind === 'ghost') {
+        o.i = Math.min((o.i || 0) + 1, o.path.length - 1);
+        const p = o.path[o.i];
+        o.x = p.x; o.y = p.y;
+      }
+    }
+    if (!info.moved) return;
+    for (const e of this.s.objs.filter((o) => o.kind === 'enemy')) this.stepEnemy(e, info);
+  }
+
+  stepEnemy(e, info) {
+    const p = this.player;
+    if (!p) return;
+    const behavior = e.behavior || 'chase';
+    const tryMove = (dir) => {
+      const [dx, dy] = DIRS[dir] || [0, 0];
+      if (this.solidFor(e.x + dx, e.y + dy, e)) return false;
+      e.x += dx; e.y += dy; return true;
+    };
+    if (behavior === 'mirror') {
+      tryMove(opposite(info.dir));
+    } else if (behavior === 'copy') {
+      tryMove(info.dir);
+    } else if (behavior === 'patrol') {
+      // Walks its route; on hitting something it takes the next leg instead.
+      const path = e.patrol || ['left', 'right'];
+      e.pi = (e.pi || 0) % path.length;
+      if (!tryMove(path[e.pi])) {
+        e.pi = (e.pi + 1) % path.length;
+        tryMove(path[e.pi]);
+      }
+    } else if (behavior === 'still') {
+      // stays put
+    } else { // chase: greedy, longest axis first
+      const dx = p.x - e.x, dy = p.y - e.y;
+      const order = Math.abs(dx) >= Math.abs(dy)
+        ? [dx > 0 ? 'right' : 'left', dy > 0 ? 'down' : 'up']
+        : [dy > 0 ? 'down' : 'up', dx > 0 ? 'right' : 'left'];
+      for (const d of order) { if ((d === 'right' && dx === 0) || (d === 'left' && dx === 0) || (d === 'down' && dy === 0) || (d === 'up' && dy === 0)) continue; if (tryMove(d)) break; }
+    }
+  }
+
+  hazards() {
+    const p = this.player;
+    if (!p) return;
+    const def = this.tileDef(this.tileAt(p.x, p.y));
+    if (def.deadly) { this.s.dead = true; this.emit({ t: 'dead', why: 'hole' }); }
+    if (this.s.objs.some((o) => o.kind === 'enemy' && o.x === p.x && o.y === p.y)) {
+      this.s.dead = true; this.emit({ t: 'dead', why: 'enemy' });
+    }
+  }
+
+  // "PLAYER EXISTS" / "GOAL EXISTS" literally control whether things are there.
+  applyExistence() {
+    if (!this.stage.existence_kinds) return;
+    const sem = this.semantics();
+    for (const noun of this.stage.existence_kinds) {
+      const kind = NOUN_OBJ[noun] || noun.toLowerCase();
+      const have = this.s.objs.find((o) => o.kind === kind);
+      const should = sem.exists.has(noun);
+      if (should && !have) {
+        const sp = (this.stage.spawns || {})[noun] || { x: 1, y: 1 };
+        this.s.objs.push({ id: nextId(), kind, x: sp.x, y: sp.y });
+        this.emit({ t: 'sound', name: 'discover' });
+      } else if (!should && have) {
+        this.s.objs.splice(this.s.objs.indexOf(have), 1);
+      }
+    }
+  }
+
+  undo() {
+    if (!this.history.length) { this.emit({ t: 'noUndo' }); return { ok: false, reason: 'empty' }; }
+    const snap = this.history.pop();
+    this.restore(snap);
+    this.meta.undos++;
+    this.meta.evalTick++;
+    this.fire('onUndo', { undos: this.meta.undos });
+    this.applyExistence();
+    this.checkWin();
+    this.emit({ t: 'undo', undos: this.meta.undos });
+    return { ok: true, won: this.s.won };
+  }
+
+  // ---------------------------------------------------------------- UI as gameplay
+
+  allows(name) {
+    const list = this.stage.available_ui_actions || ['undo', 'reset'];
+    return list.includes(name);
+  }
+
+  uiAction(name, args) {
+    if (!this.allows(name)) { this.emit({ t: 'uiRefused', name }); return { ok: false, reason: 'not available' }; }
+    const s = this.s;
+    const before = this.snapshot();
+    let handled = true;
+    switch (name) {
+      case 'zoom':
+        this.pushHistoryFrom(before);
+        s.flags.zoomed = !s.flags.zoomed;
+        s.view = s.flags.zoomed ? { x: 0, y: 0, w: s.w, h: s.h } : { ...(this.stage.view || { x: 0, y: 0, w: s.w, h: s.h }) };
+        break;
+      case 'rotate': {
+        this.pushHistoryFrom(before);
+        const by = args.by ?? 90;
+        s.rot = (((s.rot + by) % 360) + 360) % 360;
+        // Turning the screen turns which way is down.
+        if (s.flags.gravDir) {
+          const steps = (((by / 90) | 0) % 4 + 4) % 4;
+          const i = DIR_ORDER.indexOf(s.flags.gravDir);
+          if (i >= 0) s.flags.gravDir = DIR_ORDER[(i + steps) % 4];
+        }
+        break;
+      }
+      case 'closeNote':
+        this.pushHistoryFrom(before);
+        s.flags.noteClosed = !s.flags.noteClosed;
+        break;
+      case 'tapTitle':
+        this.pushHistoryFrom(before);
+        s.flags.titleTaps = (s.flags.titleTaps || 0) + 1;
+        break;
+      case 'dropUI': { // drag a UI label (RESET, UNDO, MOVES...) onto the board
+        const { item, x, y } = args;
+        if (this.solidFor(x, y, null)) { handled = false; break; }
+        this.pushHistoryFrom(before);
+        const base = 'ui_' + String(item).toUpperCase();
+        let wid = base, n = 1;
+        while (s.objs.some((o) => o.id === wid)) wid = base + '_' + (++n);
+        s.objs.push({ id: wid, kind: 'word', text: String(item).toUpperCase(), x, y, fromUI: true });
+        break;
+      }
+      case 'dropChar': { // pull a character out of a UI label and graft it onto an object
+        const { char, ref, mode } = args;
+        const o = this.byRef(ref);
+        if (!o) { handled = false; break; }
+        this.pushHistoryFrom(before);
+        const cur = String(o.label ?? '');
+        o.label = mode === 'set' ? String(char)
+          : mode === 'prepend' ? String(char) + cur
+          : cur + String(char);
+        break;
+      }
+      case 'splitWord': { // RESET -> RE + SET
+        const o = this.byRef(args.ref);
+        if (!o || o.kind !== 'word') { handled = false; break; }
+        const at = args.at ?? 2;
+        const head = o.text.slice(0, at), tail = o.text.slice(at);
+        if (!head || !tail) { handled = false; break; }
+        this.pushHistoryFrom(before);
+        o.text = head;
+        s.objs.push({ id: 'ui_' + tail, kind: 'word', text: tail,
+          x: args.x ?? o.x, y: args.y ?? o.y, fromUI: o.fromUI });
+        break;
+      }
+      case 'wordDrag': { // pick a word block up and put it somewhere else
+        const o = this.byRef(args.ref);
+        if (!o || o.kind !== 'word') { handled = false; break; }
+        if (this.solidFor(args.x, args.y, o)) { handled = false; break; }
+        this.pushHistoryFrom(before);
+        o.x = args.x; o.y = args.y;
+        break;
+      }
+      case 'dragBoard':
+        s.view = { ...s.view, x: args.x ?? s.view.x, y: args.y ?? s.view.y };
+        break;
+      default:
+        this.pushHistoryFrom(before);
+        s.flags['ui_' + name] = (s.flags['ui_' + name] || 0) + 1;
+    }
+    if (!handled) { this.emit({ t: 'uiFailed', name }); return { ok: false }; }
+    this.meta.evalTick++;
+    const res = this.fire('onUI', { ui: { name, ...args } });
+    if ((this.stage.turn_conditions || {}).uiCountsTurn) s.turn += 1;
+    this.gravity();
+    this.applyExistence();
+    this.checkWin();
+    this.emit({ t: 'ui', name, args });
+    return { ok: true, won: s.won, fired: res.fired };
+  }
+
+  // ---------------------------------------------------------------- winning
+
+  checkWin() {
+    if (this.s.dead) return false;
+    const pre = this.fire('beforeWin', {});
+    if (pre.cancel) return false;
+    const conds = this.stage.win_conditions;
+    let won;
+    if (conds && conds.length) {
+      won = conds.every((c) => test(c, this.ctx()));
+    } else {
+      won = this.defaultWin();
+    }
+    if (won && !this.s.won) {
+      this.s.won = true;
+      this.emit({ t: 'win' });
+    } else if (!won && this.s.won) {
+      this.s.won = false;
+    }
+    if (!won) this.observeNearMiss();
+    return won;
+  }
+
+  defaultWin() {
+    const sem = this.semantics();
+    const p = this.player;
+    if (!p) return false;
+    if (identityHolds(sem, 'PLAYER', 'GOAL') && this.goal) return true;
+    const winNouns = Object.keys(sem.props).filter((n) => hasProp(sem, n, 'WIN') || hasProp(sem, n, 'CLEAR'));
+    // "BOX IS GOAL" makes boxes count as goals too.
+    for (const [a, b] of sem.ident) {
+      if (winNouns.includes(b) && !winNouns.includes(a)) winNouns.push(a);
+      if (winNouns.includes(a) && !winNouns.includes(b)) winNouns.push(b);
+    }
+    const kinds = winNouns.map((n) => NOUN_OBJ[n]).filter(Boolean);
+    if (!kinds.length) kinds.push('goal');
+    return this.s.objs.some((o) => kinds.includes(o.kind) && o.x === p.x && o.y === p.y);
+  }
+
+  // ---------------------------------------------------------------- notes
+
+  observe(text, ruleId) {
+    const key = text;
+    if (this.s.note.includes(key)) return;
+    this.s.note.push(key);
+    this.emit({ t: 'observe', text, ruleId });
+  }
+
+  observeBlocked(x, y) {
+    const t = this.tileAt(x, y);
+    if (t === 'wall' || t === 'void') return;
+    this.observe(`${labelOfTile(t)}に阻まれた (${this.s.turn}手目)`);
+  }
+
+  observeNearMiss() {
+    const p = this.player, g = this.goal;
+    if (p && g && p.x === g.x && p.y === g.y) this.observe(`ゴールに触れた → 何も起きない (${this.s.turn}手目)`);
+  }
+
+  discover(ruleId) {
+    if (!ruleId || this.discovered[ruleId]) return false;
+    this.discovered[ruleId] = true;
+    const rule = (this.stage.hidden_rules || []).find((r) => r.id === ruleId);
+    this.emit({ t: 'discover', id: ruleId, name: rule ? rule.name : ruleId });
+    return true;
+  }
+
+  emit(e) { this.events.push(e); this.onEvent(e); }
+  drain() { const e = this.events; this.events = []; return e; }
+}
+
+// ---------------------------------------------------------------- helpers
+
+function opposite(dir) {
+  return { up: 'down', down: 'up', left: 'right', right: 'left' }[dir] || dir;
+}
+
+function labelOfTile(t) {
+  return { redwall: '赤い壁', bluewall: '青い壁', glass: '透明な壁', wall: '壁', void: '外', door: '扉' }[t] || t;
+}
+
+function digInto(obj, path) {
+  let cur = obj;
+  for (const part of String(path).split('.')) {
+    if (cur === null || cur === undefined) return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+function setDeep(obj, path, value) {
+  const parts = String(path).split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (typeof cur[parts[i]] !== 'object' || cur[parts[i]] === null) cur[parts[i]] = {};
+    cur = cur[parts[i]];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+return { Game, opposite, DIRS, DIR_ORDER, TILE_DEFAULTS };
+})();
+
+// ===== src/render.js =====
+__M['render'] = (function () {
+// render.js -- draws the world as dots on a canvas, and answers the only
+// question the input layer asks: "which cell is under this finger?"
+
+const { drawTile, drawSprite, drawFace, drawText, textWidth } = __M['pixel'];
+const THEME = {
+  bg: '#050505',
+  floor: '#141414', floorDot: '#242424',
+  wall: '#2e2e2e', wallDot: '#414141',
+  red: '#5a1220', redDot: '#c8324a',
+  blueW: '#12325a', blueWDot: '#3a86d8',
+  blueF: '#0e2438', blueFDot: '#3a86d8',
+  yellowF: '#3a3212', yellowFDot: '#d8c23a',
+  glass: '#2c4a52',
+  grate: '#4a4a4a',
+  holeEdge: '#2a2a2a',
+  player: '#f2f2f2', goal: '#7ad1ff', box: '#c8a45a', key: '#d8c23a',
+  door: '#a06a3a', enemy: '#e04a5a', sw: '#8a8a8a', ghost: '#4a6a7a',
+  word: '#e8e8e8', wordBg: '#1c1c24', wordUi: '#d8c23a',
+  mark: '#4a4a4a', frame: '#2a2a2a',
+};
+
+class Renderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.c = canvas.getContext('2d');
+    this.px = 4;
+    this.ox = 0; this.oy = 0;
+    this.rot = 0;
+    this.userZoom = 1;
+  }
+
+  resize() {
+    const r = this.canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.canvas.width = Math.max(1, Math.round(r.width * dpr));
+    this.canvas.height = Math.max(1, Math.round(r.height * dpr));
+    this.dpr = dpr;
+    this.cssW = r.width; this.cssH = r.height;
+  }
+
+  layout(game) {
+    const v = game.s.view;
+    const c = this.canvas;
+    const pad = 8 * this.dpr;
+    const px = Math.max(1, Math.floor(Math.min(
+      (c.width - pad * 2) / (v.w * 8),
+      (c.height - pad * 2) / (v.h * 8))));
+    this.px = px;
+    this.cell = px * 8;
+    this.ox = Math.round((c.width - v.w * this.cell) / 2 - v.x * this.cell);
+    this.oy = Math.round((c.height - v.h * this.cell) / 2 - v.y * this.cell);
+    this.rot = game.s.rot || 0;
+    this.cx = c.width / 2; this.cy = c.height / 2;
+  }
+
+  applyTransform() {
+    const c = this.c;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    if (this.rot) {
+      c.translate(this.cx, this.cy);
+      c.rotate((-this.rot * Math.PI) / 180);
+      c.translate(-this.cx, -this.cy);
+    }
+  }
+
+  // screen (css px) -> board cell, undoing rotation and centring
+  cellAt(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect();
+    let x = (clientX - r.left) * this.dpr;
+    let y = (clientY - r.top) * this.dpr;
+    if (this.rot) {
+      const a = (this.rot * Math.PI) / 180;   // inverse of -rot
+      const dx = x - this.cx, dy = y - this.cy;
+      x = this.cx + dx * Math.cos(a) - dy * Math.sin(a);
+      y = this.cy + dx * Math.sin(a) + dy * Math.cos(a);
+    }
+    return {
+      x: Math.floor((x - this.ox) / this.cell),
+      y: Math.floor((y - this.oy) / this.cell),
+    };
+  }
+
+  // board cell -> page coordinates (css px), applying the same rotation as draw()
+  screenOf(gx, gy) {
+    const r = this.canvas.getBoundingClientRect();
+    let x = this.ox + gx * this.cell + this.cell / 2;
+    let y = this.oy + gy * this.cell + this.cell / 2;
+    if (this.rot) {
+      const a = (-this.rot * Math.PI) / 180;
+      const dx = x - this.cx, dy = y - this.cy;
+      x = this.cx + dx * Math.cos(a) - dy * Math.sin(a);
+      y = this.cy + dx * Math.sin(a) + dy * Math.cos(a);
+    }
+    return { x: r.left + x / this.dpr, y: r.top + y / this.dpr };
+  }
+
+  cellRect(gx, gy) {
+    return { x: this.ox + gx * this.cell, y: this.oy + gy * this.cell, s: this.cell };
+  }
+
+  draw(game, opts = {}) {
+    const c = this.c;
+    const s = game.s;
+    this.layout(game);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.fillStyle = THEME.bg;
+    c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.applyTransform();
+
+    const v = s.view;
+    const zoomedOut = v.w > (game.stage.view?.w ?? v.w) || v.h > (game.stage.view?.h ?? v.h);
+
+    // tiles
+    for (let y = 0; y < s.h; y++) {
+      for (let x = 0; x < s.w; x++) {
+        const t = game.tileAt(x, y);
+        if (t === 'void') continue;
+        const r = this.cellRect(x, y);
+        const outside = x < v.x || y < v.y || x >= v.x + v.w || y >= v.y + v.h;
+        if (outside && !zoomedOut) continue;
+        c.globalAlpha = outside ? 0.35 : 1;
+        drawTile(c, t, r.x, r.y, this.px, THEME);
+        c.globalAlpha = 1;
+      }
+    }
+
+    // floor marks: the evidence that was always there
+    for (const m of game.stage.marks || []) {
+      const r = this.cellRect(m.x, m.y);
+      const w = textWidth(m.g, this.px);
+      drawText(c, m.g, r.x + (this.cell - w) / 2, r.y + (this.cell - this.px * 7) / 2, this.px, THEME.mark);
+    }
+
+    // the frame the stage claims to be
+    if (game.stage.view) {
+      c.strokeStyle = THEME.frame;
+      c.lineWidth = Math.max(1, this.px / 2);
+      const a = this.cellRect(game.stage.view.x, game.stage.view.y);
+      c.strokeRect(a.x, a.y, game.stage.view.w * this.cell, game.stage.view.h * this.cell);
+    }
+
+    // a line of text written on the world itself (FINAL says its own name)
+    if (game.stage.banner) {
+      const scale = Math.max(1, Math.floor(this.px * 0.9));
+      const w = textWidth(game.stage.banner, scale);
+      drawText(c, game.stage.banner,
+        this.ox + (v.x + v.w / 2) * this.cell - w / 2,
+        this.oy + (v.y + v.h / 2) * this.cell - scale * 3.5, scale, '#2e2e2e');
+    }
+
+    // objects
+    const order = { switch: 0, door: 1, goal: 2, key: 3, box: 4, word: 5, ghost: 6, enemy: 7, player: 8 };
+    const objs = [...s.objs].sort((a, b) => (order[a.kind] ?? 5) - (order[b.kind] ?? 5));
+    for (const o of objs) {
+      const r = this.cellRect(o.x, o.y);
+      const outside = o.x < v.x || o.y < v.y || o.x >= v.x + v.w || o.y >= v.y + v.h;
+      if (outside && !zoomedOut) continue;
+      this.drawObject(game, o, r, opts);
+    }
+
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  drawObject(game, o, r, opts) {
+    const c = this.c;
+    const px = this.px;
+    switch (o.kind) {
+      case 'player':
+        drawSprite(c, 'player', r.x, r.y, px, THEME.player);
+        drawFace(c, game.s.facing, r.x, r.y, px, THEME.bg);
+        break;
+      case 'ghost':
+        c.globalAlpha = 0.55;
+        drawSprite(c, 'ghost', r.x, r.y, px, THEME.ghost);
+        c.globalAlpha = 1;
+        break;
+      case 'goal':
+        drawSprite(c, 'goal', r.x, r.y, px, THEME.goal, THEME.goal);
+        break;
+      case 'box':
+        drawSprite(c, 'box', r.x, r.y, px, o.push === false ? THEME.sw : THEME.box);
+        break;
+      case 'key': drawSprite(c, 'key', r.x, r.y, px, THEME.key); break;
+      case 'switch': drawSprite(c, 'switch', r.x, r.y, px, THEME.sw, THEME.goal); break;
+      case 'enemy': drawSprite(c, 'enemy', r.x, r.y, px, THEME.enemy); break;
+      case 'door': {
+        const open = game.doorOpen(o);
+        c.globalAlpha = open ? 0.35 : 1;
+        drawSprite(c, 'door', r.x, r.y, px, THEME.door, THEME.key);
+        c.globalAlpha = 1;
+        if (o.label !== undefined) {
+          const w = textWidth(o.label, px);
+          drawText(c, o.label, r.x + (this.cell - w) / 2, r.y + this.cell - px * 8, px, THEME.key);
+        }
+        break;
+      }
+      case 'word': {
+        const sel = opts.selectedWord === o.id;
+        c.fillStyle = sel ? '#3a3a4a' : THEME.wordBg;
+        c.fillRect(r.x + px, r.y + px, this.cell - px * 2, this.cell - px * 2);
+        c.strokeStyle = o.fromUI ? THEME.wordUi : '#3a3a44';
+        c.lineWidth = Math.max(1, px / 2);
+        c.strokeRect(r.x + px, r.y + px, this.cell - px * 2, this.cell - px * 2);
+        const scale = Math.max(1, Math.floor((this.cell - px * 4) / (o.text.length * 6)));
+        const w = textWidth(o.text, scale);
+        drawText(c, o.text, r.x + (this.cell - w) / 2, r.y + (this.cell - scale * 7) / 2, scale,
+          o.fromUI ? THEME.wordUi : THEME.word);
+        break;
+      }
+      default:
+        drawSprite(c, 'box', r.x, r.y, px, '#888');
+    }
+  }
+}
+
+return { Renderer, THEME };
+})();
+
+// ===== src/audio.js =====
+__M['audio'] = (function () {
+// audio.js -- small synthesised blips. No files, no loading, no music.
+let ctx = null;
+let muted = false;
+
+function ac() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function setMuted(v) { muted = v; }
+function isMuted() { return muted; }
+
+function tone({ freq = 440, dur = 0.08, type = 'square', gain = 0.06, slide = 0, delay = 0 }) {
+  if (muted) return;
+  let a;
+  try { a = ac(); } catch { return; }
+  const t = a.currentTime + delay;
+  const o = a.createOscillator();
+  const g = a.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq + slide), t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+
+const SFX = {
+  step: () => tone({ freq: 220, dur: 0.03, gain: 0.03 }),
+  blip: () => tone({ freq: 660, dur: 0.05, gain: 0.04 }),
+  err: () => tone({ freq: 110, dur: 0.09, type: 'sawtooth', gain: 0.05 }),
+  thud: () => tone({ freq: 90, dur: 0.12, type: 'triangle', gain: 0.07 }),
+  low: () => tone({ freq: 70, dur: 0.3, type: 'sine', gain: 0.09 }),
+  get: () => { tone({ freq: 880, dur: 0.05 }); tone({ freq: 1320, dur: 0.06, delay: 0.05 }); },
+  warp: () => { tone({ freq: 200, dur: 0.18, slide: 900, type: 'sawtooth', gain: 0.05 }); },
+  ui: () => tone({ freq: 520, dur: 0.03, gain: 0.03 }),
+  discover: () => {
+    tone({ freq: 55, dur: 0.6, type: 'sine', gain: 0.12 });
+    tone({ freq: 330, dur: 0.1, delay: 0.05 });
+    tone({ freq: 440, dur: 0.1, delay: 0.16 });
+    tone({ freq: 660, dur: 0.22, delay: 0.27 });
+  },
+  win: () => {
+    tone({ freq: 523, dur: 0.08 });
+    tone({ freq: 659, dur: 0.08, delay: 0.08 });
+    tone({ freq: 784, dur: 0.08, delay: 0.16 });
+    tone({ freq: 1046, dur: 0.22, delay: 0.24 });
+  },
+  dead: () => tone({ freq: 160, dur: 0.35, slide: -120, type: 'sawtooth', gain: 0.07 }),
+};
+
+function play(name) { (SFX[name] || SFX.blip)(); }
+
+return { setMuted, isMuted, play, SFX };
+})();
+
+// ===== src/save.js =====
+__M['save'] = (function () {
+// save.js -- autosave. The game may pretend to break; the save file never does.
+const KEY = 'rulebreak.save.v1';
+
+const BLANK = {
+  version: 1,
+  cleared: {},      // stageId -> true
+  discovered: {},   // ruleId  -> true
+  notes: {},        // stageId -> [observation strings]
+  globals: {},      // cross-stage variables
+  unlocked: {},     // hidden stage ids
+  hints: {},        // stageId -> how many hint tiers were opened
+  titleBroken: false,
+  rootRules: {},    // root rules the player has edited (post-title-break)
+  muted: false,
+  lastStage: '1',
+};
+
+let cache = null;
+
+function load() {
+  if (cache) return cache;
+  try {
+    const raw = localStorage.getItem(KEY);
+    cache = raw ? { ...BLANK, ...JSON.parse(raw) } : { ...BLANK };
+  } catch {
+    cache = { ...BLANK };            // corrupt or blocked storage: start clean, never throw
+  }
+  for (const k of Object.keys(BLANK)) if (cache[k] === undefined) cache[k] = BLANK[k];
+  return cache;
+}
+
+let pending = null;
+function save() {
+  const data = load();
+  if (pending) clearTimeout(pending);
+  pending = setTimeout(() => {
+    pending = null;
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* storage full or denied */ }
+  }, 120);
+}
+
+function saveNow() {
+  const data = load();
+  try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* ignore */ }
+}
+
+function wipe() {
+  cache = { ...BLANK };
+  saveNow();
+}
+
+return { load, save, saveNow, wipe };
+})();
+
+// ===== src/stages/l1.js =====
+__M['stages/l1'] = (function () {
+// LEVEL 1 -- the world looks ordinary. It is not.
+// Nothing here is ever explained; every law has physical evidence on the board.
+
+const L1 = [
+{
+  id: '1', level: 1, title: 'FIRST STEP',
+  grid: { rows: ['#######', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#######'] },
+  objects: [{ kind: 'player', x: 1, y: 3 }, { kind: 'goal', x: 5, y: 3 }],
+  available_ui_actions: ['undo', 'reset'],
+  hint_1: '歩けばいい。',
+  hint_2: '右へ。',
+  hint_3: '右へ4回。これはチュートリアルだ。……たぶん。',
+  solution: ['R', 'R', 'R', 'R'],
+},
+{
+  id: '2', level: 1, title: 'TEN',
+  grid: { rows: ['#######', '#.....#', '#.....#', '#yyyyy#', '#y###y#', '#y###y#', '#######'],
+    legend: { y: { type: 'yellowfloor' } } },
+  objects: [{ kind: 'player', x: 1, y: 5 }, { kind: 'goal', x: 5, y: 5 }],
+  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'turn' }, b: 10 }],
+  marks: [{ x: 3, y: 3, g: '10' }],
+  available_ui_actions: ['undo', 'reset'],
+  laws: [{ id: 'L2', name: 'ゴールは10手目に踏んだときだけゴールになる', answer: ['ゴール', '10', '手目'] }],
+  tokens: ['ゴール', '壁', '10', '3', '手目', '偶数', '奇数', '右', '接触', '反転'],
+  hint_1: '盤面ではなく、盤面の外の数字を見よう。',
+  hint_2: 'MOVES は何のために表示されている？',
+  hint_3: '黄色い床の道は何歩ある？ その歩数ちょうどでゴールを踏め。',
+  solution: ['U', 'U', 'U', 'R', 'R', 'R', 'R', 'D', 'D', 'D'],
+},
+{
+  id: '3', level: 1, title: 'TRACE',
+  grid: { rows: ['#######', '#..#..#', '#..#..#', '#.....#', '#..#..#', '#..#..#', '#######'] },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { kind: 'key', keyId: 'a', x: 5, y: 1 },
+    { kind: 'key', keyId: 'b', x: 1, y: 5 },
+    { kind: 'goal', x: 5, y: 5 },
+  ],
+  hidden_rules: [{
+    id: 'R_TRACE', name: '同じマスを2回踏むと、そのマスは壁になる', when: 'afterMove',
+    if: { op: 'and', args: [{ v: 'arg.moved' }, { op: '>=', a: { v: 'visitsPrev' }, b: 2 }] },
+    then: [{ do: 'setTilePrev', to: 'wall' }, { do: 'sound', name: 'thud' }],
+    note: '通った床をもう一度通った → 背後で音がした',
+    answer: ['床', '2', '回', '壁'],
+  }],
+  win_conditions: [{ at: ['player', 'goal'] }, { v: 'key.a' }, { v: 'key.b' }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['床', '壁', '2', '3', '回', '踏む', '消える', '鍵', '偶数', '反転'],
+  hint_1: '道が減っていないか？',
+  hint_2: '一度通った道を、もう一度通ってみて、そのあと振り返れ。',
+  hint_3: '2回踏んだ床は失われる。どちらの鍵を先に取るかが全て。',
+  solution: ['D', 'D', 'D', 'D', 'U', 'U', 'R', 'R', 'R', 'R', 'U', 'U', 'D', 'D', 'D', 'D'],
+},
+{
+  id: '4', level: 1, title: 'RIGHT RIGHT RIGHT',
+  grid: { rows: ['#######', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#######'] },
+  objects: [{ kind: 'player', x: 1, y: 5 }, { kind: 'goal', x: 5, y: 1 }],
+  flags: { gravDir: 'down' },
+  marks: [{ x: 1, y: 5, g: '>' }, { x: 2, y: 5, g: '>' }, { x: 3, y: 5, g: '>' }],
+  hidden_rules: [{
+    id: 'R_GRAV', name: '3回右へ進むと重力が反転する', when: 'afterMove',
+    if: { op: '==', a: { v: 'streak.right' }, b: 3 },
+    then: [{ do: 'flipGravity' }, { do: 'sound', name: 'low' }, { do: 'flash', text: '' }],
+    note: '右へ3回 → 世界が裏返った',
+    answer: ['右', '3', '回', '重力', '反転'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['右', '左', '3', '2', '回', '重力', '反転', '床', '壁', '手目'],
+  hint_1: '上には行けない。跳べないのだから。',
+  hint_2: '床に描かれた矢印は何本ある？',
+  hint_3: '同じ方向へ連続して進んだ回数を数えよう。3回目に何かが起きる。',
+  solution: ['R', 'R', 'R', 'R'],
+},
+{
+  id: '5', level: 1, title: 'PUSH',
+  grid: { rows: ['#########', '#.......#', '#.###.#.#', '#.#...#.#', '#.#####.#', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 2, y: 1 },
+    { kind: 'goal', x: 3, y: 3 },
+    { id: 'bx1', kind: 'box', x: 1, y: 1, push: false },
+    { id: 'bx2', kind: 'box', x: 7, y: 2, push: false },
+    { id: 'bx3', kind: 'box', x: 5, y: 2, push: false },
+  ],
+  hidden_rules: [{
+    id: 'R_PUSHGOAL', name: '箱を押すと、箱ではなくゴールが反対方向へ動く', when: 'moveBlocked',
+    if: { op: '==', a: { v: 'arg.by' }, b: 'box' },
+    then: [{ do: 'moveObj', ref: 'goal', dir: 'opposite', by: 1, force: 'objects' }, { do: 'sound', name: 'blip' }],
+    note: '箱を押した → 箱は動かず、別の何かが動いた',
+    answer: ['箱', 'ゴール', '反対', '動く'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['箱', 'ゴール', '壁', '反対', '同じ', '動く', '押す', '2', '回', '重力'],
+  hint_1: '箱はびくともしない。だが「何も起きていない」わけではない。',
+  hint_2: '箱を押したとき、盤面のどこかを見張っていよう。',
+  hint_3: 'ゴールは押した向きと逆へ動く。ゴールを、自分が行ける場所まで運べ。',
+  solution: ['L', 'L', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L'],
+},
+{
+  id: '6', level: 1, title: 'FACE',
+  grid: { rows: ['#########', '#.......#', '####r####', '#.......#', '#########'],
+    legend: { r: { type: 'redwall', solid: { op: '!=', a: { v: 'facing' }, b: 'up' } } } },
+  objects: [{ kind: 'player', x: 1, y: 3 }, { kind: 'goal', x: 7, y: 1 }],
+  marks: [{ x: 4, y: 3, g: '^' }],
+  hidden_rules: [{
+    id: 'R_FACE', name: '上を向いている間だけ赤い壁を通過できる', when: 'moveBlocked',
+    if: { op: '==', a: { v: 'arg.tile' }, b: 'redwall' },
+    then: [{ do: 'sound', name: 'err' }],
+    note: '赤い壁に阻まれた → そのときの向きは？',
+    answer: ['赤', '壁', '上', '向き', '通過'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['赤', '青', '壁', '上', '下', '向き', '通過', '偶数', '手目', '箱'],
+  hint_1: 'その赤いものは、本当に壁か？',
+  hint_2: 'プレイヤーの目はどこを向いている？',
+  hint_3: '床の矢印の上に立って、その向きへ進め。赤は上を向いた者だけを通す。',
+  solution: ['R', 'R', 'R', 'U', 'U', 'R', 'R', 'R'],
+},
+{
+  id: '7', level: 1, title: 'PHASE',
+  grid: { rows: ['#########', '#....g..#', '#.#####.#', '#...#...#', '#########'],
+    legend: { g: { type: 'glass' } } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  turn_conditions: { countBlocked: true },
+  marks: [{ x: 1, y: 1, g: '.' }, { x: 3, y: 1, g: '.' }, { x: 5, y: 1, g: '.' }, { x: 7, y: 1, g: '.' },
+    { x: 2, y: 3, g: '.' }, { x: 6, y: 3, g: '.' }],
+  hidden_rules: [{
+    id: 'R_PHASE', name: '奇数手では壁が存在し、偶数手では床になる', when: 'moveBlocked',
+    if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' },
+    then: [{ do: 'sound', name: 'err' }],
+    note: '透明な壁に阻まれた → そのときの手数は奇数だった',
+    answer: ['壁', '奇数', '偶数', '手目', '存在'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['壁', '床', '奇数', '偶数', '手目', '存在', '色', '向き', '3', '回'],
+  hint_1: '行ったり来たりしても、何も変わらない。それ自体が答えの半分だ。',
+  hint_2: 'MOVES は、進めなかったときも増える。',
+  hint_3: 'この盤面では手数の偶奇と自分の位置の色が連動している。壁に頭をぶつけて、その連動を切れ。',
+  solution: ['U', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '8', level: 1, title: 'ODD',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 2 }, { kind: 'goal', x: 7, y: 2 }],
+  turn_conditions: { countBlocked: true },
+  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { op: '%', a: { v: 'turn' }, b: 2 }, b: 1 }],
+  laws: [{ id: 'L8', name: 'ゴールは奇数手のときだけ有効', answer: ['ゴール', '奇数', '手目'] }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['ゴール', '奇数', '偶数', '手目', '10', '壁', '向き', '重力', '接触', '存在'],
+  hint_1: 'ゴールの上に立っている。それでも駄目なら、足りないのはゴールではない。',
+  hint_2: 'ステージ名を声に出して読め。',
+  hint_3: '前ステージで学んだはずだ。壁を殴っても1手は進む。ゴールの上で1手潰せ。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '9', level: 1, title: 'STOPPER',
+  grid: { rows: ['#########', '#.#.....#', '#.#.....#', '#.......#', '#.......#', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 3 },
+    { id: 'slider', kind: 'box', x: 2, y: 3, slide: true },
+    { kind: 'switch', link: 'a', x: 5, y: 3 },
+    { kind: 'door', link: 'a', x: 1, y: 2 },
+    { kind: 'goal', x: 1, y: 1 },
+  ],
+  hidden_rules: [{
+    id: 'R_TRACE9', name: '同じマスを2回踏むと、そのマスは壁になる', when: 'afterMove',
+    if: { op: 'and', args: [{ v: 'arg.moved' }, { op: '>=', a: { v: 'visitsPrev' }, b: 2 }] },
+    then: [{ do: 'setTilePrev', to: 'wall' }, { do: 'sound', name: 'thud' }],
+    note: '2度踏んだ床を離れた → 背後が閉じた',
+    answer: ['床', '2', '回', '壁'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['床', '壁', '箱', '2', '回', '止まる', '滑る', 'スイッチ', '奇数', '重力'],
+  hint_1: 'その箱は、押されると止まらない。ならば「止める物」を用意すればいい。',
+  hint_2: '壁は最初から置いてある物とは限らない。3ステージ前を思い出せ。',
+  hint_3: '自分の足で壁を作る。箱が止まってほしいマスの、ひとつ先に作れ。',
+  solution: ['D', 'R', 'R', 'R', 'R', 'R', 'U', 'D', 'U', 'L', 'D', 'L', 'L', 'L', 'L', 'U', 'R', 'L', 'U', 'U'],
+},
+];
+
+return { L1 };
+})();
+
+// ===== src/stages/l2.js =====
+__M['stages/l2'] = (function () {
+// LEVEL 2 -- the laws stop being obstacles and start being tools.
+// Every stage here is unsolvable unless a discovered rule is deliberately abused.
+
+const L2 = [
+{
+  id: '10', level: 2, title: 'SWAP',
+  grid: { rows: ['#########', '#.....#.#', '#.....#.#', '#.....=.#', '#.....#.#', '#.....#.#', '#########'],
+    legend: { '=': { type: 'grate', solid: true, boxPass: true } } },
+  objects: [
+    { kind: 'player', x: 1, y: 3 },
+    { id: 'bx', kind: 'box', x: 2, y: 3 },
+    { kind: 'goal', x: 7, y: 1 },
+  ],
+  marks: [{ x: 2, y: 5, g: '4' }],
+  hidden_rules: [{
+    id: 'R_SWAP', name: '箱を4回押すと、箱とプレイヤーの位置が入れ替わる', when: 'onPush',
+    if: { op: '==', a: { objProp: ['box', 'pushed'] }, b: 4 },
+    then: [{ do: 'swap', a: 'player', b: 'box' }, { do: 'sound', name: 'warp' }, { do: 'flash', text: '' }],
+    note: '4回目の押し込み → 自分の居場所が変わった',
+    answer: ['箱', '4', '回', '入れ替わる'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['箱', '4', '3', '回', '入れ替わる', '押す', '壁', '格子', '重力', 'ゴール'],
+  hint_1: '格子は壁ではない。ただしお前は通れない。',
+  hint_2: '押した回数を数えろ。床に数字が書いてある。',
+  hint_3: '4回目の押しで箱と自分が入れ替わる。入れ替わりたい場所へ、先に箱を送り込め。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'U', 'U'],
+},
+{
+  id: '11', level: 2, title: 'CAGE',
+  grid: { rows: ['#########', '#.......#', '####.####', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 3 },
+    { kind: 'enemy', x: 6, y: 1, behavior: 'patrol', patrol: ['left', 'right'] },
+    { kind: 'goal', x: 7, y: 1 },
+  ],
+  hidden_rules: [{
+    id: 'R_TRACE11', name: '同じマスを2回踏むと、そのマスは壁になる', when: 'afterMove',
+    if: { op: 'and', args: [{ v: 'arg.moved' }, { op: '>=', a: { v: 'visitsPrev' }, b: 2 }] },
+    then: [{ do: 'setTilePrev', to: 'wall' }, { do: 'sound', name: 'thud' }],
+    note: '2度踏んだ床を離れた → 背後が閉じた',
+    answer: ['床', '2', '回', '壁'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['床', '壁', '2', '回', '敵', '通れない', '閉じ込める', '奇数', '重力', '箱'],
+  hint_1: '敵は、お前が作った壁も通れない。',
+  hint_2: '敵はお前が動いたときだけ動く。止まっていても、時間は進まない。',
+  hint_3: '自分の足跡で通路を切断し、敵を反対側へ置き去りにしろ。切る位置と、切る瞬間に自分がどちら側にいるかが全て。',
+  solution: ['R', 'R', 'R', 'U', 'U', 'R', 'L', 'R', 'R', 'R'],
+},
+{
+  id: '12', level: 2, title: 'QUIET ROOM',
+  grid: { rows: ['#######', '#.....#', '#.###.#', '#.....#', '#.###.#', '#.....#', '#######'] },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { kind: 'goal', x: 1, y: 5 },
+    { id: 's12box', kind: 'box', x: 3, y: 3, spawnIf: { global: 's40_seen' } },
+    { kind: 'switch', link: 'p', x: 5, y: 3, spawnIf: { global: 's40_seen' } },
+  ],
+  hidden_rules: [{
+    id: 'R_S12', name: 'この部屋で起きたことは、この部屋だけの話ではない', when: 'everyTurn',
+    if: { op: 'and', args: [{ countObj: 'box' }, { at: ['box', 'switch'] }] },
+    then: [{ do: 'setGlobal', key: 's12_box_placed', value: true },
+      { do: 'flash', text: 'SOMEWHERE ELSE' }, { do: 'sound', name: 'discover' }],
+    note: '箱が台座に載った → 別の場所で音がした',
+    answer: ['箱', '台座', '別', 'ステージ'],
+  }],
+  cross_stage_variables: { read: ['s40_seen'], write: ['s12_box_placed'] },
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['箱', '台座', '別', 'ステージ', '影響', '壁', '2', '回', '重力', '手目'],
+  hint_1: 'ここは静かだ。何もない。……本当に、最初から何もなかったか？',
+  hint_2: 'このステージに来た回数を思い出せ。以前と違うものが置かれていないか。',
+  hint_3: '箱を台座へ押し込め。効果はこのステージには現れない。',
+  solution: ['D', 'D', 'D', 'D'],
+  solution_after: ['D', 'D', 'R', 'R', 'R', 'L', 'L', 'L', 'D', 'D'],
+},
+{
+  id: '13', level: 2, title: 'THROUGH',
+  grid: { rows: ['#########', '#.......#', '#.#####.#', '#.#...#.#', '#.#####.#', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { kind: 'goal', x: 3, y: 3 },
+    { id: 'anchor', kind: 'box', x: 7, y: 1, push: false },
+  ],
+  hidden_rules: [{
+    id: 'R_GHOSTGOAL', name: 'ゴールは物体ではないので、壁をすり抜ける', when: 'moveBlocked',
+    if: { op: '==', a: { v: 'arg.by' }, b: 'box' },
+    then: [{ do: 'moveObj', ref: 'goal', dir: 'opposite', by: 1, force: true }, { do: 'sound', name: 'blip' }],
+    note: 'ゴールが壁の中へ入っていった',
+    answer: ['ゴール', '壁', 'すり抜ける', '反対'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['ゴール', '壁', 'すり抜ける', '反対', '箱', '物体', '2', '回', '重力', '手目'],
+  hint_1: 'その部屋には入口がない。だから入口を探すのは間違いだ。',
+  hint_2: '前に箱を押したとき、ゴールはどう動いた？ 今回は何が違う？',
+  hint_3: 'ゴールを壁の外まで歩かせろ。ゴールに壁は関係ない。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'R', 'L', 'L', 'L', 'L', 'L', 'D', 'D'],
+},
+{
+  id: '14', level: 2, title: 'CEILING',
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 5 }, { kind: 'goal', x: 1, y: 1 }],
+  flags: { gravDir: 'down' },
+  marks: [{ x: 1, y: 5, g: '>' }, { x: 2, y: 5, g: '>' }, { x: 3, y: 5, g: '>' }],
+  hidden_rules: [{
+    id: 'R_GRAV14', name: '3回右へ進むと重力が反転する', when: 'afterMove',
+    if: { op: '==', a: { v: 'streak.right' }, b: 3 },
+    then: [{ do: 'flipGravity' }, { do: 'sound', name: 'low' }, { do: 'flash', text: '' }],
+    note: '右へ3回 → 世界が裏返った',
+    answer: ['右', '3', '回', '重力', '反転'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['右', '3', '回', '重力', '反転', '連続', '壁', '床', '手目', '箱'],
+  hint_1: '落ちる方向は、ひとつではない。',
+  hint_2: '反転する条件を、望まないときに満たしていないか？',
+  hint_3: '右へ3回連続で進むと反転する。ならば「連続」を切ればいい。2歩進んで1歩戻れ。',
+  solution: ['R', 'R', 'R', 'L', 'L', 'L',
+    'R', 'R', 'L', 'R', 'R', 'L', 'R', 'R', 'L', 'R', 'R', 'L', 'R', 'R',
+    'L', 'L', 'L', 'L', 'L', 'L'],
+},
+{
+  id: '15', level: 2, title: 'SHIFT',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#....g..#', '#########'],
+    legend: { g: { type: 'glass' } } },
+  objects: [
+    { kind: 'player', x: 1, y: 3 },
+    { id: 'bx', kind: 'box', x: 2, y: 1 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  hidden_rules: [{
+    id: 'R_PUSHTURN', name: '箱を押すとターン数が+2される', when: 'onPush',
+    if: true,
+    then: [{ do: 'addTurn', by: 1 }, { do: 'sound', name: 'blip' }],
+    note: '箱を押した → MOVES が2つ進んだ',
+    answer: ['箱', '押す', '手数', '増える'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['箱', '押す', '手数', '増える', '奇数', '偶数', '壁', '存在', '色', '重力'],
+  hint_1: '透明な壁の法則は7面と同じだ。ならば同じ手が使える……とは限らない。',
+  hint_2: 'ここには壁を殴っても手数が増えない。増やす方法は他にある。',
+  hint_3: '箱を1回押すたび、手数が余分に1つ進む。それで偶奇をずらせ。',
+  solution: ['U', 'U', 'R', 'D', 'D', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '16', level: 2, title: 'FILL',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#ooooooo#', '#####.###', '#.......#', '#########'],
+    legend: { o: { type: 'hole' } } },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { id: 'bx', kind: 'box', x: 2, y: 2 },
+    { kind: 'goal', x: 7, y: 5 },
+  ],
+  hidden_rules: [{
+    id: 'R_FILL', name: '穴に落ちた箱は床になる', when: 'everyTurn',
+    if: { op: '==', a: { tileAt: [{ objProp: ['box', 'x'] }, { objProp: ['box', 'y'] }] }, b: 'hole' },
+    then: [
+      { do: 'setTile', x: { objProp: ['box', 'x'] }, y: { objProp: ['box', 'y'] }, to: 'floor' },
+      { do: 'remove', ref: 'box' }, { do: 'sound', name: 'thud' }, { do: 'flash', text: '' }],
+    note: '箱が穴へ落ちた → 穴が消えた',
+    answer: ['箱', '穴', '床', '落ちる'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['箱', '穴', '床', '落ちる', '壁', '2', '回', '重力', '手数', '入れ替わる'],
+  hint_1: '穴は渡れない。だが穴は、埋まらないとは言っていない。',
+  hint_2: '箱は1つしかない。落とす場所を間違えると詰む。',
+  hint_3: '下の部屋への入口は1箇所しかない。その真上の穴を埋めろ。',
+  solution: ['D', 'R', 'R', 'R', 'U', 'R', 'D', 'D', 'D', 'D', 'R', 'R'],
+},
+];
+
+return { L2 };
+})();
+
+// ===== src/stages/l3.js =====
+__M['stages/l3'] = (function () {
+// LEVEL 3 -- two to four laws per stage. Knowing each one is not enough;
+// they have to be played against each other.
+
+const RED_EVEN = (id) => ({
+  id, name: '赤い壁は偶数ターンにだけ通れる', when: 'moveBlocked',
+  if: { op: '==', a: { v: 'arg.tile' }, b: 'redwall' },
+  then: [{ do: 'sound', name: 'err' }],
+  note: '赤い壁に阻まれた → そのときの手数は？',
+  answer: ['赤', '壁', '偶数', '手目'],
+});
+
+const BLUE_FLIP = (id) => ({
+  id, name: '青い床を踏むと奇数と偶数の定義が逆転する', when: 'onEnter',
+  if: { op: '==', a: { v: 'arg.tile' }, b: 'bluefloor' },
+  then: [{ do: 'toggleFlag', flag: 'parityFlip' }, { do: 'sound', name: 'low' }, { do: 'flash', text: '' }],
+  note: '青い床を踏んだ → 何かの定義が入れ替わった',
+  answer: ['青', '床', '偶数', '奇数', '反転'],
+});
+
+const PUSH_TURN = (id) => ({
+  id, name: '箱を押すとターン数が+2される', when: 'onPush', if: true,
+  then: [{ do: 'addTurn', by: 1 }, { do: 'sound', name: 'blip' }],
+  note: '箱を押した → MOVES が2つ進んだ',
+  answer: ['箱', '押す', '手数', '増える'],
+});
+
+const RED = { type: 'redwall', solid: { op: '==', a: { v: 'parity' }, b: 1 } };
+const BLUEW = { type: 'bluewall', solid: { op: '==', a: { v: 'parity' }, b: 0 } };
+const BLUEF = { type: 'bluefloor' };
+
+const L3 = [
+{
+  id: '17', level: 3, title: 'CROSS',
+  grid: { rows: ['#########', '#....r..#', '#.#######', '#b......#', '#########'],
+    legend: { r: RED, b: BLUEF } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  hidden_rules: [RED_EVEN('R_RED'), BLUE_FLIP('R_BLUE')],
+  rule_priority: ['R_BLUE', 'R_RED'],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['赤', '青', '壁', '床', '偶数', '奇数', '手目', '反転', '定義', '重力'],
+  hint_1: '赤い壁の法則は7面の透明な壁とよく似ている。だが今回は殴っても手数が増えない。',
+  hint_2: '盤面には、まだ意味の分かっていない色がもう一つある。',
+  hint_3: '青い床を踏んでから、赤い壁の前に立て。偶奇の意味そのものが入れ替わる。',
+  solution: ['D', 'D', 'U', 'U', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '18', level: 3, title: 'TWICE',
+  grid: { rows: ['#########', '#..b....#', '####r####', '#..b....#', '#####r###', '#.......#', '#########'],
+    legend: { r: RED, b: BLUEF } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
+  hidden_rules: [RED_EVEN('R_RED'), BLUE_FLIP('R_BLUE')],
+  rule_priority: ['R_BLUE', 'R_RED'],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['赤', '青', '壁', '床', '偶数', '奇数', '反転', '2', '回', '手目'],
+  hint_1: '青い床は2枚ある。2枚とも踏む必要があるとは限らないし、1枚で足りるとも限らない。',
+  hint_2: '1枚目の門を抜けた時点で、偶奇の意味は入れ替わったままだ。',
+  hint_3: '門ごとに必要な偶奇が違う。青い床は何度でも踏める。',
+  solution: ['R', 'R', 'R', 'D', 'D', 'L', 'R', 'R', 'D', 'D', 'R', 'R'],
+},
+{
+  id: '19', level: 3, title: 'CHAIN',
+  grid: { rows: ['##########', '#....b...#', '######r###', '#........#', '##########'],
+    legend: { r: RED, b: BLUEF } },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { id: 'bx', kind: 'box', x: 5, y: 1 },
+    { kind: 'goal', x: 8, y: 3 },
+  ],
+  hidden_rules: [RED_EVEN('R_RED'), BLUE_FLIP('R_BLUE'), PUSH_TURN('R_PUSH')],
+  rule_priority: ['R_PUSH', 'R_BLUE', 'R_RED'],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['赤', '青', '箱', '壁', '床', '偶数', '奇数', '反転', '手数', '増える'],
+  hint_1: '3つの法則が同時に効いている。1つずつ確かめろ。',
+  hint_2: '箱は青い床の上に乗っている。どければ何が踏める？',
+  hint_3: '箱を押すと手数は+2される。偶奇は変わらない。偶奇を変えるのは青い床のほうだ。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'D', 'D', 'R', 'R'],
+},
+{
+  id: '20', level: 3, title: 'PHASES',
+  grid: { rows: ['#########', '#...r.G.#', '#.b.....#', '#.......#', '#########'],
+    legend: { r: RED, G: BLUEW, b: BLUEF } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  turn_conditions: { countBlocked: true },
+  hidden_rules: [RED_EVEN('R_RED'), BLUE_FLIP('R_BLUE'), {
+    id: 'R_BLUEW', name: '青い壁は赤い壁と逆の位相を持つ', when: 'moveBlocked',
+    if: { op: '==', a: { v: 'arg.tile' }, b: 'bluewall' },
+    then: [{ do: 'sound', name: 'err' }],
+    note: '青い壁に阻まれた → 赤とは逆の条件らしい',
+    answer: ['青', '壁', '奇数', '手目'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['赤', '青', '壁', '偶数', '奇数', '逆', '手目', '床', '反転', '重力'],
+  hint_1: '2つの門は、同時に開かない。',
+  hint_2: '片方を抜けた直後、もう片方は必ず閉じている。',
+  hint_3: '門と門の間で1手だけ無駄にしろ。壁を殴れば手数は進む。',
+  solution: ['R', 'R', 'R', 'R', 'U', 'R', 'R'],
+},
+{
+  id: '21', level: 3, title: 'ORDER',
+  grid: { rows: ['#########', '#.y...G.#', '#.......#', '#.....y.#', '#########'],
+    legend: { y: { type: 'yellowfloor' }, G: { type: 'gate', solid: { op: 'not', a: { v: 'flag.gate' } } } } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  turn_conditions: { countBlocked: true },
+  hidden_rules: [
+    { id: 'R_ADD', name: '黄色い床はターン数を+1する', when: 'onEnter',
+      if: { op: '==', a: { v: 'arg.tile' }, b: 'yellowfloor' },
+      then: [{ do: 'addTurn', by: 1 }, { do: 'sound', name: 'blip' }],
+      note: '黄色い床 → MOVES が余分に進んだ',
+      answer: ['黄', '床', '手数', '増える'] },
+    { id: 'R_GATE', name: '黄色い床を踏んだ瞬間の手数が奇数なら門が開く', when: 'onEnter',
+      if: { op: '==', a: { v: 'arg.tile' }, b: 'yellowfloor' },
+      then: [{ do: 'setFlag', flag: 'gate', value: { op: '==', a: { op: '%', a: { v: 'turn' }, b: 2 }, b: 1 } },
+        { do: 'sound', name: 'low' }],
+      note: '黄色い床 → 遠くの門の音が変わった',
+      answer: ['黄', '床', '奇数', '門', '開く'] },
+  ],
+  rule_priority: ['R_ADD', 'R_GATE'],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['黄', '床', '門', '奇数', '偶数', '手数', '増える', '順番', '先', '後'],
+  hint_1: '黄色い床を踏むたび、門の状態が変わる。開くときと閉じるときがある。',
+  hint_2: '黄色い床は手数も増やす。門の判定は、増やす前と後、どちらの手数を見ている？',
+  hint_3: '判定は+1された後の手数を見ている。つまり偶数手で黄色を踏め。壁を殴って偶奇を合わせろ。',
+  solution: ['U', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '22', level: 3, title: 'FALL',
+  grid: { rows: ['#########', '#.......#', '#.#####.#', '#g......#', '#.#####.#', '#.......#', '#########'],
+    legend: { g: { type: 'glass' } } },
+  objects: [{ kind: 'player', x: 2, y: 5 }, { kind: 'goal', x: 1, y: 1 }],
+  flags: { gravDir: 'down' },
+  turn_conditions: { countBlocked: true },
+  hidden_rules: [
+    { id: 'R_GRAV22', name: '3回右へ進むと重力が反転する', when: 'afterMove',
+      if: { op: '==', a: { v: 'streak.right' }, b: 3 },
+      then: [{ do: 'flipGravity' }, { do: 'sound', name: 'low' }, { do: 'flash', text: '' }],
+      note: '右へ3回 → 世界が裏返った',
+      answer: ['右', '3', '回', '重力', '反転'] },
+    { id: 'R_PHASE22', name: '透明な壁は奇数手のあいだだけ存在する', when: 'moveBlocked',
+      if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' },
+      then: [{ do: 'sound', name: 'err' }],
+      note: '透明な壁に阻まれた',
+      answer: ['壁', '奇数', '偶数', '手目', '存在'] },
+  ],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['重力', '反転', '3', '回', '壁', '奇数', '偶数', '落下', '手数', '存在'],
+  hint_1: '落下は移動ではない。落ちているあいだ、MOVES は増えない。',
+  hint_2: '上昇の途中で止められた。止めたものは、いつも同じ場所にあるわけではない。',
+  hint_3: '透明な壁の下で1手潰せ。壁を殴れば手数だけが進み、位置は変わらない。',
+  solution: ['R', 'R', 'R', 'L', 'L', 'L', 'L', 'L'],
+},
+{
+  id: '23', level: 3, title: 'DEFINITION',
+  grid: { rows: ['#########', '#..b.r..#', '#.......#', '#......b#', '#########'],
+    legend: { r: RED, b: BLUEF } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'parity' }, b: 0 }],
+  hidden_rules: [RED_EVEN('R_RED'), BLUE_FLIP('R_BLUE'), {
+    id: 'R_GOALEVEN', name: 'ゴールも「偶数」の定義に従っている', when: 'beforeWin', if: false, then: [],
+    answer: ['ゴール', '偶数', '定義', '同じ'],
+  }],
+  rule_priority: ['R_BLUE', 'R_RED', 'R_GOALEVEN'],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['ゴール', '赤', '青', '偶数', '奇数', '定義', '反転', '同じ', '床', '壁'],
+  hint_1: 'ゴールの上に立った。門も抜けた。それでも駄目なら、条件は1つではない。',
+  hint_2: '青い床が入れ替えたのは「壁の条件」だけだと、誰が言った？',
+  hint_3: 'ゴールも同じ「偶数」を参照している。門を抜けるために反転させた定義を、もう一度戻せ。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'U', 'U'],
+},
+{
+  id: '24', level: 3, title: 'FOUR',
+  grid: { rows: ['##########', '#.....#..#', '#.....#r##', '#.....=..#', '#.....#..#', '#.....#..#', '##########'],
+    legend: { '=': { type: 'grate', solid: true, boxPass: true }, r: RED } },
+  objects: [
+    { kind: 'player', x: 1, y: 3 },
+    { id: 'bx', kind: 'box', x: 2, y: 3 },
+    { kind: 'goal', x: 8, y: 1 },
+  ],
+  marks: [{ x: 3, y: 5, g: '4' }],
+  turn_conditions: { countBlocked: true },
+  hidden_rules: [
+    { id: 'R_SWAP24', name: '箱を4回押すと箱とプレイヤーの位置が交換される', when: 'onPush',
+      if: { op: '==', a: { objProp: ['box', 'pushed'] }, b: 4 },
+      then: [{ do: 'swap', a: 'player', b: 'box' }, { do: 'sound', name: 'warp' }, { do: 'flash', text: '' }],
+      note: '4回目の押し込み → 自分の居場所が変わった',
+      answer: ['箱', '4', '回', '入れ替わる'] },
+    RED_EVEN('R_RED'),
+  ],
+  rule_priority: ['R_SWAP24', 'R_RED'],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['箱', '4', '回', '入れ替わる', '赤', '壁', '偶数', '奇数', '格子', '手目'],
+  hint_1: 'この部屋には入口がない。だが格子は、箱だけを通す。',
+  hint_2: '床に書かれた数字は装飾ではない。',
+  hint_3: '4回目の押しで入れ替わる。入った先の赤い壁は、失敗した1手ぶんの手数で開く。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'U', 'U', 'U', 'R'],
+},
+];
+
+return { L3 };
+})();
+
+// ===== src/stages/l4.js =====
+__M['stages/l4'] = (function () {
+// LEVEL 4 -- UNDO is not a correction. It is a move, and the world counts it.
+// Past selves keep walking the route you rewound away.
+
+const UNDO_TURN = (id) => ({
+  id, name: 'UNDOも1手として数えられる（手数は決して減らない）', when: 'onUndo', if: true,
+  then: [{ do: 'addTurn', by: 1 }, { do: 'sound', name: 'blip' }],
+  note: 'UNDOした → MOVES が減らずに増えた',
+  answer: ['UNDO', '手数', '増える', '減らない'],
+});
+
+const GHOST_ON_REWIND = (id, name) => ({
+  id, name, when: 'onUndo',
+  if: { op: 'and', args: [{ op: '==', a: { v: 'trailLen' }, b: 1 }, { op: '>=', a: { v: 'undos' }, b: 1 }] },
+  then: [{ do: 'spawnGhost', source: 'full', from: 0 }, { do: 'flash', text: '' },
+    { do: 'sound', name: 'discover' }],
+  note: '最初まで巻き戻した → 消したはずの自分が歩き出した',
+  answer: ['UNDO', '最初', '過去', '自分', '現れる'],
+});
+
+const L4 = [
+{
+  id: '25', level: 4, title: 'REWIND',
+  grid: { rows: ['#########', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'turn' }, b: 10 }],
+  hidden_rules: [UNDO_TURN('R_UNDOTURN')],
+  laws: [{ id: 'L25', name: 'ゴールは10手目にだけ有効', answer: ['ゴール', '10', '手目'] }],
+  marks: [{ x: 4, y: 1, g: '10' }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['UNDO', '手数', '増える', '減らない', 'ゴール', '10', '手目', '戻る', '時間', '巻き戻し'],
+  hint_1: '一本道だ。歩数は選べない。……本当に？',
+  hint_2: 'UNDOを押したとき、MOVES はどう動いた？',
+  hint_3: 'UNDOは位置を戻すが、時間は戻さない。1歩進んで1回戻すたび、時間だけが1つ進む。',
+  solution: ['R', 'Z', 'R', 'Z', 'R', 'Z', 'R', 'Z', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '26', level: 4, title: 'REVIVE',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#ooooooo#', '#.......#', '#ooooooo#', '#.......#', '#########'],
+    legend: { o: { type: 'hole' } } },
+  objects: [
+    { kind: 'player', x: 3, y: 1 },
+    { id: 'bx', kind: 'box', x: 3, y: 2 },
+    { kind: 'goal', x: 7, y: 6 },
+  ],
+  hidden_rules: [
+    { id: 'R_FILL26', name: '穴に落ちた箱は床になる', when: 'everyTurn',
+      if: { op: '==', a: { tileAt: [{ objProp: ['box', 'x'] }, { objProp: ['box', 'y'] }] }, b: 'hole' },
+      then: [{ do: 'setTile', x: { objProp: ['box', 'x'] }, y: { objProp: ['box', 'y'] }, to: 'floor' },
+        { do: 'remove', ref: 'box' }, { do: 'sound', name: 'thud' }],
+      note: '箱が穴へ落ちた → 穴が消えた',
+      answer: ['箱', '穴', '床', '落ちる'] },
+    { id: 'R_REVIVE', name: '3回UNDOすると、消えた箱だけが復活する', when: 'onUndo',
+      if: { op: '==', a: { v: 'undos' }, b: 3 },
+      then: [{ do: 'spawn', kind: 'box', x: 3, y: 4 }, { do: 'flash', text: '' },
+        { do: 'sound', name: 'discover' }],
+      note: '3回目のUNDO → 消えたはずの箱が戻ってきた',
+      answer: ['UNDO', '3', '回', '箱', '復活'] },
+  ],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['UNDO', '3', '回', '箱', '復活', '穴', '床', '落ちる', '手数', '過去'],
+  hint_1: '箱は1つ。穴の帯は2本。数が足りない。',
+  hint_2: 'UNDOで巻き戻る物と、巻き戻らない物がある。埋めた穴は戻ったか？',
+  hint_3: '穴を埋めたあと、3手だけ歩いてから3回UNDOしろ。埋めた床は残り、箱だけが増える。',
+  solution: ['D', 'R', 'L', 'R', 'Z', 'Z', 'Z', 'D', 'D', 'D', 'D', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '27', level: 4, title: 'COMPANY',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#######.#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 2 },
+    { kind: 'switch', link: 'a', x: 5, y: 2 },
+    { kind: 'door', link: 'a', x: 7, y: 2 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  hidden_rules: [GHOST_ON_REWIND('R_GHOST', 'UNDOで消した経路は、過去の自分として歩き直される')],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['UNDO', '過去', '自分', '現れる', 'スイッチ', '扉', '最初', '同時', '経路', '時間'],
+  hint_1: 'スイッチは踏み続けなければ意味がない。だが踏み続けたら扉まで歩けない。',
+  hint_2: '「同時に2人いればいい」と思ったなら、正しい。',
+  hint_3: 'スイッチまで歩いてから、最初まで全部UNDOしろ。お前が消した経路を、誰かが歩き直す。',
+  solution: ['R', 'R', 'R', 'R', 'Z', 'Z', 'Z', 'Z', 'R', 'R', 'R', 'R', 'R', 'R', 'D'],
+},
+{
+  id: '28', level: 4, title: 'CROWD',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 2 },
+    { kind: 'switch', link: 'a', x: 1, y: 1 },
+    { kind: 'switch', link: 'b', x: 1, y: 3 },
+    { kind: 'door', link: 'a', x: 5, y: 2 },
+    { kind: 'door', link: 'b', x: 6, y: 2 },
+    { kind: 'goal', x: 7, y: 2 },
+  ],
+  hidden_rules: [{
+    id: 'R_GHOST28', name: '巻き戻しきるたびに、過去の自分がもう一人増える', when: 'onUndo',
+    if: { op: 'and', args: [{ op: '==', a: { v: 'trailLen' }, b: 1 }, { op: '>=', a: { v: 'undos' }, b: 1 }] },
+    then: [{ do: 'spawnGhost', source: 'full', from: 0 }, { do: 'flash', text: '' },
+      { do: 'sound', name: 'discover' }],
+    note: '巻き戻しきった → 過去の自分がもう一人増えた',
+    answer: ['UNDO', '過去', '自分', '増える', '2'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['UNDO', '過去', '自分', '増える', '2', 'スイッチ', '扉', '同時', '順番', '経路'],
+  hint_1: '扉は2枚。スイッチも2つ。だが体は1つしかない。',
+  hint_2: '過去の自分は、お前が歩いた経路の終点で立ち止まる。',
+  hint_3: '過去の自分は、記録された経路の終点で止まる。スイッチの上で止まるように歩いてから巻き戻せ。それを2回。',
+  solution: ['U', 'Z', 'D', 'Z', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '29', level: 4, title: 'TIME LOCK',
+  grid: { rows: ['#########', '#....g..#', '#.#####.#', '#...#...#', '#########'],
+    legend: { g: { type: 'glass' } } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  hidden_rules: [UNDO_TURN('R_UNDOTURN29'), {
+    id: 'R_PHASE29', name: '透明な壁は奇数手のあいだだけ存在する', when: 'moveBlocked',
+    if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' }, then: [{ do: 'sound', name: 'err' }],
+    note: '透明な壁に阻まれた', answer: ['壁', '奇数', '偶数', '手目', '存在'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['UNDO', '手数', '増える', '壁', '奇数', '偶数', '存在', '位置', '色', '時間'],
+  hint_1: '7面と同じ壁だ。だがここでは壁を殴っても手数は増えない。',
+  hint_2: '手数を増やす方法は、進むこと以外にもう一つある。',
+  hint_3: '1歩進んでUNDO。位置は戻り、時間だけが1つ残る。',
+  solution: ['R', 'Z', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '30', level: 4, title: 'APPOINTMENT',
+  grid: { rows: ['#########', '#.#######', '#.#######', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 3 },
+    { kind: 'switch', link: 'a', x: 5, y: 3 },
+    { kind: 'door', link: 'a', x: 1, y: 2 },
+    { kind: 'goal', x: 1, y: 1 },
+  ],
+  hidden_rules: [GHOST_ON_REWIND('R_GHOST30', 'UNDOで消した経路は、過去の自分として歩き直される')],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['UNDO', '過去', '自分', '経路', 'スイッチ', '扉', '時刻', '同時', '待つ', '歩数'],
+  hint_1: '過去の自分はスイッチの上で止まってはくれない。通り過ぎるだけだ。',
+  hint_2: '通り過ぎる「その瞬間」に、お前が扉の前にいればいい。',
+  hint_3: '過去の自分は1手につき1マス進む。スイッチを踏むのは経路の何歩目だ？ その歩数だけ、こちらも時間を潰せ。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'Z', 'Z', 'Z', 'Z', 'Z', 'Z',
+    'R', 'L', 'R', 'L', 'U', 'U'],
+},
+{
+  id: '31', level: 4, title: 'CAUSE',
+  grid: { rows: ['#########', '#.......#', '#.....g.#', '#######.#', '#########'],
+    legend: { g: { type: 'glass' } } },
+  objects: [
+    { kind: 'player', x: 1, y: 2 },
+    { kind: 'switch', link: 'a', x: 4, y: 2 },
+    { kind: 'door', link: 'a', x: 7, y: 2 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  turn_conditions: { countBlocked: true },
+  hidden_rules: [
+    GHOST_ON_REWIND('R_GHOST31', 'UNDOで消した経路は、過去の自分として歩き直される'),
+    UNDO_TURN('R_UNDOTURN31'),
+    { id: 'R_PHASE31', name: '透明な壁は奇数手のあいだだけ存在する', when: 'moveBlocked',
+      if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' }, then: [{ do: 'sound', name: 'err' }],
+      note: '透明な壁に阻まれた', answer: ['壁', '奇数', '偶数', '手目', '存在'] },
+  ],
+  rule_priority: ['R_UNDOTURN31', 'R_GHOST31', 'R_PHASE31'],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['UNDO', '過去', '自分', '手数', '壁', '奇数', '偶数', 'スイッチ', '扉', '存在'],
+  hint_1: '過去の自分に鍵を任せ、自分は時間を合わせる。やることは2つある。',
+  hint_2: 'UNDOで増えた手数は、巻き戻したあとも消えない。それが位相をずらす。',
+  hint_3: 'スイッチまで歩いて全部UNDO。過去の自分がスイッチに着く頃、透明な壁の前で1手潰して偶奇を合わせろ。',
+  solution: ['R', 'R', 'R', 'Z', 'Z', 'Z', 'R', 'R', 'R', 'R', 'D', 'R', 'R', 'D'],
+},
+];
+
+return { L4 };
+})();
+
+// ===== src/stages/l5.js =====
+__M['stages/l5'] = (function () {
+// LEVEL 5 -- the board was never the world. The frame, the buttons and the
+// note panel are all part of the machine, and all of them can be operated on.
+
+const L5 = [
+{
+  id: '32', level: 5, title: 'OUTSIDE',
+  grid: { rows: [
+    '#############',
+    '#.......#####',
+    '#.......#####',
+    '#.......#####',
+    '#######.#####',
+    '#.....#.....#',
+    '#.....#.....#',
+    '#.....#.....#',
+    '#############'] },
+  view: { x: 0, y: 0, w: 9, h: 4 },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 11, y: 7 }],
+  hidden_rules: [{
+    id: 'R_FRAME', name: '盤面の外側は「見えていない」だけで、存在している', when: 'beforeMove',
+    if: { op: 'and', args: [
+      { op: 'not', a: { v: 'zoomed' } },
+      { op: 'or', args: [{ op: '>=', a: { v: 'ty' }, b: 4 }, { op: '>=', a: { v: 'tx' }, b: 9 }] }] },
+    then: [{ do: 'cancel' }, { do: 'sound', name: 'err' }],
+    note: '盤面の縁で止められた → 壁ではないのに',
+    answer: ['盤面', '外', '存在', '見えない'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'zoom'],
+  tokens: ['盤面', '外', '存在', '見えない', '縁', '壁', '拡大', '縮小', 'ゴール', '枠'],
+  hint_1: 'この部屋に出口はない。ゴールも無い。ならば、探す場所が間違っている。',
+  hint_2: '盤面の縁で止められたとき、そこに壁の絵はあったか？',
+  hint_3: '二本指で盤面を縮めろ。世界はこの枠より広い。',
+  solution: ['ui:zoom', 'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'D', 'D', 'D', 'D', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '33', level: 5, title: 'UPSIDE DOWN',
+  grid: { rows: ['#########', '#.......#', '#.....#.#', '#.....#.#', '#.....#.#', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 5 }, { kind: 'goal', x: 1, y: 1 }],
+  flags: { gravDir: 'down' },
+  hidden_rules: [{
+    id: 'R_ROT', name: '盤面を回すと、落ちる向きも一緒に回る', when: 'onUI',
+    if: { op: '==', a: { v: 'ui.name' }, b: 'rotate' },
+    then: [{ do: 'sound', name: 'low' }],
+    note: '盤面を回した → 落下方向が変わった',
+    answer: ['盤面', '回転', '重力', '一緒'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'rotate'],
+  tokens: ['盤面', '回転', '重力', '一緒', '上', '下', '操作', '逆', '落下', '壁'],
+  hint_1: '登れないなら、落ちればいい。落ちる先を選べるなら。',
+  hint_2: '盤面の角にあるものは飾りではない。',
+  hint_3: '右の縦穴の底まで歩いてから、盤面を180度回せ。回した後は操作方向も一緒に回っている。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'ui:rotate', 'ui:rotate', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '34', level: 5, title: 'GOAL',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#.......#', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 3 }],
+  hidden_rules: [{
+    id: 'R_TITLE', name: 'ステージ名そのものが、このステージのゴールである', when: 'onUI',
+    if: { op: 'and', args: [
+      { op: '==', a: { v: 'ui.name' }, b: 'tapTitle' },
+      { op: '>=', a: { v: 'flag.titleTaps' }, b: 3 }] },
+    then: [{ do: 'spawn', kind: 'goal', x: 5, y: 3 }, { do: 'flash', text: 'GOAL' },
+      { do: 'sound', name: 'discover' }],
+    once: true,
+    note: 'ステージ名を叩いた → 名前が揺れた',
+    answer: ['ステージ名', 'タップ', 'ゴール', '出現'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'tapTitle'],
+  tokens: ['ステージ名', 'タップ', 'ゴール', '出現', '盤面', '外', '文字', '3', '回', '存在'],
+  hint_1: '盤面にゴールが無い。だが「ゴール」という単語なら、さっきから画面に出ている。',
+  hint_2: '画面の文字は、読むためだけの物か？',
+  hint_3: 'ステージ名を3回叩け。',
+  solution: ['ui:tapTitle', 'ui:tapTitle', 'ui:tapTitle', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '35', level: 5, title: 'FOOTNOTE',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#.......#', '#.......#', '#.......#', '#########'] },
+  view: { x: 0, y: 0, w: 9, h: 5 },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 6 }],
+  hidden_rules: [{
+    id: 'R_NOTE', name: 'RULE NOTE は盤面の一部を隠している', when: 'beforeMove',
+    if: { op: 'and', args: [{ op: 'not', a: { v: 'flag.noteClosed' } }, { op: '>=', a: { v: 'ty' }, b: 5 }] },
+    then: [{ do: 'cancel' }, { do: 'sound', name: 'err' }],
+    note: '下へ進めない → 下に何かが被さっている',
+    answer: ['RULE NOTE', '盤面', '隠す', '閉じる'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'closeNote'],
+  tokens: ['RULE NOTE', '盤面', '隠す', '閉じる', '下', '壁', '存在', '枠', '外', '拡大'],
+  hint_1: '下に進めない。だが下にあるのは壁の絵ではない。',
+  hint_2: '画面の下半分を占領しているものは何だ？',
+  hint_3: 'RULE NOTE を閉じろ。あれは盤面の上に置かれている。',
+  solution: ['ui:closeNote', 'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'D', 'D', 'D'],
+},
+{
+  id: '36', level: 5, title: 'DROP',
+  grid: { rows: ['#########', '#.......#', '#...o...#', '#.......#', '#########'],
+    legend: { o: { type: 'hole' } } },
+  objects: [{ kind: 'player', x: 1, y: 2 }, { kind: 'goal', x: 7, y: 2 }],
+  words_walkable: true,
+  hidden_rules: [{
+    id: 'R_DROP', name: 'UIの文字を盤面に落とすと、それは物になる', when: 'onUI',
+    if: { op: '==', a: { v: 'ui.name' }, b: 'dropUI' },
+    then: [{ do: 'setTile', x: { v: 'ui.x' }, y: { v: 'ui.y' }, to: 'floor' },
+      { do: 'flash', text: '' }, { do: 'sound', name: 'discover' }],
+    note: 'ボタンを盤面へ落とした → 落ちた場所が変わった',
+    answer: ['UI', '文字', '盤面', '物', '落とす'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'dropUI'],
+  tokens: ['UI', '文字', '盤面', '物', '落とす', '穴', '床', 'ボタン', '外', '存在'],
+  hint_1: '穴を埋める箱が無い。盤面の上には、な。',
+  hint_2: '画面には他にも四角い物が並んでいる。RESET、UNDO。あれは何でできている？',
+  hint_3: 'RESET ボタンを掴んで、穴の上へ落とせ。',
+  solution: ['ui:dropUI:RESET,4,2', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+];
+
+return { L5 };
+})();
+
+// ===== src/stages/l6.js =====
+__M['stages/l6'] = (function () {
+// LEVEL 6-8 -- the UI is made of matter, one stage reaches into another, and
+// the sentences lying on the floor are the engine's own source code.
+
+const L6 = [
+{
+  id: '37', level: 6, title: 'DOOR 4',
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { id: 'door1', kind: 'door', x: 1, y: 4, label: '4',
+      openIf: { op: '==', a: { label: '#door1' }, b: '14' } },
+    { kind: 'goal', x: 1, y: 5 },
+  ],
+  hidden_rules: [{
+    id: 'R_DIGIT', name: 'UIに表示された数字は、部品として取り外せる', when: 'onUI',
+    if: { op: '==', a: { v: 'ui.name' }, b: 'dropChar' },
+    then: [{ do: 'sound', name: 'discover' }, { do: 'flash', text: '' }],
+    note: '画面の数字を引き剥がした → 扉の名前が変わった',
+    answer: ['UI', '数字', '部品', '扉', '名前'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'dropChar'],
+  tokens: ['UI', '数字', '部品', '扉', '名前', 'MOVES', '14', '4', '一致', '外す'],
+  hint_1: 'この扉には名前が書いてある。DOOR 4。',
+  hint_2: '画面のどこかに、まだ使っていない数字が表示されている。MOVES だ。',
+  hint_3: 'MOVES が 14 のとき、その "1" を掴んで扉の 4 の前に置け。DOOR 14 になる。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L',
+    'ui:dropChar:1,#door1,prepend', 'D', 'D'],
+},
+{
+  id: '38', level: 6, title: 'RE|SET',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#.....#.#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { id: 'door2', kind: 'door', x: 7, y: 2, label: 'SET',
+      openIf: { op: '==', a: { textAt: [6, 1] }, b: 'SET' } },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  words_walkable: true,
+  marks: [{ x: 6, y: 1, g: '_' }],
+  hidden_rules: [{
+    id: 'R_SPLIT', name: 'UIの単語は切り離せる。RESET から SET だけを取り出せる', when: 'onUI',
+    if: { op: '==', a: { v: 'ui.name' }, b: 'splitWord' },
+    then: [{ do: 'sound', name: 'discover' }, { do: 'flash', text: '' }],
+    note: '単語が二つに割れた',
+    answer: ['UI', '単語', '切る', 'SET', '取り出す'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'dropUI', 'splitWord', 'wordDrag'],
+  tokens: ['UI', '単語', '切る', 'SET', '取り出す', 'RESET', '扉', '文字', '落とす', '嵌める'],
+  hint_1: '扉には SET と書かれている。盤面に SET は無い。画面には？',
+  hint_2: 'RESET という単語の中に、探している3文字が入っている。',
+  hint_3: 'RESET を盤面に落とし、RE と SET に割って、SET だけを窪みへ運べ。',
+  solution: ['ui:dropUI:RESET,2,1', 'ui:splitWord:#ui_RESET,2,3,1', 'ui:wordDrag:#ui_SET,6,1',
+    'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D'],
+},
+{
+  id: '39', level: 6, title: 'STAGE 39',
+  grid: { rows: ['#########', '#.......#', '#.....#.#', '#.......#', '#########'] },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { id: 'door3', kind: 'door', x: 6, y: 1, label: '3',
+      openIf: { op: '==', a: { label: '#door3' }, b: '39' } },
+    { kind: 'goal', x: 7, y: 1 },
+  ],
+  hidden_rules: [{
+    id: 'R_STAGENUM', name: 'ステージ番号も、ただの数字の並びである', when: 'onUI',
+    if: { op: '==', a: { v: 'ui.name' }, b: 'dropChar' },
+    then: [{ do: 'sound', name: 'discover' }],
+    note: 'ステージ番号から数字が剥がれた',
+    answer: ['ステージ', '番号', '数字', '扉', '一致'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'dropChar'],
+  tokens: ['ステージ', '番号', '数字', '扉', '一致', 'MOVES', '39', '9', '外す', '名前'],
+  hint_1: 'DOOR 3。あと一文字足りない。',
+  hint_2: 'MOVES から取れるとは限らない。画面の左上には何が書いてある？',
+  hint_3: 'STAGE 39 の "9" を扉へ。扉がこのステージそのものになる。',
+  solution: ['ui:dropChar:9,#door3,append', 'R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '40', level: 8, title: 'ELSEWHERE',
+  grid: { rows: ['#########', '#...#...#', '#...#...#', '#...#...#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 2 }, { kind: 'goal', x: 7, y: 2 }],
+  marks: [{ x: 4, y: 1, g: '1' }, { x: 4, y: 3, g: '2' }],
+  hidden_rules: [
+    { id: 'R_MARK40', name: 'このステージに来たこと自体が、別のステージを書き換える', when: 'start', if: true,
+      then: [{ do: 'setGlobal', key: 's40_seen', value: true }],
+      note: 'この部屋に入った → どこか遠くで物音がした',
+      answer: ['ステージ', '影響', '別', '往復'] },
+    { id: 'R_OPEN40', name: 'ステージ12の台座に箱が載ると、ここの壁が消える', when: 'start',
+      if: { global: 's12_box_placed' },
+      then: [{ do: 'setTile', x: 4, y: 2, to: 'floor' }, { do: 'flash', text: '' },
+        { do: 'sound', name: 'discover' }],
+      answer: ['12', '箱', '台座', '壁', '消える'] },
+  ],
+  cross_stage_variables: { read: ['s12_box_placed'], write: ['s40_seen'] },
+  test_globals: { s12_box_placed: true },
+  probe: [],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['ステージ', '12', '箱', '台座', '壁', '消える', '別', '影響', '往復', '番号'],
+  hint_1: 'この壁を消す手段は、この部屋の中には無い。ひとつも。',
+  hint_2: '壁に刻まれた数字を読め。1と2。並べれば12。',
+  hint_3: 'ステージ12へ戻れ。以前は無かった箱がある。それを台座へ載せてから、ここへ帰ってこい。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '41', level: 6, title: 'WALL IS SOLID',
+  grid: { rows: ['#########', '#...#...#', '#...#...#', '#...#...#', '#...#...#', '#...#...#', '#########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'], BOX: ['PUSH'] } },
+  objects: [
+    { kind: 'player', x: 1, y: 1 },
+    { kind: 'word', text: 'WALL', x: 1, y: 4 },
+    { kind: 'word', text: 'IS', x: 2, y: 4 },
+    { kind: 'word', text: 'SOLID', x: 3, y: 4 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  hidden_rules: [{
+    id: 'R_SENT', name: '盤面の文章はこの世界の設定そのものである', when: 'onPush', if: true,
+    then: [{ do: 'sound', name: 'low' }],
+    note: '文章の一部を押した → 世界の手応えが変わった',
+    answer: ['文章', '世界', '設定', '壁', '押す'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['文章', '世界', '設定', '壁', '押す', 'SOLID', '外す', '通過', '単語', '意味'],
+  hint_1: '床に落ちている文章は、説明文ではない。',
+  hint_2: 'WALL IS SOLID。この一行が正しいあいだ、壁は硬い。',
+  hint_3: 'SOLID を行から押し出せ。文が壊れれば、壁は硬さを失う。',
+  solution: ['R', 'R', 'D', 'D', 'D', 'R', 'R', 'R', 'R', 'U'],
+},
+{
+  id: '42', level: 6, title: 'DO NOT TOUCH',
+  grid: { rows: ['#########', '#.....#.#', '#.....#.#', '#.....#.#', '#.....#.#', '#.....#.#', '#########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], BOX: ['PUSH'] } },
+  objects: [
+    { kind: 'player', x: 5, y: 1 },
+    { kind: 'word', text: 'WALL', x: 1, y: 2 },
+    { kind: 'word', text: 'IS', x: 2, y: 2 },
+    { kind: 'word', text: 'SOLID', x: 3, y: 2 },
+    { kind: 'word', text: 'GOAL', x: 1, y: 4 },
+    { kind: 'word', text: '=', x: 2, y: 4 },
+    { kind: 'word', text: 'CLEAR', x: 3, y: 4 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  hidden_rules: [{
+    id: 'R_SENT42', name: 'GOAL = CLEAR を壊すと、ゴールしてもクリアにならない', when: 'onPush', if: true,
+    then: [{ do: 'sound', name: 'low' }],
+    note: '文章を動かした → 何かの意味が消えた',
+    answer: ['ゴール', 'CLEAR', '壊す', 'クリア', 'できない'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['ゴール', 'CLEAR', '壊す', '文章', '壁', 'SOLID', '押す', '方向', '二行', '意味'],
+  hint_1: '壁を抜けたいなら上の行を壊せばいい。だが行は二つある。',
+  hint_2: 'SOLID を下へ押し込んだら、その下には何がある？',
+  hint_3: '押す向きを選べ。CLEAR を巻き込まずに SOLID だけを行から外す道が、ひとつだけある。',
+  solution: ['L', 'L', 'D', 'R', 'R', 'R', 'R', 'D'],
+},
+{
+  id: '43', level: 7, title: 'THIS RULE IS FALSE',
+  grid: { rows: ['#########', '#...#...#', '#...#...#', '#...#...#', '#...#...#', '#...#...#', '#########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
+  objects: [
+    { kind: 'player', x: 3, y: 1 },
+    { kind: 'word', text: 'THIS', x: 1, y: 1 },
+    { kind: 'word', text: 'RULE', x: 1, y: 2 },
+    { kind: 'word', text: 'IS', x: 1, y: 3 },
+    { kind: 'word', text: 'FALSE', x: 1, y: 4 },
+    { kind: 'word', text: 'WALL', x: 1, y: 5 },
+    { kind: 'word', text: 'IS', x: 2, y: 5 },
+    { kind: 'word', text: 'SOLID', x: 3, y: 5 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  hidden_rules: [{
+    id: 'R_PARADOX', name: '「この規則は偽である」は1手ごとに真偽が入れ替わる', when: 'moveBlocked', if: true,
+    then: [{ do: 'sound', name: 'err' }],
+    note: '同じ壁が、通れるときと通れないときがある',
+    answer: ['規則', '偽', '1', '手', '交互'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['規則', '偽', '交互', '1', '手', '壁', '評価', '順番', '真', '文章'],
+  hint_1: '同じ場所で同じ操作をした。結果が違った。ならば変数は「時刻」だ。',
+  hint_2: '自分を否定する文が、すぐ上の行にある。真なら偽、偽なら真。',
+  hint_3: '壁は1手ごとに硬さが入れ替わる。1回はじかれたら、そのままもう一度押せ。',
+  solution: ['D', 'D', 'R', 'R', 'R', 'R', 'R'],
+},
+{
+  id: '44', level: 7, title: 'IGNORE',
+  grid: { rows: ['##########', '#........#', '#........#', '#........#', '#........#', '#........#', '#.....##.#', '##########'],
+    legend: {} },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'], BOX: ['PUSH'] } },
+  objects: [
+    { kind: 'player', x: 1, y: 2 },
+    { id: 'slider', kind: 'box', x: 2, y: 1, slide: true },
+    { kind: 'switch', link: 'a', x: 6, y: 1 },
+    { kind: 'word', text: 'IGNORE', x: 1, y: 3 },
+    { kind: 'word', text: 'NEXT', x: 2, y: 3 },
+    { kind: 'word', text: 'RULE', x: 3, y: 3 },
+    { kind: 'word', text: 'WALL', x: 1, y: 5 },
+    { kind: 'word', text: 'IS', x: 2, y: 5 },
+    { kind: 'word', text: 'SOLID', x: 3, y: 5 },
+    { kind: 'door', link: 'a', x: 8, y: 5 },
+    { kind: 'goal', x: 8, y: 6 },
+  ],
+  hidden_rules: [{
+    id: 'R_IGNORE', name: 'IGNORE NEXT RULE は、読み順で次に来る一文を無効化する', when: 'onPush', if: true,
+    then: [{ do: 'sound', name: 'low' }],
+    note: '無効化の矢印が向く先は、読み順で決まっているらしい',
+    answer: ['IGNORE', '次', '無効', '読み順', '上から'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['IGNORE', '次', '無効', '読み順', '上から', '壁', 'SOLID', '箱', '止まる', '文章'],
+  hint_1: '箱が止まらない。止めるはずの壁が、硬くない。',
+  hint_2: 'WALL IS SOLID は書いてある。書いてあるのに効いていない。何かがそれを打ち消している。',
+  hint_3: 'IGNORE NEXT RULE を壊せ。単語をひとつ行から外すだけでいい。',
+  solution: ['D', 'U', 'U', 'R', 'D', 'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'D', 'D'],
+},
+{
+  id: '45', level: 7, title: 'ORDER OF LAW',
+  grid: { rows: ['###########', '#.......#.#', '#.......#.#', '#.......#.#', '#.......#.#', '#.......#.#', '###########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
+  objects: [
+    { kind: 'player', x: 1, y: 5 },
+    { kind: 'word', text: 'WALL', x: 1, y: 1 },
+    { kind: 'word', text: 'IS', x: 2, y: 1 },
+    { kind: 'word', text: 'SOLID', x: 3, y: 1 },
+    { kind: 'word', text: 'IGNORE', x: 1, y: 3 },
+    { kind: 'word', text: 'NEXT', x: 2, y: 3 },
+    { kind: 'word', text: 'RULE', x: 3, y: 3 },
+    { kind: 'word', text: 'IGNORE', x: 5, y: 3 },
+    { kind: 'word', text: 'PREVIOUS', x: 6, y: 3 },
+    { kind: 'word', text: 'RULE', x: 7, y: 3 },
+    { kind: 'goal', x: 9, y: 3 },
+  ],
+  hidden_rules: [{
+    id: 'R_ORDER', name: '文章は上から、同じ行なら左から評価される', when: 'onPush', if: true,
+    then: [{ do: 'sound', name: 'low' }],
+    note: '二つの命令が互いを打ち消し合っている',
+    answer: ['読み順', '上から', '左から', '先', '勝つ'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['読み順', '上から', '左から', '先', '勝つ', 'IGNORE', '次', '前', '無効', '壁'],
+  hint_1: 'IGNORE NEXT と IGNORE PREVIOUS。どちらが有効なのかは、書かれた位置で決まる。',
+  hint_2: '先に読まれた命令が、後の命令を殺している。殺された命令は何もしない。',
+  hint_3: '先に読まれる側の命令を1単語壊せ。生き残った命令が、上の行へ牙を剥く。',
+  solution: ['R', 'U', 'U', 'D', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'U'],
+},
+{
+  id: '46', level: 7, title: 'HALF TRUE',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { WALL: ['SOLID'], PLAYER: ['YOU'] } },
+  objects: [
+    { kind: 'player', x: 2, y: 3 },
+    { kind: 'word', text: 'THIS', x: 1, y: 1 },
+    { kind: 'word', text: 'RULE', x: 2, y: 1 },
+    { kind: 'word', text: 'IS', x: 3, y: 1 },
+    { kind: 'word', text: 'FALSE', x: 4, y: 1 },
+    { kind: 'word', text: 'GOAL', x: 1, y: 2 },
+    { kind: 'word', text: '=', x: 2, y: 2 },
+    { kind: 'word', text: 'CLEAR', x: 3, y: 2 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  turn_conditions: { countBlocked: true },
+  hidden_rules: [{
+    id: 'R_HALF', name: '矛盾文の直後の一行は、1手ごとに有効と無効を繰り返す', when: 'beforeWin', if: false, then: [],
+    answer: ['矛盾', '次', '1', '手', '交互'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['矛盾', '次', '交互', '1', '手', 'ゴール', 'CLEAR', '無効', '読み順', '偶数'],
+  hint_1: 'ゴールの上に立った。何も起きない。もう一度立っても同じ。',
+  hint_2: '矛盾文の真下にあるのは GOAL = CLEAR だ。43面で壁に起きたことを思い出せ。',
+  hint_3: 'ゴールの上で1手だけ潰せ。クリアの定義が有効な瞬間が交互に来る。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R'],
+},
+];
+
+return { L6 };
+})();
+
+// ===== src/stages/l7.js =====
+__M['stages/l7'] = (function () {
+// The stages that are not on the map: the one made by fusing two numbers,
+// the one with nothing in it, and the ones behind the title.
+
+const L7 = [
+{
+  id: '47', level: 8, title: 'FUSION', hidden: true,
+  madeOf: ['24', '7'],
+  grid: { rows: ['##########', '#.....#..#', '#.....#g##', '#.....=..#', '#.....#..#', '#.....#..#', '##########'],
+    legend: { '=': { type: 'grate', solid: true, boxPass: true }, g: { type: 'glass' } } },
+  objects: [
+    { kind: 'player', x: 1, y: 3 },
+    { id: 'bx', kind: 'box', x: 2, y: 3 },
+    { kind: 'goal', x: 7, y: 2 },
+  ],
+  turn_conditions: { startTurn: 40, countBlocked: true },
+  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'turn' }, b: 47 }],
+  marks: [{ x: 3, y: 5, g: '4' }, { x: 4, y: 5, g: '7' }],
+  hidden_rules: [
+    { id: 'R_SWAP47', name: '箱を4回押すと箱とプレイヤーの位置が交換される', when: 'onPush',
+      if: { op: '==', a: { objProp: ['box', 'pushed'] }, b: 4 },
+      then: [{ do: 'swap', a: 'player', b: 'box' }, { do: 'sound', name: 'warp' }],
+      note: '4回目の押し込み → 位置が交換された', answer: ['箱', '4', '回', '入れ替わる'] },
+    { id: 'R_PHASE47', name: '透明な壁は奇数手のあいだだけ存在する', when: 'moveBlocked',
+      if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' }, then: [{ do: 'sound', name: 'err' }],
+      note: '透明な壁に阻まれた', answer: ['壁', '奇数', '偶数', '手目', '存在'] },
+    { id: 'R_47', name: 'このステージは40から始まり、47で終わる', when: 'start', if: true, then: [],
+      answer: ['40', '47', '手目', 'ゴール', '番号'] },
+  ],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['箱', '4', '回', '入れ替わる', '壁', '奇数', '偶数', '40', '47', '手目'],
+  hint_1: 'MOVES は 0 から始まっていない。',
+  hint_2: 'このステージは24と7でできている。だから法則も2つとも生きている。',
+  hint_3: '40から始まって47で終わる。つまり許された手数はちょうど7。1手も無駄にできない――弾かれた1手を除いて。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'U', 'U'],
+},
+{
+  id: 'FINAL', level: 9, title: 'THERE IS NO PUZZLE',
+  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#.......#', '#.......#', '#########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: {},
+  existence_kinds: ['PLAYER', 'GOAL'],
+  spawns: { PLAYER: { x: 6, y: 2 }, GOAL: { x: 6, y: 4 } },
+  objects: [],
+  banner: 'THERE IS NO PUZZLE.',
+  ui_words: ['PLAYER', 'GOAL', 'EXISTS', '=', 'IS', 'WALL', 'SOLID', 'CLEAR'],
+  win_conditions: [{ has: 'PLAYER EXISTS' }, { has: 'GOAL EXISTS' }, { has: 'PLAYER = GOAL' }],
+  hidden_rules: [{
+    id: 'R_FINAL', name: 'このステージには規則が無い。だから自分で書く', when: 'onUI', if: true,
+    then: [{ do: 'sound', name: 'blip' }],
+    note: '空白に単語を置いた → 世界が少しだけ形を持った',
+    answer: ['規則', '無い', '自分', '書く', '存在'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'zoom', 'rotate', 'dropUI', 'wordDrag', 'splitWord',
+    'dropChar', 'closeNote', 'tapTitle'],
+  tokens: ['規則', '無い', '自分', '書く', '存在', 'プレイヤー', 'ゴール', '同じ', '単語', '世界'],
+  hint_1: '盤面には何も無い。だが画面には、まだ大量の材料が残っている。',
+  hint_2: 'これまでの50面で、単語を並べれば世界が変わることを見てきたはずだ。',
+  hint_3: 'PLAYER EXISTS。GOAL EXISTS。そして PLAYER = GOAL。3つ書ければ終わる。',
+  solution: ['ui:dropUI:PLAYER,1,1', 'ui:dropUI:EXISTS,2,1',
+    'ui:dropUI:GOAL,1,3', 'ui:dropUI:EXISTS,2,3',
+    'ui:dropUI:PLAYER,1,5', 'ui:dropUI:=,2,5', 'ui:dropUI:GOAL,3,5'],
+},
+{
+  id: 'NULL-1', level: 10, title: 'TWO LIES', hidden: true, nullStage: true,
+  grid: { rows: ['#########', '#.....#.#', '#.....#.#', '#.....#.#', '#.....#.#', '#.....#.#', '#########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
+  objects: [
+    { kind: 'player', x: 4, y: 1 },
+    { kind: 'word', text: 'THIS', x: 1, y: 1 },
+    { kind: 'word', text: 'RULE', x: 1, y: 2 },
+    { kind: 'word', text: 'IS', x: 1, y: 3 },
+    { kind: 'word', text: 'FALSE', x: 1, y: 4 },
+    { kind: 'word', text: 'THIS', x: 3, y: 1 },
+    { kind: 'word', text: 'RULE', x: 3, y: 2 },
+    { kind: 'word', text: 'IS', x: 3, y: 3 },
+    { kind: 'word', text: 'FALSE', x: 3, y: 4 },
+    { kind: 'word', text: 'WALL', x: 1, y: 5 },
+    { kind: 'word', text: 'IS', x: 2, y: 5 },
+    { kind: 'word', text: 'SOLID', x: 3, y: 5 },
+    { kind: 'goal', x: 7, y: 3 },
+  ],
+  hidden_rules: [{
+    id: 'R_TWOLIES', name: '矛盾文が2つあると、互いを打ち消して壁は常に硬いままになる',
+    when: 'moveBlocked', if: true, then: [{ do: 'sound', name: 'err' }],
+    note: '壁がいつまでも揺らがない',
+    answer: ['矛盾', '2', '打ち消す', '常に', '硬い'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['矛盾', '2', '打ち消す', '常に', '硬い', '読み順', '次', '無効', '壁', '交互'],
+  hint_1: '43面では壁が1手ごとに揺らいだ。ここでは揺らがない。増えたものは何だ？',
+  hint_2: '嘘つきが2人いる。1人目が2人目を黙らせている。',
+  hint_3: '2つ目の矛盾文を「文章として成立しない」形に壊せ。端の単語を抜いても駄目だ。真ん中を抜け。',
+  solution: ['D', 'L', 'R', 'D', 'R', 'R', 'R'],
+},
+{
+  id: 'NULL-2', level: 10, title: 'MAKE IT EXIST', hidden: true, nullStage: true,
+  grid: { rows: ['#########', '#.....#.#', '#.....#.#', '#.....#.#', '#.....#.#', '#########'] },
+  use_sentences: true,
+  words_pushable: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
+  existence_kinds: ['GOAL'],
+  spawns: { GOAL: { x: 7, y: 3 } },
+  objects: [
+    { kind: 'player', x: 1, y: 4 },
+    { kind: 'word', text: 'GOAL', x: 1, y: 1 },
+    { kind: 'word', text: 'EXISTS', x: 2, y: 2 },
+    { kind: 'word', text: 'WALL', x: 3, y: 3 },
+    { kind: 'word', text: 'IS', x: 4, y: 3 },
+    { kind: 'word', text: 'SOLID', x: 5, y: 3 },
+  ],
+  hidden_rules: [{
+    id: 'R_EXIST', name: '「GOAL EXISTS」と書けば、ゴールは存在するようになる', when: 'onPush', if: true,
+    then: [{ do: 'sound', name: 'low' }],
+    note: '単語を動かした → 無かったものが生まれた',
+    answer: ['ゴール', '存在', '書く', '生まれる', '単語'],
+  }],
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['ゴール', '存在', '書く', '生まれる', '単語', '壁', 'SOLID', '押す', '向き', '2'],
+  hint_1: 'ゴールが無い。壁も抜けない。やることは2つある。',
+  hint_2: '離れた2単語をくっつけろ。押せる向きは限られている。',
+  hint_3: 'EXISTS を GOAL の隣まで押し上げてから、SOLID を行から落とせ。順番を逆にすると届かなくなる。',
+  solution: ['R', 'U', 'U', 'R', 'R', 'R', 'D', 'R', 'R'],
+},
+{
+  id: 'NULL-3', level: 10, title: 'ZERO', hidden: true, nullStage: true,
+  grid: { rows: [
+    '#########', '#.......#', '#.......#', '#.......#', '#.......#',
+    '#.......#', '#.......#', '#.......#', '#########'] },
+  view: { x: 0, y: 0, w: 3, h: 3 },
+  use_sentences: true,
+  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
+  existence_kinds: ['GOAL'],
+  spawns: { GOAL: { x: 1, y: 1 } },
+  objects: [{ kind: 'player', x: 1, y: 1 }],
+  ui_words: ['GOAL', 'EXISTS', 'PLAYER', '='],
+  hidden_rules: [{
+    id: 'R_ZERO', name: '1マスしかない世界でも、世界の外には余白がある', when: 'beforeMove',
+    if: { op: 'and', args: [{ op: 'not', a: { v: 'zoomed' } },
+      { op: 'or', args: [{ op: '>=', a: { v: 'tx' }, b: 3 }, { op: '>=', a: { v: 'ty' }, b: 3 }] }] },
+    then: [{ do: 'cancel' }, { do: 'sound', name: 'err' }],
+    note: '3マスの世界の縁で止められた',
+    answer: ['世界', '外', '余白', '存在', '拡大'],
+  }],
+  available_ui_actions: ['undo', 'reset', 'zoom', 'dropUI', 'wordDrag'],
+  tokens: ['世界', '外', '余白', '存在', '拡大', 'ゴール', '単語', '書く', '1', '0'],
+  hint_1: '動く場所が無い。書く場所も無い。ならば場所を増やせ。',
+  hint_2: '32面でやったことを、もう一度。ただし今度は歩くためではない。',
+  hint_3: '縮小して現れた余白に GOAL EXISTS と書け。ゴールはお前の足元に生まれる。',
+  solution: ['ui:zoom', 'ui:dropUI:GOAL,4,4', 'ui:dropUI:EXISTS,5,4'],
+},
+];
+
+return { L7 };
+})();
+
+// ===== src/stages/index.js =====
+__M['stages/index'] = (function () {
+// Every stage in the game is data. Adding one means adding an object here --
+// never touching the engine.
+
+const { L1 } = __M['stages/l1'];
+const { L2 } = __M['stages/l2'];
+const { L3 } = __M['stages/l3'];
+const { L4 } = __M['stages/l4'];
+const { L5 } = __M['stages/l5'];
+const { L6 } = __M['stages/l6'];
+const { L7 } = __M['stages/l7'];
+const STAGES = [...L1, ...L2, ...L3, ...L4, ...L5, ...L6, ...L7];
+
+// Stages authored in editor.html are merged in at runtime; the engine never
+// needs to know the difference.
+function registerStages(list) {
+  for (const st of list || []) {
+    const i = STAGES.findIndex((s) => String(s.id) === String(st.id));
+    if (i >= 0) STAGES[i] = st; else STAGES.push(st);
+  }
+  return STAGES;
+}
+
+const stageById = (id) => STAGES.find((s) => String(s.id) === String(id));
+
+// Stages that do not show up on the map until the world has been broken open.
+const visibleStages = (unlocked = {}) =>
+  STAGES.filter((s) => !s.hidden || unlocked[s.id]);
+
+return { registerStages, STAGES, stageById, visibleStages };
+})();
+
+// ===== src/editor.js =====
+__M['editor'] = (function () {
+// editor.js -- author a stage as JSON, replay its solution, and install it
+// into the game. No engine changes are ever needed to add a puzzle.
+
+const { Game } = __M['engine'];
+const { STAGES } = __M['stages/index'];
+const { Renderer } = __M['render'];
+const $ = (id) => document.getElementById(id);
+const CUSTOM_KEY = 'rulebreak.custom.v1';
+
+const TEMPLATE = {
+  id: 'X1',
+  title: 'NEW STAGE',
+  grid: {
+    rows: ['#########', '#.......#', '#.......#', '#.......#', '#########'],
+    legend: { r: { type: 'redwall', solid: { op: '==', a: { v: 'parity' }, b: 1 } } },
+  },
+  objects: [{ kind: 'player', x: 1, y: 2 }, { kind: 'goal', x: 7, y: 2 }],
+  marks: [],
+  hidden_rules: [{
+    id: 'X1_RULE',
+    name: '右へ3回進むとゴールが1マス近づく',
+    when: 'afterMove',
+    if: { op: '==', a: { v: 'streak.right' }, b: 3 },
+    then: [{ do: 'moveObj', ref: 'goal', dir: 'left', by: 1 }, { do: 'sound', name: 'low' }],
+    note: '右へ3回 → 盤面のどこかが動いた',
+    answer: ['右', '3', '回', 'ゴール', '動く'],
+  }],
+  rule_priority: ['X1_RULE'],
+  turn_conditions: { countBlocked: false },
+  win_conditions: [{ at: ['player', 'goal'] }],
+  cross_stage_variables: { read: [], write: [] },
+  available_ui_actions: ['undo', 'reset'],
+  tokens: ['右', '3', '回', 'ゴール', '動く', '重力', '反転', '壁', '偶数', '手目'],
+  hint_1: '考えるべき対象だけを示す。',
+  hint_2: '関係する現象を示す。',
+  hint_3: 'かなり具体的に。ただし答えそのものは書かない。',
+  solution: ['R', 'R', 'R', 'R', 'R'],
+};
+
+const parseAction = (str) => {
+  const M = { U: 'up', D: 'down', L: 'left', R: 'right' };
+  if (M[str]) return { type: 'move', dir: M[str] };
+  if (str === 'Z') return { type: 'undo' };
+  if (str === 'X') return { type: 'reset' };
+  if (str === 'W') return { type: 'wait' };
+  if (String(str).startsWith('ui:')) {
+    const [, name, rest] = String(str).split(':');
+    const a = (rest || '').split(',');
+    switch (name) {
+      case 'wordDrag': return { type: 'ui', name, args: { ref: a[0], x: +a[1], y: +a[2] } };
+      case 'dropUI': return { type: 'ui', name, args: { item: a[0], x: +a[1], y: +a[2] } };
+      case 'dropChar': return { type: 'ui', name, args: { char: a[0], ref: a[1], mode: a[2] || 'append' } };
+      case 'splitWord': return { type: 'ui', name, args: { ref: a[0], at: +a[1], x: +a[2], y: +a[3] } };
+      default: return { type: 'ui', name, args: {} };
+    }
+  }
+  throw new Error('未知の操作: ' + str);
+};
+
+const renderer = new Renderer($('ed-canvas'));
+let game = null;
+
+function log(msg, cls = 'dim') {
+  $('log').className = cls;
+  $('log').textContent = msg;
+}
+
+function currentStage() {
+  return JSON.parse($('src').value);
+}
+
+function boot() {
+  const sel = $('pick');
+  for (const st of STAGES) {
+    const o = document.createElement('option');
+    o.value = st.id;
+    o.textContent = `${st.id}  ${st.title}`;
+    sel.appendChild(o);
+  }
+  $('src').value = JSON.stringify(TEMPLATE, null, 2);
+  fresh();
+}
+
+function fresh() {
+  try {
+    const st = currentStage();
+    game = new Game(st, { globals: {} });
+    renderer.resize();
+    renderer.draw(game, {});
+    return true;
+  } catch (e) {
+    log('JSON か盤面の定義にエラー: ' + e.message, 'bad');
+    return false;
+  }
+}
+
+$('btn-load').onclick = () => {
+  const st = STAGES.find((s) => String(s.id) === $('pick').value);
+  if (!st) return;
+  $('src').value = JSON.stringify(st, null, 2);
+  fresh();
+  log(`STAGE ${st.id} を読み込んだ。書き換えて「検証」。`, 'dim');
+};
+$('btn-new').onclick = () => { $('src').value = JSON.stringify(TEMPLATE, null, 2); fresh(); };
+$('btn-fmt').onclick = () => {
+  try { $('src').value = JSON.stringify(JSON.parse($('src').value), null, 2); log('整形した。', 'ok'); }
+  catch (e) { log('JSON エラー: ' + e.message, 'bad'); }
+};
+$('btn-reset').onclick = () => { if (fresh()) log('初期化した。', 'dim'); };
+
+$('btn-check').onclick = () => {
+  let st;
+  try { st = currentStage(); } catch (e) { return log('JSON エラー: ' + e.message, 'bad'); }
+  const problems = [];
+  if (!st.id) problems.push('id がない');
+  if (!st.grid || !st.grid.rows || !st.grid.rows.length) problems.push('grid.rows がない');
+  else {
+    const w = st.grid.rows[0].length;
+    if (!st.grid.rows.every((r) => r.length === w)) problems.push('grid.rows の長さが揃っていない');
+  }
+  if (!st.hint_1 || !st.hint_2 || !st.hint_3) problems.push('hint_1..3 のいずれかがない');
+  if (!Array.isArray(st.solution) || !st.solution.length) problems.push('solution がない（検証できない）');
+  if (problems.length) return log('NG:\n  - ' + problems.join('\n  - '), 'bad');
+
+  const g = new Game(st, { globals: { ...(st.test_globals || {}) } });
+  let stepInfo = '';
+  try {
+    st.solution.forEach((a, i) => {
+      g.apply(parseAction(a));
+      if (g.s.dead) throw new Error(`${i + 1}手目 (${a}) で死亡`);
+    });
+  } catch (e) { return log('NG: ' + e.message, 'bad'); }
+  game = g;
+  renderer.resize(); renderer.draw(g, {});
+  stepInfo = `solution ${st.solution.length}手 / MOVES ${g.s.turn}`;
+  if (g.s.won) log(`OK: クリア可能。${stepInfo}`, 'ok');
+  else log(`NG: solution を再生してもクリアにならない。${stepInfo}`, 'bad');
+};
+
+$('btn-install').onclick = () => {
+  let st;
+  try { st = currentStage(); } catch (e) { return log('JSON エラー: ' + e.message, 'bad'); }
+  const list = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]');
+  const i = list.findIndex((s) => String(s.id) === String(st.id));
+  if (i >= 0) list[i] = st; else list.push(st);
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(list));
+  log(`STAGE ${st.id} をゲームに追加した。ステージ選択の CUSTOM に出る。`, 'ok');
+};
+
+$('btn-clearcustom').onclick = () => {
+  localStorage.removeItem(CUSTOM_KEY);
+  log('追加ステージを全消去した。本編のセーブデータには触れていない。', 'ok');
+};
+
+for (const b of document.querySelectorAll('[data-mv]')) {
+  b.onclick = () => {
+    if (!game) return;
+    const m = b.dataset.mv;
+    game.apply(m === 'undo' ? { type: 'undo' } : { type: 'move', dir: m });
+    renderer.draw(game, {});
+    log(`MOVES ${game.s.turn}${game.s.won ? '  -- CLEAR' : ''}${game.s.dead ? '  -- DEAD' : ''}`,
+      game.s.won ? 'ok' : 'dim');
+  };
+}
+
+window.addEventListener('resize', () => { if (game) { renderer.resize(); renderer.draw(game, {}); } });
+boot();
+
+return {  };
+})();
+
+</script>
+</body>
+</html>
