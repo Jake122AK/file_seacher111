@@ -748,14 +748,18 @@ export class Game {
         break;
       }
       case 'dropChar': { // pull a character out of a UI label and graft it onto an object
-        const { char, ref, mode } = args;
+        const { char, ref } = args;
         const o = this.byRef(ref);
         if (!o) { handled = false; break; }
+        // Where the character lands is a property of the target -- the board
+        // draws the empty slot -- never of where the finger happened to fall.
+        const mode = args.mode || (o.slot === 'pre' ? 'prepend' : 'append');
         this.pushHistoryFrom(before);
         const cur = String(o.label ?? '');
         o.label = mode === 'set' ? String(char)
           : mode === 'prepend' ? String(char) + cur
           : cur + String(char);
+        o.filled = true;
         break;
       }
       case 'splitWord': { // RESET -> RE + SET

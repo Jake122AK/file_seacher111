@@ -672,11 +672,7 @@ window.addEventListener('pointerup', (e) => {
   } else {
     const target = game.objsAt(x, y).find((o) => o.label !== undefined);
     if (!target) { sfx('err'); return; }
-    // Left half of the cell puts the digit in front, right half behind.
-    const rect = renderer.cellRect(x, y);
-    const localX = ((e.clientX - r.left) * renderer.dpr - rect.x) / rect.s;
-    doAction({ type: 'ui', name: 'dropChar',
-      args: { char: payload.value, ref: '#' + target.id, mode: localX < 0.5 ? 'prepend' : 'append' } });
+    doAction({ type: 'ui', name: 'dropChar', args: { char: payload.value, ref: '#' + target.id } });
   }
 });
 

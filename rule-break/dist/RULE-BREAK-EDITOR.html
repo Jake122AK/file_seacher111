@@ -1591,14 +1591,18 @@ class Game {
         break;
       }
       case 'dropChar': { // pull a character out of a UI label and graft it onto an object
-        const { char, ref, mode } = args;
+        const { char, ref } = args;
         const o = this.byRef(ref);
         if (!o) { handled = false; break; }
+        // Where the character lands is a property of the target -- the board
+        // draws the empty slot -- never of where the finger happened to fall.
+        const mode = args.mode || (o.slot === 'pre' ? 'prepend' : 'append');
         this.pushHistoryFrom(before);
         const cur = String(o.label ?? '');
         o.label = mode === 'set' ? String(char)
           : mode === 'prepend' ? String(char) + cur
           : cur + String(char);
+        o.filled = true;
         break;
       }
       case 'splitWord': { // RESET -> RE + SET
@@ -1935,8 +1939,15 @@ class Renderer {
         drawSprite(c, 'door', r.x, r.y, px, THEME.door, THEME.key);
         c.globalAlpha = 1;
         if (o.label !== undefined) {
-          const w = textWidth(o.label, px);
-          drawText(c, o.label, r.x + (this.cell - w) / 2, r.y + this.cell - px * 8, px, THEME.key);
+          // An unfilled slot is drawn as a blank, so the board itself says
+          // which side the missing character belongs on.
+          const shown = (o.filled || !o.slot) ? String(o.label)
+            : (o.slot === 'pre' ? '_' + o.label : o.label + '_');
+          const w = textWidth(shown, px);
+          const tx = r.x + (this.cell - w) / 2, ty = r.y + (this.cell - px * 7) / 2;
+          c.fillStyle = THEME.bg;                       // keep the text off the door art
+          c.fillRect(tx - px, ty - px, w + px * 2, px * 9);
+          drawText(c, shown, tx, ty, px, THEME.key);
         }
         break;
       }
@@ -2980,7 +2991,7 @@ const L6 = [
   grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#.......#', '#########'] },
   objects: [
     { kind: 'player', x: 1, y: 1 },
-    { id: 'door1', kind: 'door', x: 1, y: 4, label: '4',
+    { id: 'door1', kind: 'door', x: 1, y: 4, label: '4', slot: 'pre',
       openIf: { op: '==', a: { label: '#door1' }, b: '14' } },
     { kind: 'goal', x: 1, y: 5 },
   ],
@@ -2995,9 +3006,9 @@ const L6 = [
   tokens: ['UI', '数字', '部品', '扉', '名前', 'MOVES', '14', '4', '一致', '外す'],
   hint_1: 'この扉には名前が書いてある。DOOR 4。',
   hint_2: '画面のどこかに、まだ使っていない数字が表示されている。MOVES だ。',
-  hint_3: 'MOVES が 14 のとき、その "1" を掴んで扉の 4 の前に置け。DOOR 14 になる。',
+  hint_3: 'MOVES が 14 のとき、その "1" を掴んで扉の空欄へ落とせ。DOOR 14 になる。',
   solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L',
-    'ui:dropChar:1,#door1,prepend', 'D', 'D'],
+    'ui:dropChar:1,#door1', 'D', 'D'],
 },
 {
   id: '38', level: 6, title: 'RE|SET',
@@ -3030,7 +3041,7 @@ const L6 = [
   grid: { rows: ['#########', '#.......#', '#.....#.#', '#.......#', '#########'] },
   objects: [
     { kind: 'player', x: 1, y: 1 },
-    { id: 'door3', kind: 'door', x: 6, y: 1, label: '3',
+    { id: 'door3', kind: 'door', x: 6, y: 1, label: '3', slot: 'post',
       openIf: { op: '==', a: { label: '#door3' }, b: '39' } },
     { kind: 'goal', x: 7, y: 1 },
   ],
@@ -3046,7 +3057,7 @@ const L6 = [
   hint_1: 'DOOR 3。あと一文字足りない。',
   hint_2: 'MOVES から取れるとは限らない。画面の左上には何が書いてある？',
   hint_3: 'STAGE 39 の "9" を扉へ。扉がこのステージそのものになる。',
-  solution: ['ui:dropChar:9,#door3,append', 'R', 'R', 'R', 'R', 'R', 'R'],
+  solution: ['ui:dropChar:9,#door3', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '40', level: 8, title: 'ELSEWHERE',
@@ -3531,7 +3542,7 @@ const parseAction = (str) => {
     switch (name) {
       case 'wordDrag': return { type: 'ui', name, args: { ref: a[0], x: +a[1], y: +a[2] } };
       case 'dropUI': return { type: 'ui', name, args: { item: a[0], x: +a[1], y: +a[2] } };
-      case 'dropChar': return { type: 'ui', name, args: { char: a[0], ref: a[1], mode: a[2] || 'append' } };
+      case 'dropChar': return { type: 'ui', name, args: { char: a[0], ref: a[1], ...(a[2] ? { mode: a[2] } : {}) } };
       case 'splitWord': return { type: 'ui', name, args: { ref: a[0], at: +a[1], x: +a[2], y: +a[3] } };
       default: return { type: 'ui', name, args: {} };
     }

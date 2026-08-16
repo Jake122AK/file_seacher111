@@ -50,7 +50,7 @@ const parseAction = (str) => {
     switch (name) {
       case 'wordDrag': return { type: 'ui', name, args: { ref: a[0], x: +a[1], y: +a[2] } };
       case 'dropUI': return { type: 'ui', name, args: { item: a[0], x: +a[1], y: +a[2] } };
-      case 'dropChar': return { type: 'ui', name, args: { char: a[0], ref: a[1], mode: a[2] || 'append' } };
+      case 'dropChar': return { type: 'ui', name, args: { char: a[0], ref: a[1], ...(a[2] ? { mode: a[2] } : {}) } };
       case 'splitWord': return { type: 'ui', name, args: { ref: a[0], at: +a[1], x: +a[2], y: +a[3] } };
       default: return { type: 'ui', name, args: {} };
     }

@@ -7,7 +7,7 @@ export const L6 = [
   grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#.......#', '#########'] },
   objects: [
     { kind: 'player', x: 1, y: 1 },
-    { id: 'door1', kind: 'door', x: 1, y: 4, label: '4',
+    { id: 'door1', kind: 'door', x: 1, y: 4, label: '4', slot: 'pre',
       openIf: { op: '==', a: { label: '#door1' }, b: '14' } },
     { kind: 'goal', x: 1, y: 5 },
   ],
@@ -22,9 +22,9 @@ export const L6 = [
   tokens: ['UI', '数字', '部品', '扉', '名前', 'MOVES', '14', '4', '一致', '外す'],
   hint_1: 'この扉には名前が書いてある。DOOR 4。',
   hint_2: '画面のどこかに、まだ使っていない数字が表示されている。MOVES だ。',
-  hint_3: 'MOVES が 14 のとき、その "1" を掴んで扉の 4 の前に置け。DOOR 14 になる。',
+  hint_3: 'MOVES が 14 のとき、その "1" を掴んで扉の空欄へ落とせ。DOOR 14 になる。',
   solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L',
-    'ui:dropChar:1,#door1,prepend', 'D', 'D'],
+    'ui:dropChar:1,#door1', 'D', 'D'],
 },
 {
   id: '38', level: 6, title: 'RE|SET',
@@ -57,7 +57,7 @@ export const L6 = [
   grid: { rows: ['#########', '#.......#', '#.....#.#', '#.......#', '#########'] },
   objects: [
     { kind: 'player', x: 1, y: 1 },
-    { id: 'door3', kind: 'door', x: 6, y: 1, label: '3',
+    { id: 'door3', kind: 'door', x: 6, y: 1, label: '3', slot: 'post',
       openIf: { op: '==', a: { label: '#door3' }, b: '39' } },
     { kind: 'goal', x: 7, y: 1 },
   ],
@@ -73,7 +73,7 @@ export const L6 = [
   hint_1: 'DOOR 3。あと一文字足りない。',
   hint_2: 'MOVES から取れるとは限らない。画面の左上には何が書いてある？',
   hint_3: 'STAGE 39 の "9" を扉へ。扉がこのステージそのものになる。',
-  solution: ['ui:dropChar:9,#door3,append', 'R', 'R', 'R', 'R', 'R', 'R'],
+  solution: ['ui:dropChar:9,#door3', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '40', level: 8, title: 'ELSEWHERE',

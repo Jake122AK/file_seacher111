@@ -190,8 +190,15 @@ export class Renderer {
         drawSprite(c, 'door', r.x, r.y, px, THEME.door, THEME.key);
         c.globalAlpha = 1;
         if (o.label !== undefined) {
-          const w = textWidth(o.label, px);
-          drawText(c, o.label, r.x + (this.cell - w) / 2, r.y + this.cell - px * 8, px, THEME.key);
+          // An unfilled slot is drawn as a blank, so the board itself says
+          // which side the missing character belongs on.
+          const shown = (o.filled || !o.slot) ? String(o.label)
+            : (o.slot === 'pre' ? '_' + o.label : o.label + '_');
+          const w = textWidth(shown, px);
+          const tx = r.x + (this.cell - w) / 2, ty = r.y + (this.cell - px * 7) / 2;
+          c.fillStyle = THEME.bg;                       // keep the text off the door art
+          c.fillRect(tx - px, ty - px, w + px * 2, px * 9);
+          drawText(c, shown, tx, ty, px, THEME.key);
         }
         break;
       }

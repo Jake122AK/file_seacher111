@@ -177,13 +177,21 @@ check('MOVES reads 14 at the door', moves.replace(/\s/g, '') === 'MOVES14', move
 const one = page.locator('#hud-moves .ch.grabbable').first();
 const p1 = await one.boundingBox();
 const doorPt = await cellPoint(1, 4);
+// Dropped dead centre: the door's own slot decides where the digit lands,
+// never the exact pixel the finger let go on.
 await page.mouse.move(p1.x + p1.width / 2, p1.y + p1.height / 2);
 await page.mouse.down();
-await page.mouse.move(doorPt.x - 12, doorPt.y, { steps: 8 });  // left half = prepend
+await page.mouse.move(doorPt.x, doorPt.y, { steps: 8 });
 await page.mouse.up();
 await page.waitForTimeout(150);
-check('DOOR 4 becomes DOOR 14',
+check('DOOR 4 becomes DOOR 14 wherever the digit is dropped',
   await page.evaluate(() => window.RB.game.byRef('#door1').label) === '14');
+check('the door shows its empty slot before it is filled',
+  await page.evaluate(() => {
+    const g = new window.RB.game.constructor(window.RB.stage, { globals: {} });
+    const d = g.byRef('#door1');
+    return d.slot === 'pre' && !d.filled;
+  }));
 await key('ArrowDown', 2);
 check('stage 37 clears', await won());
 await closeOverlay();
