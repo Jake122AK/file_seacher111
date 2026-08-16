@@ -5,7 +5,7 @@
 // only read state and push actions in.
 
 import { ev, test } from './expr.js';
-import { semanticsFrom, hasProp, canDo, identityHolds, NOUN_OBJ, NOUN_TILE } from './sentence.js';
+import { semanticsFrom, hasProp, canDo, identityHolds, NOUN_OBJ, nounForTile } from './sentence.js';
 
 export const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 export const DIR_ORDER = ['up', 'right', 'down', 'left'];
@@ -140,11 +140,17 @@ export class Game {
 
   semantics() {
     const words = this.s.objs.filter((o) => o.kind === 'word');
+    // Solidity is queried many times per move; re-parsing the board's
+    // sentences every time is pure waste while nothing has moved.
+    const sig = this.meta.evalTick + '|' + words.map((o) => o.x + ',' + o.y + ',' + o.text).join(';');
+    if (this._semSig === sig) return this._sem;
     const st = this.stage;
     const def = st.semantics_defaults || (st.use_sentences
       ? null
       : { props: { WALL: ['SOLID'], RED: ['SOLID'], BOX: ['PUSH'], PLAYER: ['YOU'], GOAL: ['CLEAR'] } });
-    return semanticsFrom(words, this.s.w, this.s.h, this.meta.evalTick, def);
+    this._sem = semanticsFrom(words, this.s.w, this.s.h, this.meta.evalTick, def);
+    this._semSig = sig;
+    return this._sem;
   }
 
   hasSentence(text) {
@@ -371,7 +377,7 @@ export class Game {
 
     // On sentence-driven stages the words on the board decide what a wall is;
     // everywhere else the tile keeps its own law.
-    const noun = Object.keys(NOUN_TILE).find((n) => NOUN_TILE[n] === type);
+    const noun = nounForTile(type);
     if (noun && this.stage.use_sentences) {
       if (hasProp(sem, noun, 'SOLID') || hasProp(sem, noun, 'STOP')) return true;
       return false;
@@ -693,7 +699,11 @@ export class Game {
 
   allows(name) {
     const list = this.stage.available_ui_actions || ['undo', 'reset'];
-    return list.includes(name);
+    if (!list.includes(name)) return false;
+    // A stage may also say *when* an action works -- a board that only turns
+    // while you stand on the pivot, for instance.
+    const cond = (this.stage.ui_conditions || {})[name];
+    return cond === undefined ? true : test(cond, this.ctx());
   }
 
   uiAction(name, args) {
@@ -709,7 +719,7 @@ export class Game {
         break;
       case 'rotate': {
         this.pushHistoryFrom(before);
-        const by = args.by ?? 90;
+        const by = args.by ?? this.stage.rotate_step ?? 90;
         s.rot = (((s.rot + by) % 360) + 360) % 360;
         // Turning the screen turns which way is down.
         if (s.flags.gravDir) {

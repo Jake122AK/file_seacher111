@@ -34,7 +34,12 @@ export const PROPS = new Set([
 export const VERBS = new Set(['MOVE', 'PASS', 'UNDO', 'PUSH', 'WIN']);
 
 // Which kind of board object a noun refers to. Tile nouns map to tile types.
-export const NOUN_TILE = { WALL: 'wall', RED: 'redwall', BLUE: 'bluefloor', FLOOR: 'floor' };
+// A noun can cover more than one tile type: BLUE means both the blue floor
+// and the blue wall.
+export const NOUN_TILE = {
+  WALL: ['wall'], RED: ['redwall'], BLUE: ['bluewall', 'bluefloor'], FLOOR: ['floor'],
+};
+export const nounForTile = (type) => Object.keys(NOUN_TILE).find((n) => NOUN_TILE[n].includes(type));
 export const NOUN_OBJ = {
   PLAYER: 'player', BOX: 'box', GOAL: 'goal', KEY: 'key',
   DOOR: 'door', ENEMY: 'enemy', GHOST: 'ghost', TEXT: 'word',

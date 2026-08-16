@@ -6,7 +6,9 @@
   "private": true,
   "scripts": {
     "test": "node test/run.mjs",
+    "test:monkey": "node test/monkey.mjs",
     "test:browser": "node test/browser.mjs",
+    "build": "node tools/build.mjs",
     "serve": "npx http-server -p 8080 -s ."
   }
 }

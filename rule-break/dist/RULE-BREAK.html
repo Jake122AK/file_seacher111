@@ -454,7 +454,12 @@ const PROPS = new Set([
 const VERBS = new Set(['MOVE', 'PASS', 'UNDO', 'PUSH', 'WIN']);
 
 // Which kind of board object a noun refers to. Tile nouns map to tile types.
-const NOUN_TILE = { WALL: 'wall', RED: 'redwall', BLUE: 'bluefloor', FLOOR: 'floor' };
+// A noun can cover more than one tile type: BLUE means both the blue floor
+// and the blue wall.
+const NOUN_TILE = {
+  WALL: ['wall'], RED: ['redwall'], BLUE: ['bluewall', 'bluefloor'], FLOOR: ['floor'],
+};
+const nounForTile = (type) => Object.keys(NOUN_TILE).find((n) => NOUN_TILE[n].includes(type));
 const NOUN_OBJ = {
   PLAYER: 'player', BOX: 'box', GOAL: 'goal', KEY: 'key',
   DOOR: 'door', ENEMY: 'enemy', GHOST: 'ghost', TEXT: 'word',
@@ -602,7 +607,7 @@ function identityHolds(sem, a, b) {
   return sem.ident.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
 }
 
-return { baseSemantics, hasProp, canDo, parseSentences, semanticsFrom, identityHolds, NOUNS, PROPS, VERBS, NOUN_TILE, NOUN_OBJ };
+return { baseSemantics, hasProp, canDo, parseSentences, semanticsFrom, identityHolds, NOUNS, PROPS, VERBS, NOUN_TILE, nounForTile, NOUN_OBJ };
 })();
 
 // ===== src/pixel.js =====
@@ -873,7 +878,7 @@ __M['engine'] = (function () {
 // only read state and push actions in.
 
 const { ev, test } = __M['expr'];
-const { semanticsFrom, hasProp, canDo, identityHolds, NOUN_OBJ, NOUN_TILE } = __M['sentence'];
+const { semanticsFrom, hasProp, canDo, identityHolds, NOUN_OBJ, nounForTile } = __M['sentence'];
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const DIR_ORDER = ['up', 'right', 'down', 'left'];
 
@@ -1007,11 +1012,17 @@ class Game {
 
   semantics() {
     const words = this.s.objs.filter((o) => o.kind === 'word');
+    // Solidity is queried many times per move; re-parsing the board's
+    // sentences every time is pure waste while nothing has moved.
+    const sig = this.meta.evalTick + '|' + words.map((o) => o.x + ',' + o.y + ',' + o.text).join(';');
+    if (this._semSig === sig) return this._sem;
     const st = this.stage;
     const def = st.semantics_defaults || (st.use_sentences
       ? null
       : { props: { WALL: ['SOLID'], RED: ['SOLID'], BOX: ['PUSH'], PLAYER: ['YOU'], GOAL: ['CLEAR'] } });
-    return semanticsFrom(words, this.s.w, this.s.h, this.meta.evalTick, def);
+    this._sem = semanticsFrom(words, this.s.w, this.s.h, this.meta.evalTick, def);
+    this._semSig = sig;
+    return this._sem;
   }
 
   hasSentence(text) {
@@ -1238,7 +1249,7 @@ class Game {
 
     // On sentence-driven stages the words on the board decide what a wall is;
     // everywhere else the tile keeps its own law.
-    const noun = Object.keys(NOUN_TILE).find((n) => NOUN_TILE[n] === type);
+    const noun = nounForTile(type);
     if (noun && this.stage.use_sentences) {
       if (hasProp(sem, noun, 'SOLID') || hasProp(sem, noun, 'STOP')) return true;
       return false;
@@ -1560,7 +1571,11 @@ class Game {
 
   allows(name) {
     const list = this.stage.available_ui_actions || ['undo', 'reset'];
-    return list.includes(name);
+    if (!list.includes(name)) return false;
+    // A stage may also say *when* an action works -- a board that only turns
+    // while you stand on the pivot, for instance.
+    const cond = (this.stage.ui_conditions || {})[name];
+    return cond === undefined ? true : test(cond, this.ctx());
   }
 
   uiAction(name, args) {
@@ -1576,7 +1591,7 @@ class Game {
         break;
       case 'rotate': {
         this.pushHistoryFrom(before);
-        const by = args.by ?? 90;
+        const by = args.by ?? this.stage.rotate_step ?? 90;
         s.rot = (((s.rot + by) % 360) + 360) % 360;
         // Turning the screen turns which way is down.
         if (s.flags.gravDir) {
@@ -2150,33 +2165,35 @@ const L1 = [
 },
 {
   id: '4', level: 1, title: 'RIGHT RIGHT RIGHT',
-  grid: { rows: ['#######', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#######'] },
-  objects: [{ kind: 'player', x: 1, y: 5 }, { kind: 'goal', x: 5, y: 1 }],
+  grid: { rows: ['#########', '#.#.#.#.#', '#.#.#.#.#', '#.#.#.#.#', '#.#.#.#.#',
+    '#.#.#.#.#', '#.#.#.#.#', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 7 }, { kind: 'goal', x: 7, y: 1 }],
   flags: { gravDir: 'down' },
-  marks: [{ x: 1, y: 5, g: '>' }, { x: 2, y: 5, g: '>' }, { x: 3, y: 5, g: '>' }],
+  marks: [{ x: 2, y: 7, g: '>' }, { x: 3, y: 7, g: '>' }, { x: 4, y: 7, g: '>' }],
   hidden_rules: [{
     id: 'R_GRAV', name: '3回右へ進むと重力が反転する', when: 'afterMove',
-    if: { op: '==', a: { v: 'streak.right' }, b: 3 },
+    if: { op: 'and', args: [{ v: 'arg.moved' }, { op: '==', a: { v: 'streak.right' }, b: 3 }] },
     then: [{ do: 'flipGravity' }, { do: 'sound', name: 'low' }, { do: 'flash', text: '' }],
     note: '右へ3回 → 世界が裏返った',
     answer: ['右', '3', '回', '重力', '反転'],
   }],
   available_ui_actions: ['undo', 'reset'],
-  tokens: ['右', '左', '3', '2', '回', '重力', '反転', '床', '壁', '手目'],
-  hint_1: '上には行けない。跳べないのだから。',
-  hint_2: '床に描かれた矢印は何本ある？',
-  hint_3: '同じ方向へ連続して進んだ回数を数えよう。3回目に何かが起きる。',
-  solution: ['R', 'R', 'R', 'R'],
+  tokens: ['右', '左', '3', '2', '回', '連続', '重力', '反転', '床', '手目'],
+  hint_1: '天井の穴は4本ある。入れるのは1本だけだ。',
+  hint_2: '裏返る条件は「連続」で決まる。ならば、どの縦穴の上で裏返るかは自分で選べる。',
+  hint_3: '3歩目がゴールの真下に来るように歩幅を調整しろ。縦穴に一歩入って落ちれば、連続は途切れる。',
+  solution: ['R', 'R', 'U', 'R', 'R', 'L', 'R', 'R', 'R'],
 },
 {
   id: '5', level: 1, title: 'PUSH',
-  grid: { rows: ['#########', '#.......#', '#.###.#.#', '#.#...#.#', '#.#####.#', '#.......#', '#########'] },
+  grid: { rows: ['#########', '#.......#', '#.###.#.#', '#.##..#.#', '#.#.#.#.#',
+    '#.#.#.#.#', '#.#...#.#', '#.#####.#', '#########'] },
   objects: [
-    { kind: 'player', x: 2, y: 1 },
-    { kind: 'goal', x: 3, y: 3 },
-    { id: 'bx1', kind: 'box', x: 1, y: 1, push: false },
-    { id: 'bx2', kind: 'box', x: 7, y: 2, push: false },
-    { id: 'bx3', kind: 'box', x: 5, y: 2, push: false },
+    { kind: 'player', x: 4, y: 1 },
+    { kind: 'goal', x: 3, y: 6 },
+    { id: 'bxL', kind: 'box', x: 1, y: 1, push: false },
+    { id: 'bxD', kind: 'box', x: 7, y: 2, push: false },
+    { id: 'plug', kind: 'box', x: 5, y: 2, push: false },
   ],
   hidden_rules: [{
     id: 'R_PUSHGOAL', name: '箱を押すと、箱ではなくゴールが反対方向へ動く', when: 'moveBlocked',
@@ -2186,18 +2203,19 @@ const L1 = [
     answer: ['箱', 'ゴール', '反対', '動く'],
   }],
   available_ui_actions: ['undo', 'reset'],
-  tokens: ['箱', 'ゴール', '壁', '反対', '同じ', '動く', '押す', '2', '回', '重力'],
+  tokens: ['箱', 'ゴール', '壁', '反対', '同じ', '動く', '押す', '順番', '行き止まり', '重力'],
   hint_1: '箱はびくともしない。だが「何も起きていない」わけではない。',
-  hint_2: '箱を押したとき、盤面のどこかを見張っていよう。',
-  hint_3: 'ゴールは押した向きと逆へ動く。ゴールを、自分が行ける場所まで運べ。',
-  solution: ['L', 'L', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L'],
+  hint_2: 'ゴールが通れる道は一本道ではない。曲がる場所を間違えると、二度と出られない袋小路がある。',
+  hint_3: '押せる向きは2つだけで、押す場所も2箇所しかない。先に横、それから縦。逆にすると詰む。',
+  solution: ['L', 'L', 'L', 'L', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'D', 'D', 'D', 'L', 'L'],
 },
 {
   id: '6', level: 1, title: 'FACE',
-  grid: { rows: ['#########', '#.......#', '####r####', '#.......#', '#########'],
+  grid: { rows: ['#########', '#.......#', '####r####', '#.......#', '##r######',
+    '#.......#', '######r##', '#.......#', '#########'],
     legend: { r: { type: 'redwall', solid: { op: '!=', a: { v: 'facing' }, b: 'up' } } } },
-  objects: [{ kind: 'player', x: 1, y: 3 }, { kind: 'goal', x: 7, y: 1 }],
-  marks: [{ x: 4, y: 3, g: '^' }],
+  objects: [{ kind: 'player', x: 1, y: 7 }, { kind: 'goal', x: 1, y: 1 }],
+  marks: [{ x: 6, y: 7, g: '^' }],
   hidden_rules: [{
     id: 'R_FACE', name: '上を向いている間だけ赤い壁を通過できる', when: 'moveBlocked',
     if: { op: '==', a: { v: 'arg.tile' }, b: 'redwall' },
@@ -2208,18 +2226,19 @@ const L1 = [
   available_ui_actions: ['undo', 'reset'],
   tokens: ['赤', '青', '壁', '上', '下', '向き', '通過', '偶数', '手目', '箱'],
   hint_1: 'その赤いものは、本当に壁か？',
-  hint_2: 'プレイヤーの目はどこを向いている？',
-  hint_3: '床の矢印の上に立って、その向きへ進め。赤は上を向いた者だけを通す。',
-  solution: ['R', 'R', 'R', 'U', 'U', 'R', 'R', 'R'],
+  hint_2: 'プレイヤーの目はどこを向いている。そして、どちらへ進めば目はそちらを向く？',
+  hint_3: '赤は上を向いた者だけを通す。つまり真下からしか入れない。階ごとに真下へ回り込め。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'U', 'U', 'L', 'L', 'L', 'L', 'U', 'U', 'R', 'R', 'U', 'U', 'L', 'L', 'L'],
 },
 {
   id: '7', level: 1, title: 'PHASE',
-  grid: { rows: ['#########', '#....g..#', '#.#####.#', '#...#...#', '#########'],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#....g..#', '#########'],
     legend: { g: { type: 'glass' } } },
-  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
   turn_conditions: { countBlocked: true },
-  marks: [{ x: 1, y: 1, g: '.' }, { x: 3, y: 1, g: '.' }, { x: 5, y: 1, g: '.' }, { x: 7, y: 1, g: '.' },
-    { x: 2, y: 3, g: '.' }, { x: 6, y: 3, g: '.' }],
+  marks: [{ x: 1, y: 1, g: '.' }, { x: 3, y: 1, g: '.' }, { x: 5, y: 1, g: '.' },
+    { x: 7, y: 1, g: '.' }, { x: 2, y: 3, g: '.' }, { x: 6, y: 3, g: '.' },
+    { x: 3, y: 5, g: '.' }, { x: 7, y: 5, g: '.' }],
   hidden_rules: [{
     id: 'R_PHASE', name: '奇数手では壁が存在し、偶数手では床になる', when: 'moveBlocked',
     if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' },
@@ -2229,24 +2248,26 @@ const L1 = [
   }],
   available_ui_actions: ['undo', 'reset'],
   tokens: ['壁', '床', '奇数', '偶数', '手目', '存在', '色', '向き', '3', '回'],
-  hint_1: '行ったり来たりしても、何も変わらない。それ自体が答えの半分だ。',
+  hint_1: '一本道だ。遠回りで手数を稼ぐこともできない。',
   hint_2: 'MOVES は、進めなかったときも増える。',
-  hint_3: 'この盤面では手数の偶奇と自分の位置の色が連動している。壁に頭をぶつけて、その連動を切れ。',
-  solution: ['U', 'R', 'R', 'R', 'R', 'R', 'R'],
+  hint_3: '手数の偶奇と自分のいるマスの色は連動している。壁に頭をぶつけて、その連動を切れ。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L',
+    'D', 'D', 'R', 'R', 'R', 'U', 'R', 'R', 'R'],
 },
 {
   id: '8', level: 1, title: 'ODD',
-  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#########'] },
-  objects: [{ kind: 'player', x: 1, y: 2 }, { kind: 'goal', x: 7, y: 2 }],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
   turn_conditions: { countBlocked: true },
   win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { op: '%', a: { v: 'turn' }, b: 2 }, b: 1 }],
   laws: [{ id: 'L8', name: 'ゴールは奇数手のときだけ有効', answer: ['ゴール', '奇数', '手目'] }],
   available_ui_actions: ['undo', 'reset'],
   tokens: ['ゴール', '奇数', '偶数', '手目', '10', '壁', '向き', '重力', '接触', '存在'],
-  hint_1: 'ゴールの上に立っている。それでも駄目なら、足りないのはゴールではない。',
-  hint_2: 'ステージ名を声に出して読め。',
-  hint_3: '前ステージで学んだはずだ。壁を殴っても1手は進む。ゴールの上で1手潰せ。',
-  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'R'],
+  hint_1: '7面と同じ部屋だ。だが透明な壁は無い。ならば止めているものは何だ。',
+  hint_2: 'ゴールの上に立っている。それでも駄目なら、足りないのはゴールではない。',
+  hint_3: 'ステージ名を声に出して読め。ゴールの上で1手潰せば足りる。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L',
+    'D', 'D', 'R', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '9', level: 1, title: 'STOPPER',
@@ -2309,11 +2330,12 @@ const L2 = [
 },
 {
   id: '11', level: 2, title: 'CAGE',
-  grid: { rows: ['#########', '#.......#', '####.####', '#.......#', '#########'] },
+  grid: { rows: ['##########', '#........#', '####.#####', '#........#', '########.#',
+    '#........#', '##########'] },
   objects: [
-    { kind: 'player', x: 1, y: 3 },
+    { kind: 'player', x: 1, y: 5 },
     { kind: 'enemy', x: 6, y: 1, behavior: 'patrol', patrol: ['left', 'right'] },
-    { kind: 'goal', x: 7, y: 1 },
+    { kind: 'goal', x: 8, y: 1 },
   ],
   hidden_rules: [{
     id: 'R_TRACE11', name: '同じマスを2回踏むと、そのマスは壁になる', when: 'afterMove',
@@ -2325,18 +2347,21 @@ const L2 = [
   available_ui_actions: ['undo', 'reset'],
   tokens: ['床', '壁', '2', '回', '敵', '通れない', '閉じ込める', '奇数', '重力', '箱'],
   hint_1: '敵は、お前が作った壁も通れない。',
-  hint_2: '敵はお前が動いたときだけ動く。止まっていても、時間は進まない。',
-  hint_3: '自分の足跡で通路を切断し、敵を反対側へ置き去りにしろ。切る位置と、切る瞬間に自分がどちら側にいるかが全て。',
-  solution: ['R', 'R', 'R', 'U', 'U', 'R', 'L', 'R', 'R', 'R'],
+  hint_2: '敵はお前が動いたときだけ動く。止まっていても時間は進まない。すれ違いは無理だ。',
+  hint_3: '通路に入ったら、入口の隣を2度踏んで切り落とせ。切る瞬間、敵とゴールが自分と同じ側にいてはいけない。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'R', 'U', 'U', 'L', 'L', 'L', 'L', 'U', 'U',
+    'R', 'L', 'R', 'R', 'R', 'R'],
 },
 {
   id: '12', level: 2, title: 'QUIET ROOM',
-  grid: { rows: ['#######', '#.....#', '#.###.#', '#.....#', '#.###.#', '#.....#', '#######'] },
+  grid: { rows: ['#########', '#.......#', '####.##.#', '#.......#', '#.#######', '#.......#', '#########'] },
   objects: [
     { kind: 'player', x: 1, y: 1 },
-    { kind: 'goal', x: 1, y: 5 },
-    { id: 's12box', kind: 'box', x: 3, y: 3, spawnIf: { global: 's40_seen' } },
-    { kind: 'switch', link: 'p', x: 5, y: 3, spawnIf: { global: 's40_seen' } },
+    { kind: 'key', keyId: 'a', x: 2, y: 3 },
+    { kind: 'door', needs: 'a', x: 6, y: 5 },
+    { kind: 'goal', x: 7, y: 5 },
+    { id: 's12box', kind: 'box', x: 4, y: 2, spawnIf: { global: 's40_seen' } },
+    { kind: 'switch', link: 'p', x: 4, y: 1, spawnIf: { global: 's40_seen' } },
   ],
   hidden_rules: [{
     id: 'R_S12', name: 'この部屋で起きたことは、この部屋だけの話ではない', when: 'everyTurn',
@@ -2349,11 +2374,12 @@ const L2 = [
   cross_stage_variables: { read: ['s40_seen'], write: ['s12_box_placed'] },
   available_ui_actions: ['undo', 'reset'],
   tokens: ['箱', '台座', '別', 'ステージ', '影響', '壁', '2', '回', '重力', '手目'],
-  hint_1: 'ここは静かだ。何もない。……本当に、最初から何もなかったか？',
-  hint_2: 'このステージに来た回数を思い出せ。以前と違うものが置かれていないか。',
-  hint_3: '箱を台座へ押し込め。効果はこのステージには現れない。',
-  solution: ['D', 'D', 'D', 'D'],
-  solution_after: ['D', 'D', 'R', 'R', 'R', 'L', 'L', 'L', 'D', 'D'],
+  hint_1: 'ここは静かだ。鍵を拾って扉を開けるだけ。……本当に、最初から何もなかったか？',
+  hint_2: 'このステージに来た回数を思い出せ。以前は無かったものが置かれていないか。',
+  hint_3: '枝道の箱を台座へ押し上げろ。効果はこのステージには現れない。',
+  solution: ['R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'D', 'D', 'R', 'R', 'R', 'R', 'R', 'R'],
+  solution_after: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'U', 'D',
+    'L', 'L', 'L', 'D', 'D', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '13', level: 2, title: 'THROUGH',
@@ -2385,7 +2411,7 @@ const L2 = [
   marks: [{ x: 1, y: 5, g: '>' }, { x: 2, y: 5, g: '>' }, { x: 3, y: 5, g: '>' }],
   hidden_rules: [{
     id: 'R_GRAV14', name: '3回右へ進むと重力が反転する', when: 'afterMove',
-    if: { op: '==', a: { v: 'streak.right' }, b: 3 },
+    if: { op: 'and', args: [{ v: 'arg.moved' }, { op: '==', a: { v: 'streak.right' }, b: 3 }] },
     then: [{ do: 'flipGravity' }, { do: 'sound', name: 'low' }, { do: 'flash', text: '' }],
     note: '右へ3回 → 世界が裏返った',
     answer: ['右', '3', '回', '重力', '反転'],
@@ -2401,12 +2427,12 @@ const L2 = [
 },
 {
   id: '15', level: 2, title: 'SHIFT',
-  grid: { rows: ['#########', '#.......#', '#.......#', '#....g..#', '#########'],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '##.######', '#....g..#', '#########'],
     legend: { g: { type: 'glass' } } },
   objects: [
-    { kind: 'player', x: 1, y: 3 },
-    { id: 'bx', kind: 'box', x: 2, y: 1 },
-    { kind: 'goal', x: 7, y: 3 },
+    { kind: 'player', x: 1, y: 1 },
+    { id: 'bx', kind: 'box', x: 4, y: 3 },
+    { kind: 'goal', x: 7, y: 5 },
   ],
   hidden_rules: [{
     id: 'R_PUSHTURN', name: '箱を押すとターン数が+2される', when: 'onPush',
@@ -2417,10 +2443,11 @@ const L2 = [
   }],
   available_ui_actions: ['undo', 'reset'],
   tokens: ['箱', '押す', '手数', '増える', '奇数', '偶数', '壁', '存在', '色', '重力'],
-  hint_1: '透明な壁の法則は7面と同じだ。ならば同じ手が使える……とは限らない。',
-  hint_2: 'ここには壁を殴っても手数が増えない。増やす方法は他にある。',
-  hint_3: '箱を1回押すたび、手数が余分に1つ進む。それで偶奇をずらせ。',
-  solution: ['U', 'U', 'R', 'D', 'D', 'R', 'R', 'R', 'R', 'R'],
+  hint_1: '透明な壁の法則は7面と同じだ。だがここでは壁を殴っても手数は増えない。',
+  hint_2: '1マス進むのに2手かかる動きが、この盤面には一つだけある。',
+  hint_3: '箱を押した回数だけ偶奇がずれる。押す回数は自分で決められる。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'D', 'D',
+    'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '16', level: 2, title: 'FILL',
@@ -2533,11 +2560,11 @@ const L3 = [
 },
 {
   id: '20', level: 3, title: 'PHASES',
-  grid: { rows: ['#########', '#...r.G.#', '#.b.....#', '#.......#', '#########'],
-    legend: { r: RED, G: BLUEW, b: BLUEF } },
-  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#..r....#', '#.#######', '#....G..#', '#########'],
+    legend: { r: RED, G: BLUEW } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
   turn_conditions: { countBlocked: true },
-  hidden_rules: [RED_EVEN('R_RED'), BLUE_FLIP('R_BLUE'), {
+  hidden_rules: [RED_EVEN('R_RED'), {
     id: 'R_BLUEW', name: '青い壁は赤い壁と逆の位相を持つ', when: 'moveBlocked',
     if: { op: '==', a: { v: 'arg.tile' }, b: 'bluewall' },
     then: [{ do: 'sound', name: 'err' }],
@@ -2547,15 +2574,17 @@ const L3 = [
   available_ui_actions: ['undo', 'reset'],
   tokens: ['赤', '青', '壁', '偶数', '奇数', '逆', '手目', '床', '反転', '重力'],
   hint_1: '2つの門は、同時に開かない。',
-  hint_2: '片方を抜けた直後、もう片方は必ず閉じている。',
-  hint_3: '門と門の間で1手だけ無駄にしろ。壁を殴れば手数は進む。',
-  solution: ['R', 'R', 'R', 'R', 'U', 'R', 'R'],
+  hint_2: '一本道だ。遠回りで手数を調整することはできない。',
+  hint_3: '門の直前で壁を殴れ。必要な回数は門ごとに違う。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'U', 'L', 'L', 'L',
+    'D', 'D', 'R', 'R', 'R', 'U', 'R', 'R', 'R'],
 },
 {
   id: '21', level: 3, title: 'ORDER',
-  grid: { rows: ['#########', '#.y...G.#', '#.......#', '#.....y.#', '#########'],
-    legend: { y: { type: 'yellowfloor' }, G: { type: 'gate', solid: { op: 'not', a: { v: 'flag.gate' } } } } },
-  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#...y...#', '#.#######', '#....G..#', '#########'],
+    legend: { y: { type: 'yellowfloor' },
+      G: { type: 'gate', solid: { op: 'not', a: { v: 'flag.gate' } } } } },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
   turn_conditions: { countBlocked: true },
   hidden_rules: [
     { id: 'R_ADD', name: '黄色い床はターン数を+1する', when: 'onEnter',
@@ -2573,42 +2602,44 @@ const L3 = [
   rule_priority: ['R_ADD', 'R_GATE'],
   available_ui_actions: ['undo', 'reset'],
   tokens: ['黄', '床', '門', '奇数', '偶数', '手数', '増える', '順番', '先', '後'],
-  hint_1: '黄色い床を踏むたび、門の状態が変わる。開くときと閉じるときがある。',
+  hint_1: '黄色い床を踏むたび、遠くの門の状態が変わる。開くときと閉じるときがある。',
   hint_2: '黄色い床は手数も増やす。門の判定は、増やす前と後、どちらの手数を見ている？',
-  hint_3: '判定は+1された後の手数を見ている。つまり偶数手で黄色を踏め。壁を殴って偶奇を合わせろ。',
-  solution: ['U', 'R', 'R', 'R', 'R', 'R', 'R'],
+  hint_3: '判定は+1された後の手数を見ている。つまり偶数手のときに踏め。踏む前に壁を殴って合わせろ。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'U', 'L', 'L', 'L', 'L',
+    'D', 'D', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '22', level: 3, title: 'FALL',
-  grid: { rows: ['#########', '#.......#', '#.#####.#', '#g......#', '#.#####.#', '#.......#', '#########'],
+  grid: { rows: ['#########', '#.#.#.#.#', '#.#.#.#.#', '#.#.#.#g#', '#.#.#.#.#',
+    '#.#.#.#.#', '#.#.#.#.#', '#.......#', '#########'],
     legend: { g: { type: 'glass' } } },
-  objects: [{ kind: 'player', x: 2, y: 5 }, { kind: 'goal', x: 1, y: 1 }],
+  objects: [{ kind: 'player', x: 1, y: 7 }, { kind: 'goal', x: 7, y: 1 }],
   flags: { gravDir: 'down' },
   turn_conditions: { countBlocked: true },
+  marks: [{ x: 2, y: 7, g: '>' }, { x: 3, y: 7, g: '>' }, { x: 4, y: 7, g: '>' }],
   hidden_rules: [
     { id: 'R_GRAV22', name: '3回右へ進むと重力が反転する', when: 'afterMove',
-      if: { op: '==', a: { v: 'streak.right' }, b: 3 },
+      if: { op: 'and', args: [{ v: 'arg.moved' }, { op: '==', a: { v: 'streak.right' }, b: 3 }] },
       then: [{ do: 'flipGravity' }, { do: 'sound', name: 'low' }, { do: 'flash', text: '' }],
       note: '右へ3回 → 世界が裏返った',
       answer: ['右', '3', '回', '重力', '反転'] },
     { id: 'R_PHASE22', name: '透明な壁は奇数手のあいだだけ存在する', when: 'moveBlocked',
-      if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' },
-      then: [{ do: 'sound', name: 'err' }],
-      note: '透明な壁に阻まれた',
+      if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' }, then: [{ do: 'sound', name: 'err' }],
+      note: '上昇が途中で止められた',
       answer: ['壁', '奇数', '偶数', '手目', '存在'] },
   ],
   available_ui_actions: ['undo', 'reset'],
   tokens: ['重力', '反転', '3', '回', '壁', '奇数', '偶数', '落下', '手数', '存在'],
   hint_1: '落下は移動ではない。落ちているあいだ、MOVES は増えない。',
-  hint_2: '上昇の途中で止められた。止めたものは、いつも同じ場所にあるわけではない。',
-  hint_3: '透明な壁の下で1手潰せ。壁を殴れば手数だけが進み、位置は変わらない。',
-  solution: ['R', 'R', 'R', 'L', 'L', 'L', 'L', 'L'],
+  hint_2: '4面と同じ櫛だ。だが正しい縦穴の途中に、見えないものが挟まっている。',
+  hint_3: '止められたその場で壁を殴れ。手数だけが進み、続きから上昇が再開する。',
+  solution: ['R', 'R', 'U', 'R', 'R', 'L', 'R', 'R', 'R', 'U'],
 },
 {
   id: '23', level: 3, title: 'DEFINITION',
-  grid: { rows: ['#########', '#..b.r..#', '#.......#', '#......b#', '#########'],
+  grid: { rows: ['#########', '#..b.r..#', '#######.#', '#......b#', '#.#######', '#.......#', '#########'],
     legend: { r: RED, b: BLUEF } },
-  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
   win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'parity' }, b: 0 }],
   hidden_rules: [RED_EVEN('R_RED'), BLUE_FLIP('R_BLUE'), {
     id: 'R_GOALEVEN', name: 'ゴールも「偶数」の定義に従っている', when: 'beforeWin', if: false, then: [],
@@ -2619,8 +2650,9 @@ const L3 = [
   tokens: ['ゴール', '赤', '青', '偶数', '奇数', '定義', '反転', '同じ', '床', '壁'],
   hint_1: 'ゴールの上に立った。門も抜けた。それでも駄目なら、条件は1つではない。',
   hint_2: '青い床が入れ替えたのは「壁の条件」だけだと、誰が言った？',
-  hint_3: 'ゴールも同じ「偶数」を参照している。門を抜けるために反転させた定義を、もう一度戻せ。',
-  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'U', 'U'],
+  hint_3: 'ゴールも同じ「偶数」を参照している。門を抜けるために反転させた定義を、途中でもう一度戻せ。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L',
+    'D', 'D', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '24', level: 3, title: 'FOUR',
@@ -2678,18 +2710,20 @@ const GHOST_ON_REWIND = (id, name) => ({
 const L4 = [
 {
   id: '25', level: 4, title: 'REWIND',
-  grid: { rows: ['#########', '#.......#', '#########'] },
-  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
-  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'turn' }, b: 10 }],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
+  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'turn' }, b: 25 }],
   hidden_rules: [UNDO_TURN('R_UNDOTURN')],
-  laws: [{ id: 'L25', name: 'ゴールは10手目にだけ有効', answer: ['ゴール', '10', '手目'] }],
-  marks: [{ x: 4, y: 1, g: '10' }],
+  laws: [{ id: 'L25', name: 'ゴールは25手目にだけ有効', answer: ['ゴール', '25', '手目'] }],
+  marks: [{ x: 4, y: 3, g: '25' }],
   available_ui_actions: ['undo', 'reset'],
-  tokens: ['UNDO', '手数', '増える', '減らない', 'ゴール', '10', '手目', '戻る', '時間', '巻き戻し'],
-  hint_1: '一本道だ。歩数は選べない。……本当に？',
+  tokens: ['UNDO', '手数', '増える', '減らない', 'ゴール', '25', '手目', '戻る', '時間', '巻き戻し'],
+  hint_1: '一本道だ。歩数は選べない。歩けば22手で着く。',
   hint_2: 'UNDOを押したとき、MOVES はどう動いた？',
   hint_3: 'UNDOは位置を戻すが、時間は戻さない。1歩進んで1回戻すたび、時間だけが1つ進む。',
-  solution: ['R', 'Z', 'R', 'Z', 'R', 'Z', 'R', 'Z', 'R', 'R', 'R', 'R', 'R', 'R'],
+  solution: ['R', 'Z', 'R', 'Z', 'R', 'Z',
+    'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L', 'D', 'D',
+    'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '26', level: 4, title: 'REVIVE',
@@ -2740,35 +2774,38 @@ const L4 = [
 },
 {
   id: '28', level: 4, title: 'CROWD',
-  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#########'] },
+  grid: { rows: ['#########', '#.....###', '#.....###', '#.......#', '#.....###', '#.....###', '#########'] },
   objects: [
-    { kind: 'player', x: 1, y: 2 },
+    { kind: 'player', x: 3, y: 3 },
     { kind: 'switch', link: 'a', x: 1, y: 1 },
-    { kind: 'switch', link: 'b', x: 1, y: 3 },
-    { kind: 'door', link: 'a', x: 5, y: 2 },
-    { kind: 'door', link: 'b', x: 6, y: 2 },
-    { kind: 'goal', x: 7, y: 2 },
+    { kind: 'switch', link: 'b', x: 1, y: 5 },
+    { kind: 'door', link: 'a', x: 5, y: 3 },
+    { kind: 'door', link: 'b', x: 6, y: 3 },
+    { kind: 'goal', x: 7, y: 3 },
   ],
   hidden_rules: [{
-    id: 'R_GHOST28', name: '巻き戻しきるたびに、過去の自分がもう一人増える', when: 'onUndo',
+    id: 'R_GHOST28', name: '巻き戻しきると、巻き戻す直前に立っていた場所へ過去の自分が残る',
+    when: 'onUndo',
     if: { op: 'and', args: [{ op: '==', a: { v: 'trailLen' }, b: 1 }, { op: '>=', a: { v: 'undos' }, b: 1 }] },
-    then: [{ do: 'spawnGhost', source: 'full', from: 0 }, { do: 'flash', text: '' },
+    then: [{ do: 'spawnGhost', source: 'full', from: -1 }, { do: 'flash', text: '' },
       { do: 'sound', name: 'discover' }],
-    note: '巻き戻しきった → 過去の自分がもう一人増えた',
+    note: '巻き戻しきった → さっきまで自分がいた場所に、誰かが残った',
     answer: ['UNDO', '過去', '自分', '増える', '2'],
   }],
   available_ui_actions: ['undo', 'reset'],
   tokens: ['UNDO', '過去', '自分', '増える', '2', 'スイッチ', '扉', '同時', '順番', '経路'],
   hint_1: '扉は2枚。スイッチも2つ。だが体は1つしかない。',
-  hint_2: '過去の自分は、お前が歩いた経路の終点で立ち止まる。',
-  hint_3: '過去の自分は、記録された経路の終点で止まる。スイッチの上で止まるように歩いてから巻き戻せ。それを2回。',
-  solution: ['U', 'Z', 'D', 'Z', 'R', 'R', 'R', 'R', 'R', 'R'],
+  hint_2: '残るのは「巻き戻す直前にいた場所」だ。どこで巻き戻すかが全て。',
+  hint_3: '片方のスイッチまで歩いてから最初まで巻き戻す。それを、もう片方でもう一度。',
+  solution: ['L', 'L', 'U', 'U', 'Z', 'Z', 'Z', 'Z',
+    'L', 'L', 'D', 'D', 'Z', 'Z', 'Z', 'Z',
+    'R', 'R', 'R', 'R'],
 },
 {
   id: '29', level: 4, title: 'TIME LOCK',
-  grid: { rows: ['#########', '#....g..#', '#.#####.#', '#...#...#', '#########'],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#....g..#', '#########'],
     legend: { g: { type: 'glass' } } },
-  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 1 }],
+  objects: [{ kind: 'player', x: 1, y: 1 }, { kind: 'goal', x: 7, y: 5 }],
   hidden_rules: [UNDO_TURN('R_UNDOTURN29'), {
     id: 'R_PHASE29', name: '透明な壁は奇数手のあいだだけ存在する', when: 'moveBlocked',
     if: { op: '==', a: { v: 'arg.tile' }, b: 'glass' }, then: [{ do: 'sound', name: 'err' }],
@@ -2778,8 +2815,10 @@ const L4 = [
   tokens: ['UNDO', '手数', '増える', '壁', '奇数', '偶数', '存在', '位置', '色', '時間'],
   hint_1: '7面と同じ壁だ。だがここでは壁を殴っても手数は増えない。',
   hint_2: '手数を増やす方法は、進むこと以外にもう一つある。',
-  hint_3: '1歩進んでUNDO。位置は戻り、時間だけが1つ残る。',
-  solution: ['R', 'Z', 'R', 'R', 'R', 'R', 'R', 'R'],
+  hint_3: '1歩進んでUNDO。位置は戻り、時間だけが1つ残る。歩き出す前に済ませておけ。',
+  solution: ['R', 'Z',
+    'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L', 'D', 'D',
+    'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '30', level: 4, title: 'APPOINTMENT',
@@ -2868,33 +2907,38 @@ const L5 = [
 },
 {
   id: '33', level: 5, title: 'UPSIDE DOWN',
-  grid: { rows: ['#########', '#.......#', '#.....#.#', '#.....#.#', '#.....#.#', '#.......#', '#########'] },
-  objects: [{ kind: 'player', x: 1, y: 5 }, { kind: 'goal', x: 1, y: 1 }],
+  grid: { rows: ['#########', '#......y#', '#.#######', '#.......#', '#######.#', '#......y#', '#########'],
+    legend: { y: { type: 'yellowfloor' } } },
+  objects: [{ kind: 'player', x: 1, y: 5 }, { kind: 'goal', x: 7, y: 1 }],
   flags: { gravDir: 'down' },
+  rotate_step: 180,
+  ui_conditions: { rotate: { op: '==', a: { v: 'tileHere' }, b: 'yellowfloor' } },
+  win_conditions: [{ at: ['player', 'goal'] }, { op: '==', a: { v: 'rot' }, b: 0 }],
   hidden_rules: [{
-    id: 'R_ROT', name: '盤面を回すと、落ちる向きも一緒に回る', when: 'onUI',
-    if: { op: '==', a: { v: 'ui.name' }, b: 'rotate' },
+    id: 'R_ROT', name: '盤面は黄色い軸の上でしか回らない。回すと落ちる向きも一緒に回る',
+    when: 'onUI', if: { op: '==', a: { v: 'ui.name' }, b: 'rotate' },
     then: [{ do: 'sound', name: 'low' }],
-    note: '盤面を回した → 落下方向が変わった',
+    note: '盤面が半回転した → 落下方向も操作方向も裏返った',
     answer: ['盤面', '回転', '重力', '一緒'],
   }],
   available_ui_actions: ['undo', 'reset', 'rotate'],
-  tokens: ['盤面', '回転', '重力', '一緒', '上', '下', '操作', '逆', '落下', '壁'],
+  tokens: ['盤面', '回転', '重力', '一緒', '軸', '黄', '操作', '逆', '落下', '正立'],
   hint_1: '登れないなら、落ちればいい。落ちる先を選べるなら。',
-  hint_2: '盤面の角にあるものは飾りではない。',
-  hint_3: '右の縦穴の底まで歩いてから、盤面を180度回せ。回した後は操作方向も一緒に回っている。',
-  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'ui:rotate', 'ui:rotate', 'R', 'R', 'R', 'R', 'R', 'R'],
+  hint_2: '盤面はどこでも回るわけではない。回った場所の床の色を見ろ。',
+  hint_3: '軸は2枚ある。1枚目で世界を裏返して天井を歩き、2枚目――ゴールの足元――で正立に戻せ。逆さのままではクリアにならない。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'ui:rotate',
+    'R', 'R', 'R', 'R', 'R', 'R', 'L', 'L', 'L', 'L', 'L', 'L', 'ui:rotate'],
 },
 {
   id: '34', level: 5, title: 'GOAL',
-  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#.......#', '#.......#', '#########'] },
-  objects: [{ kind: 'player', x: 1, y: 3 }],
+  grid: { rows: ['#########', '#.......#', '#######.#', '#.......#', '#.#######', '#.......#', '#########'] },
+  objects: [{ kind: 'player', x: 1, y: 1 }],
   hidden_rules: [{
     id: 'R_TITLE', name: 'ステージ名そのものが、このステージのゴールである', when: 'onUI',
     if: { op: 'and', args: [
       { op: '==', a: { v: 'ui.name' }, b: 'tapTitle' },
       { op: '>=', a: { v: 'flag.titleTaps' }, b: 3 }] },
-    then: [{ do: 'spawn', kind: 'goal', x: 5, y: 3 }, { do: 'flash', text: 'GOAL' },
+    then: [{ do: 'spawn', kind: 'goal', x: 7, y: 5 }, { do: 'flash', text: 'GOAL' },
       { do: 'sound', name: 'discover' }],
     once: true,
     note: 'ステージ名を叩いた → 名前が揺れた',
@@ -2905,7 +2949,9 @@ const L5 = [
   hint_1: '盤面にゴールが無い。だが「ゴール」という単語なら、さっきから画面に出ている。',
   hint_2: '画面の文字は、読むためだけの物か？',
   hint_3: 'ステージ名を3回叩け。',
-  solution: ['ui:tapTitle', 'ui:tapTitle', 'ui:tapTitle', 'R', 'R', 'R', 'R'],
+  solution: ['ui:tapTitle', 'ui:tapTitle', 'ui:tapTitle',
+    'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L', 'D', 'D',
+    'R', 'R', 'R', 'R', 'R', 'R'],
 },
 {
   id: '35', level: 5, title: 'FOOTNOTE',
@@ -2928,7 +2974,7 @@ const L5 = [
 },
 {
   id: '36', level: 5, title: 'DROP',
-  grid: { rows: ['#########', '#.......#', '#...o...#', '#.......#', '#########'],
+  grid: { rows: ['#########', '#.......#', '#..oo...#', '#.......#', '#########'],
     legend: { o: { type: 'hole' } } },
   objects: [{ kind: 'player', x: 1, y: 2 }, { kind: 'goal', x: 7, y: 2 }],
   words_walkable: true,
@@ -2941,11 +2987,11 @@ const L5 = [
     answer: ['UI', '文字', '盤面', '物', '落とす'],
   }],
   available_ui_actions: ['undo', 'reset', 'dropUI'],
-  tokens: ['UI', '文字', '盤面', '物', '落とす', '穴', '床', 'ボタン', '外', '存在'],
+  tokens: ['UI', '文字', '盤面', '物', '落とす', '穴', '床', 'ボタン', '2', '存在'],
   hint_1: '穴を埋める箱が無い。盤面の上には、な。',
-  hint_2: '画面には他にも四角い物が並んでいる。RESET、UNDO。あれは何でできている？',
-  hint_3: 'RESET ボタンを掴んで、穴の上へ落とせ。',
-  solution: ['ui:dropUI:RESET,4,2', 'R', 'R', 'R', 'R', 'R', 'R'],
+  hint_2: '画面には四角い物が並んでいる。RESET、UNDO。あれは何でできている？',
+  hint_3: '穴は2マスある。ボタンも2つある。',
+  solution: ['ui:dropUI:RESET,3,2', 'ui:dropUI:UNDO,4,2', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 ];
 
@@ -3114,33 +3160,42 @@ const L6 = [
 },
 {
   id: '43', level: 7, title: 'THIS RULE IS FALSE',
-  grid: { rows: ['#########', '#...#...#', '#...#...#', '#...#...#', '#...#...#', '#...#...#', '#########'] },
+  grid: { rows: ['##########', '#.B..B.B.#', '#........#', '#........#', '#........#',
+    '#........#', '##########'],
+    legend: { B: { type: 'bluewall' } } },
   use_sentences: true,
   words_pushable: true,
-  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
+  semantics_defaults: { props: { WALL: ['SOLID'], PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
   objects: [
-    { kind: 'player', x: 3, y: 1 },
-    { kind: 'word', text: 'THIS', x: 1, y: 1 },
-    { kind: 'word', text: 'RULE', x: 1, y: 2 },
-    { kind: 'word', text: 'IS', x: 1, y: 3 },
-    { kind: 'word', text: 'FALSE', x: 1, y: 4 },
-    { kind: 'word', text: 'WALL', x: 1, y: 5 },
+    { kind: 'player', x: 1, y: 1 },
+    { kind: 'word', text: 'THIS', x: 1, y: 3 },
+    { kind: 'word', text: 'RULE', x: 2, y: 3 },
+    { kind: 'word', text: 'IS', x: 3, y: 3 },
+    { kind: 'word', text: 'FALSE', x: 4, y: 3 },
+    { kind: 'word', text: 'BLUE', x: 1, y: 5 },
     { kind: 'word', text: 'IS', x: 2, y: 5 },
     { kind: 'word', text: 'SOLID', x: 3, y: 5 },
-    { kind: 'goal', x: 7, y: 3 },
+    { kind: 'goal', x: 8, y: 1 },
   ],
-  hidden_rules: [{
-    id: 'R_PARADOX', name: '「この規則は偽である」は1手ごとに真偽が入れ替わる', when: 'moveBlocked', if: true,
-    then: [{ do: 'sound', name: 'err' }],
-    note: '同じ壁が、通れるときと通れないときがある',
-    answer: ['規則', '偽', '1', '手', '交互'],
-  }],
+  hidden_rules: [
+    { id: 'R_PARADOX', name: '「この規則は偽である」の真偽は1手ごとに入れ替わり、直後の一文を殺す',
+      when: 'moveBlocked', if: { op: '==', a: { v: 'arg.tile' }, b: 'bluewall' },
+      then: [{ do: 'addFlag', flag: 'rejects', by: 1 }, { do: 'sound', name: 'err' },
+        { do: 'flash', text: 'SEEN' }],
+      note: '青い門に弾かれた → 門は弾いた回数を覚えている',
+      answer: ['規則', '偽', '1', '手', '交互'] },
+    { id: 'R_CAUGHT', name: '青い門は2度目の誤りを許さない', when: 'afterMove',
+      if: { op: '>=', a: { v: 'flag.rejects' }, b: 2 },
+      then: [{ do: 'fail' }, { do: 'sound', name: 'dead' }],
+      answer: ['門', '2', '回', '失敗', '終わり'] },
+  ],
+  rule_priority: ['R_PARADOX', 'R_CAUGHT'],
   available_ui_actions: ['undo', 'reset'],
-  tokens: ['規則', '偽', '交互', '1', '手', '壁', '評価', '順番', '真', '文章'],
-  hint_1: '同じ場所で同じ操作をした。結果が違った。ならば変数は「時刻」だ。',
-  hint_2: '自分を否定する文が、すぐ上の行にある。真なら偽、偽なら真。',
-  hint_3: '壁は1手ごとに硬さが入れ替わる。1回はじかれたら、そのままもう一度押せ。',
-  solution: ['D', 'D', 'R', 'R', 'R', 'R', 'R'],
+  tokens: ['規則', '偽', '交互', '1', '手', '門', '2', '回', '評価', '順番'],
+  hint_1: '門は3つ。だが試せる回数は限られている。まず、試さずに済む壁を殴れ。',
+  hint_2: '自分を否定する文が上の行にある。真なら偽、偽なら真――つまり1手ごとに裏返る。',
+  hint_3: '門が開くのは奇数手のあいだだけだ。門の手前で普通の壁を殴って手数を合わせろ。門に弾かれるのは2回まで。',
+  solution: ['U', 'R', 'R', 'R', 'U', 'R', 'R', 'R', 'R'],
 },
 {
   id: '44', level: 7, title: 'IGNORE',
@@ -3209,20 +3264,21 @@ const L6 = [
 },
 {
   id: '46', level: 7, title: 'HALF TRUE',
-  grid: { rows: ['#########', '#.......#', '#.......#', '#.......#', '#########'] },
+  grid: { rows: ['##########', '#........#', '########.#', '#........#', '#.########',
+    '#........#', '#........#', '#........#', '##########'] },
   use_sentences: true,
   words_pushable: true,
   semantics_defaults: { props: { WALL: ['SOLID'], PLAYER: ['YOU'] } },
   objects: [
-    { kind: 'player', x: 2, y: 3 },
-    { kind: 'word', text: 'THIS', x: 1, y: 1 },
-    { kind: 'word', text: 'RULE', x: 2, y: 1 },
-    { kind: 'word', text: 'IS', x: 3, y: 1 },
-    { kind: 'word', text: 'FALSE', x: 4, y: 1 },
-    { kind: 'word', text: 'GOAL', x: 1, y: 2 },
-    { kind: 'word', text: '=', x: 2, y: 2 },
-    { kind: 'word', text: 'CLEAR', x: 3, y: 2 },
-    { kind: 'goal', x: 7, y: 3 },
+    { kind: 'player', x: 1, y: 1 },
+    { kind: 'word', text: 'THIS', x: 1, y: 6 },
+    { kind: 'word', text: 'RULE', x: 2, y: 6 },
+    { kind: 'word', text: 'IS', x: 3, y: 6 },
+    { kind: 'word', text: 'FALSE', x: 4, y: 6 },
+    { kind: 'word', text: 'GOAL', x: 1, y: 7 },
+    { kind: 'word', text: '=', x: 2, y: 7 },
+    { kind: 'word', text: 'CLEAR', x: 3, y: 7 },
+    { kind: 'goal', x: 8, y: 5 },
   ],
   turn_conditions: { countBlocked: true },
   hidden_rules: [{
@@ -3232,9 +3288,11 @@ const L6 = [
   available_ui_actions: ['undo', 'reset'],
   tokens: ['矛盾', '次', '交互', '1', '手', 'ゴール', 'CLEAR', '無効', '読み順', '偶数'],
   hint_1: 'ゴールの上に立った。何も起きない。もう一度立っても同じ。',
-  hint_2: '矛盾文の真下にあるのは GOAL = CLEAR だ。43面で壁に起きたことを思い出せ。',
-  hint_3: 'ゴールの上で1手だけ潰せ。クリアの定義が有効な瞬間が交互に来る。',
-  solution: ['R', 'R', 'R', 'R', 'R', 'R'],
+  hint_2: '矛盾文の真下にあるのは GOAL = CLEAR だ。43面で門に起きたことを思い出せ。',
+  hint_3: 'ゴールの上で1手潰すか、あるいは矛盾文そのものを1単語ぶん壊せ。どちらでも通る。',
+  solution: ['R', 'R', 'R', 'R', 'R', 'R', 'R', 'D', 'D',
+    'L', 'L', 'L', 'L', 'L', 'L', 'L', 'D', 'D',
+    'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R'],
 },
 ];
 
@@ -3308,37 +3366,48 @@ const L7 = [
 },
 {
   id: 'NULL-1', level: 10, title: 'TWO LIES', hidden: true, nullStage: true,
-  grid: { rows: ['#########', '#.....#.#', '#.....#.#', '#.....#.#', '#.....#.#', '#.....#.#', '#########'] },
+  grid: { rows: ['##########', '#.B..B.B.#', '#........#', '#........#', '#........#',
+    '#........#', '#........#', '##########', '#........#', '##########'],
+    legend: { B: { type: 'bluewall' } } },
   use_sentences: true,
   words_pushable: true,
-  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
+  semantics_defaults: { props: { WALL: ['SOLID'], PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
   objects: [
-    { kind: 'player', x: 4, y: 1 },
-    { kind: 'word', text: 'THIS', x: 1, y: 1 },
-    { kind: 'word', text: 'RULE', x: 1, y: 2 },
-    { kind: 'word', text: 'IS', x: 1, y: 3 },
-    { kind: 'word', text: 'FALSE', x: 1, y: 4 },
-    { kind: 'word', text: 'THIS', x: 3, y: 1 },
-    { kind: 'word', text: 'RULE', x: 3, y: 2 },
-    { kind: 'word', text: 'IS', x: 3, y: 3 },
-    { kind: 'word', text: 'FALSE', x: 3, y: 4 },
-    { kind: 'word', text: 'WALL', x: 1, y: 5 },
-    { kind: 'word', text: 'IS', x: 2, y: 5 },
-    { kind: 'word', text: 'SOLID', x: 3, y: 5 },
-    { kind: 'goal', x: 7, y: 3 },
+    { kind: 'player', x: 1, y: 1 },
+    { kind: 'word', text: 'THIS', x: 2, y: 3 },
+    { kind: 'word', text: 'RULE', x: 3, y: 3 },
+    { kind: 'word', text: 'IS', x: 4, y: 3 },
+    { kind: 'word', text: 'FALSE', x: 5, y: 3 },
+    { kind: 'word', text: 'THIS', x: 2, y: 5 },
+    { kind: 'word', text: 'RULE', x: 3, y: 5 },
+    { kind: 'word', text: 'IS', x: 4, y: 5 },
+    { kind: 'word', text: 'FALSE', x: 5, y: 5 },
+    { kind: 'word', text: 'BLUE', x: 2, y: 8 },
+    { kind: 'word', text: 'IS', x: 3, y: 8 },
+    { kind: 'word', text: 'SOLID', x: 4, y: 8 },
+    { kind: 'goal', x: 8, y: 1 },
   ],
-  hidden_rules: [{
-    id: 'R_TWOLIES', name: '矛盾文が2つあると、互いを打ち消して壁は常に硬いままになる',
-    when: 'moveBlocked', if: true, then: [{ do: 'sound', name: 'err' }],
-    note: '壁がいつまでも揺らがない',
-    answer: ['矛盾', '2', '打ち消す', '常に', '硬い'],
-  }],
+  hidden_rules: [
+    { id: 'R_TWOLIES', name: '矛盾文が2つあると、互いを打ち消して門は常に閉じたままになる',
+      when: 'moveBlocked', if: { op: '==', a: { v: 'arg.tile' }, b: 'bluewall' },
+      then: [{ do: 'addFlag', flag: 'rejects', by: 1 }, { do: 'sound', name: 'err' },
+        { do: 'flash', text: 'SEEN' }],
+      note: '青い門に弾かれた → 門は弾いた回数を覚えている',
+      answer: ['矛盾', '2', '打ち消す', '常に', '硬い'] },
+    { id: 'R_CAUGHT1', name: '青い門は2度目の誤りを許さない', when: 'afterMove',
+      if: { op: '>=', a: { v: 'flag.rejects' }, b: 2 },
+      then: [{ do: 'fail' }, { do: 'sound', name: 'dead' }],
+      answer: ['門', '2', '回', '失敗', '終わり'] },
+  ],
+  rule_priority: ['R_TWOLIES', 'R_CAUGHT1'],
   available_ui_actions: ['undo', 'reset'],
-  tokens: ['矛盾', '2', '打ち消す', '常に', '硬い', '読み順', '次', '無効', '壁', '交互'],
-  hint_1: '43面では壁が1手ごとに揺らいだ。ここでは揺らがない。増えたものは何だ？',
-  hint_2: '嘘つきが2人いる。1人目が2人目を黙らせている。',
-  hint_3: '2つ目の矛盾文を「文章として成立しない」形に壊せ。端の単語を抜いても駄目だ。真ん中を抜け。',
-  solution: ['D', 'L', 'R', 'D', 'R', 'R', 'R'],
+  tokens: ['矛盾', '2', '打ち消す', '常に', '硬い', '読み順', '次', '無効', '門', '交互'],
+  hint_1: '43面では門が1手ごとに揺らいだ。ここでは揺らがない。増えたものは何だ。',
+  hint_2: '一番下の行には手が届かない。触れるのは嘘つき2人だけだ。',
+  hint_3: '2つ目の矛盾文を「文章として成立しない」形に壊せ。端の単語では駄目だ、真ん中を抜け。',
+  solution: ['D', 'D', 'D', 'D', 'D', 'R', 'R', 'U',
+    'R', 'R', 'R', 'U', 'U', 'U', 'L', 'L', 'L', 'L', 'L', 'U',
+    'U', 'R', 'R', 'R', 'U', 'R', 'R', 'R', 'R'],
 },
 {
   id: 'NULL-2', level: 10, title: 'MAKE IT EXIST', hidden: true, nullStage: true,
@@ -3376,25 +3445,29 @@ const L7 = [
     '#.......#', '#.......#', '#.......#', '#########'] },
   view: { x: 0, y: 0, w: 3, h: 3 },
   use_sentences: true,
-  semantics_defaults: { props: { PLAYER: ['YOU'], GOAL: ['CLEAR'] } },
-  existence_kinds: ['GOAL'],
-  spawns: { GOAL: { x: 1, y: 1 } },
-  objects: [{ kind: 'player', x: 1, y: 1 }],
-  ui_words: ['GOAL', 'EXISTS', 'PLAYER', '='],
+  semantics_defaults: {},
+  existence_kinds: ['PLAYER', 'GOAL'],
+  spawns: { PLAYER: { x: 1, y: 1 }, GOAL: { x: 1, y: 1 } },
+  objects: [],
+  banner: '1',
+  ui_words: ['GOAL', 'EXISTS', 'PLAYER', '=', 'IS', 'WALL', 'SOLID'],
+  win_conditions: [{ has: 'PLAYER EXISTS' }, { has: 'GOAL EXISTS' }, { at: ['player', 'goal'] }],
   hidden_rules: [{
-    id: 'R_ZERO', name: '1マスしかない世界でも、世界の外には余白がある', when: 'beforeMove',
+    id: 'R_ZERO', name: '1マスしかない世界でも、世界の外には余白がある', when: 'onUI',
     if: { op: 'and', args: [{ op: 'not', a: { v: 'zoomed' } },
-      { op: 'or', args: [{ op: '>=', a: { v: 'tx' }, b: 3 }, { op: '>=', a: { v: 'ty' }, b: 3 }] }] },
+      { op: '==', a: { v: 'ui.name' }, b: 'dropUI' },
+      { op: 'or', args: [{ op: '>=', a: { v: 'ui.x' }, b: 3 }, { op: '>=', a: { v: 'ui.y' }, b: 3 }] }] },
     then: [{ do: 'cancel' }, { do: 'sound', name: 'err' }],
-    note: '3マスの世界の縁で止められた',
+    note: '3マスの世界の外には、まだ何も書けない',
     answer: ['世界', '外', '余白', '存在', '拡大'],
   }],
   available_ui_actions: ['undo', 'reset', 'zoom', 'dropUI', 'wordDrag'],
   tokens: ['世界', '外', '余白', '存在', '拡大', 'ゴール', '単語', '書く', '1', '0'],
-  hint_1: '動く場所が無い。書く場所も無い。ならば場所を増やせ。',
+  hint_1: 'プレイヤーもゴールも無い。動く場所も、書く場所も無い。ならば場所を増やせ。',
   hint_2: '32面でやったことを、もう一度。ただし今度は歩くためではない。',
-  hint_3: '縮小して現れた余白に GOAL EXISTS と書け。ゴールはお前の足元に生まれる。',
-  solution: ['ui:zoom', 'ui:dropUI:GOAL,4,4', 'ui:dropUI:EXISTS,5,4'],
+  hint_3: '余白に PLAYER EXISTS と GOAL EXISTS を両方書け。二人は同じ一マスに生まれる。',
+  solution: ['ui:zoom', 'ui:dropUI:PLAYER,4,4', 'ui:dropUI:EXISTS,5,4',
+    'ui:dropUI:GOAL,4,6', 'ui:dropUI:EXISTS,5,6'],
 },
 ];
 
@@ -3901,7 +3974,7 @@ $('btn-undo').onclick = () => {
   doAction({ type: 'undo' });
 };
 $('btn-reset').onclick = () => { newGame(true); sfx('ui'); };
-$('rot-handle').onclick = () => doUI('rotate');
+$('rot-handle').onclick = () => doUI('rotate', { by: stage.rotate_step ?? 90 });
 
 // ---------------------------------------------------------------- actions
 

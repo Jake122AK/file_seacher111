@@ -121,15 +121,22 @@ await key('ArrowRight', 6); await key('ArrowDown', 6); await key('ArrowRight', 4
 check('stage 32 clears once the world is revealed', await won());
 await closeOverlay();
 
-// --- LEVEL 5: rotating the board ------------------------------------------
+// --- LEVEL 5: rotating the board, but only on the pivot -------------------
 await openStage('33');
+await page.locator('#rot-handle').click();          // not on a pivot yet
+await page.waitForTimeout(100);
+check('the board refuses to turn off the pivot',
+  await page.evaluate(() => window.RB.game.s.rot) === 0);
 await key('ArrowRight', 6);
-await page.locator('#rot-handle').click();
 await page.locator('#rot-handle').click();
 await page.waitForTimeout(120);
-check('rotate handle turns the board', await page.evaluate(() => window.RB.game.s.rot) === 180);
+check('the pivot turns the board half a turn',
+  await page.evaluate(() => window.RB.game.s.rot) === 180);
 await key('ArrowRight', 6);
-check('stage 33 clears with rotated controls', await won());
+await key('ArrowLeft', 6);
+await page.locator('#rot-handle').click();
+await page.waitForTimeout(120);
+check('stage 33 clears only once the world is upright again', await won());
 await closeOverlay();
 
 // --- LEVEL 5: the stage title is an object --------------------------------
@@ -137,7 +144,8 @@ await openStage('34');
 for (let i = 0; i < 3; i++) { await page.locator('#hud-title').click(); await page.waitForTimeout(80); }
 check('tapping the title spawns the goal',
   await page.evaluate(() => window.RB.game.s.objs.some((o) => o.kind === 'goal')));
-await key('ArrowRight', 4);
+await key('ArrowRight', 6); await key('ArrowDown', 2); await key('ArrowLeft', 6);
+await key('ArrowDown', 2); await key('ArrowRight', 6);
 check('stage 34 clears', await won());
 await closeOverlay();
 
@@ -153,9 +161,10 @@ await closeOverlay();
 
 // --- LEVEL 5: dragging a UI button onto the board -------------------------
 await openStage('36');
-await dragTo('#btn-reset', 4, 2);
-check('RESET can be dropped into the world',
-  await page.evaluate(() => window.RB.game.s.objs.some((o) => o.kind === 'word' && o.text === 'RESET')));
+await dragTo('#btn-reset', 3, 2);
+await dragTo('#btn-undo', 4, 2);
+check('RESET and UNDO can both be dropped into the world',
+  await page.evaluate(() => window.RB.game.s.objs.filter((o) => o.kind === 'word').length) === 2);
 await key('ArrowRight', 6);
 check('stage 36 clears', await won());
 await closeOverlay();

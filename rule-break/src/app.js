@@ -464,7 +464,7 @@ $('btn-undo').onclick = () => {
   doAction({ type: 'undo' });
 };
 $('btn-reset').onclick = () => { newGame(true); sfx('ui'); };
-$('rot-handle').onclick = () => doUI('rotate');
+$('rot-handle').onclick = () => doUI('rotate', { by: stage.rotate_step ?? 90 });
 
 // ---------------------------------------------------------------- actions
 
