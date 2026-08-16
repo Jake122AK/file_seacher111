@@ -1,0 +1,12 @@
+{
+  "name": "rule-break",
+  "version": "1.0.0",
+  "description": "RULE//BREAK - a puzzle game about solving the rules, not the board",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node test/run.mjs",
+    "test:browser": "node test/browser.mjs",
+    "serve": "npx http-server -p 8080 -s ."
+  }
+}

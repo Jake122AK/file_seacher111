@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>RULE//BREAK</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <section id="screen-title" class="screen active">
+    <div class="logo">
+      <span class="logo-word">RULE</span><span class="logo-slash" id="logo-slash">//</span><span class="logo-word">BREAK</span>
+    </div>
+    <div class="logo-sub" id="title-sub"></div>
+    <div class="title-menu">
+      <button class="btn big" id="btn-start">START</button>
+      <button class="btn" id="btn-map">STAGE SELECT</button>
+      <button class="btn" id="btn-sound">SOUND: ON</button>
+    </div>
+    <div class="title-foot" id="title-foot"></div>
+    <div id="root-panel" class="root-panel hidden">
+      <div class="root-head">ROOT RULES</div>
+      <div id="root-list"></div>
+      <div class="root-note">この世界の根本規則。触れると全ステージに影響する。<br>Stage NULL はこの外側にある。</div>
+    </div>
+  </section>
+
+  <section id="screen-select" class="screen">
+    <header class="bar">
+      <button class="btn small" id="sel-back">TITLE</button>
+      <div class="bar-title">STAGE SELECT</div>
+      <div class="bar-right" id="sel-progress"></div>
+    </header>
+    <div id="node-map"></div>
+    <div class="sel-foot" id="sel-foot"></div>
+  </section>
+
+  <section id="screen-play" class="screen">
+    <header class="bar" id="hud">
+      <div class="chip" id="hud-stage"></div>
+      <div class="chip chip-title" id="hud-title"></div>
+      <div class="chip" id="hud-moves"></div>
+    </header>
+
+    <div id="board-wrap">
+      <canvas id="board"></canvas>
+      <button id="rot-handle" title="rotate">&#8635;</button>
+      <div id="flash" class="flash"></div>
+    </div>
+
+    <div id="tray" class="tray"></div>
+
+    <div id="controls">
+      <button class="btn ui-drag" id="btn-undo" data-item="UNDO">UNDO</button>
+      <button class="btn ui-drag" id="btn-reset" data-item="RESET">RESET</button>
+      <button class="btn" id="btn-hint">HINT</button>
+      <button class="btn" id="btn-back">MAP</button>
+    </div>
+
+    <div id="note" class="note">
+      <div class="note-head">
+        <span class="note-title">RULE NOTE</span>
+        <span class="note-count" id="note-count"></span>
+        <button class="note-x" id="note-close">&times;</button>
+      </div>
+      <div class="note-body">
+        <div id="note-obs" class="note-obs"></div>
+        <div class="note-guess">
+          <div class="guess-line" id="guess-line"><span class="guess-empty">単語を選んで法則を組み立てる</span></div>
+          <div id="token-pool" class="token-pool"></div>
+          <div class="guess-actions">
+            <button class="btn small" id="btn-guess">検証</button>
+            <button class="btn small" id="btn-guess-clear">消去</button>
+          </div>
+        </div>
+        <div id="known-rules" class="known-rules"></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div id="overlay" class="overlay hidden"></div>
+<div id="drag-ghost" class="drag-ghost hidden"></div>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
