@@ -18,6 +18,10 @@ export const TILE_DEFAULTS = {
   bluewall: { solid: true },
   bluefloor: { solid: false },
   yellowfloor: { solid: false },
+  purplefloor: { solid: false },
+  whitefloor: { solid: false },
+  orangefloor: { solid: false },
+  greenfloor: { solid: false },
   glass: { solid: { op: '==', a: { v: 'parity' }, b: 1 } }, // solid on odd turns
   hole: { solid: false, deadly: true },
   void: { solid: true, empty: true },
@@ -101,7 +105,8 @@ export class Game {
     if (typeof d === 'string') return d;
     if (d && d.type) return d.type;
     return { '#': 'wall', '.': 'floor', ' ': 'void', 'r': 'redwall', 'b': 'bluefloor',
-      'y': 'yellowfloor', 'g': 'glass', 'o': 'hole', '~': 'void' }[ch] || 'floor';
+      'y': 'yellowfloor', 'g': 'glass', 'o': 'hole', '~': 'void',
+      'p': 'purplefloor', 'w': 'whitefloor', 'n': 'orangefloor', 'e': 'greenfloor' }[ch] || 'floor';
   }
 
   tileDef(type) {
@@ -414,7 +419,7 @@ export class Game {
     if (d.needs && this.s.keys[d.needs]) return true;
     if (d.link) {
       return this.s.objs.some((o) => o.kind === 'switch' && o.link === d.link
-        && this.s.objs.some((p) => p !== o && p.x === o.x && p.y === o.y && ['player', 'box', 'ghost'].includes(p.kind)));
+        && this.s.objs.some((p) => p !== o && p.x === o.x && p.y === o.y && ['player', 'box', 'ghost', 'enemy'].includes(p.kind)));   // a shadow is heavy too
     }
     if (d.openIf) return test(d.openIf, this.ctx());
     return false;
@@ -613,6 +618,7 @@ export class Game {
   stepActors(info) {
     for (const o of this.s.objs) {
       if (o.kind === 'ghost') {
+        if (!o.path || !o.path.length) continue;   // a statue: it just stands there
         o.i = Math.min((o.i || 0) + 1, o.path.length - 1);
         const p = o.path[o.i];
         o.x = p.x; o.y = p.y;

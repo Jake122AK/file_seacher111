@@ -27,6 +27,7 @@ const MODULES = [
   'src/stages/l5.js',
   'src/stages/l6.js',
   'src/stages/l7.js',
+  'src/stages/accumulate.js',
   'src/stages/index.js',
   'src/app.js',
 ];
@@ -76,6 +77,17 @@ function bundleOf(modules) {
     const { code, exports } = transform(path, read(path));
     out += `\n// ===== ${path} =====\n`
       + `__M['${keyOf(path)}'] = (function () {\n${code}\nreturn { ${exports.join(', ')} };\n})();\n`;
+  }
+  // A module that imports something not on the list would silently become
+  // undefined at runtime and take the whole page down. Catch it here instead.
+  const defined = new Set(modules.map(keyOf));
+  const missing = new Set();
+  for (const m of out.matchAll(/__M\['([^']+)'\]/g)) {
+    if (!defined.has(m[1])) missing.add(m[1]);
+  }
+  if (missing.size) {
+    throw new Error('bundle is missing modules: ' + [...missing].join(', ')
+      + '\n  add them to MODULES in tools/build.mjs');
   }
   return out;
 }

@@ -280,6 +280,25 @@ check('4 dropped on 7 generates STAGE 47', fusion.includes('47'), fusion.slice(0
 if (SHOTS) await page.screenshot({ path: SHOTS + '/shot-fusion.png' });
 await closeOverlay();
 
+// --- ACCUMULATE: the rulebook grows and keeps its unknowns ---------------
+await page.evaluate(() => {
+  for (const a of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A11', 'A12']) {
+    window.RB.save.cleared[a] = true;
+  }
+  window.RB.save.discovered.A_CRUMBLE = true;
+  window.RB.save.discovered.A_PHASE = true;
+});
+await openStage('A13');
+const book = await page.locator('#known-rules').innerText();
+check('the rulebook lists every law in force', book.includes('この世界の法則 (7)'), book.slice(0, 40));
+check('discovered laws are named', book.includes('黄色い床は、離れた瞬間に壁になる'));
+check('undiscovered laws keep an anonymous slot', book.includes('??????'));
+check('a law introduced here is still live from an earlier stage',
+  await page.evaluate(() => window.RB.stage.hidden_rules.some((r) => r.id === 'A_CRUMBLE')));
+await key('ArrowRight', 7); await key('ArrowDown', 3);
+check('A13 clears', await won());
+await closeOverlay();
+
 check('no uncaught JS errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 console.log(`\n${pass}/${pass + fail} browser checks passed`);

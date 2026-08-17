@@ -239,6 +239,27 @@ export function drawTile(c, type, x, y, px, theme) {
       fill(theme.yellowF);
       dot(3, 3, theme.yellowFDot); dot(4, 4, theme.yellowFDot);
       break;
+    case 'purplefloor':                    // input mirror
+      fill(theme.purpleF);
+      dot(2, 3, theme.purpleFDot); dot(5, 3, theme.purpleFDot);
+      dot(3, 4, theme.purpleFDot); dot(4, 4, theme.purpleFDot);
+      break;
+    case 'whitefloor':                     // leaves a statue of you
+      fill(theme.whiteF);
+      dot(3, 2, theme.whiteFDot); dot(4, 2, theme.whiteFDot);
+      dot(3, 5, theme.whiteFDot); dot(4, 5, theme.whiteFDot);
+      dot(2, 3, theme.whiteFDot); dot(5, 4, theme.whiteFDot);
+      break;
+    case 'orangefloor':                    // drags the goal along
+      fill(theme.orangeF);
+      dot(2, 3, theme.orangeFDot); dot(3, 3, theme.orangeFDot);
+      dot(4, 3, theme.orangeFDot); dot(5, 2, theme.orangeFDot); dot(5, 4, theme.orangeFDot);
+      break;
+    case 'greenfloor':                     // turns gravity on and off
+      fill(theme.greenF);
+      dot(3, 1, theme.greenFDot); dot(3, 3, theme.greenFDot);
+      dot(3, 5, theme.greenFDot); dot(2, 6, theme.greenFDot); dot(4, 6, theme.greenFDot);
+      break;
     case 'hole':
       fill(theme.bg);
       drawSprite(c, 'hole', x, y, px, theme.holeEdge, theme.holeEdge);

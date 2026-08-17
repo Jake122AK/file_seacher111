@@ -170,6 +170,9 @@ html, body {
 .known-rules { margin-top: 10px; font-size: 11px; color: var(--accent); line-height: 1.7; }
 .known-rules div::before { content: "\2713 "; }
 .known-rules .head { color: #3a3a3a; margin-bottom: 2px; }
+.known-rules .unknown { color: #4a4a4a; }
+.known-rules .unknown::before { content: "? "; }
+.known-rules .newlaw { color: var(--red); }
 .known-rules .head::before { content: ""; }
 
 /* ---------------------------------------------------------------- overlay */

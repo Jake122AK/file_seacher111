@@ -4,6 +4,7 @@
 
 import { Game } from './engine.js';
 import { STAGES, stageById, registerStages } from './stages/index.js';
+import { LAWS } from './stages/accumulate.js';
 import { Renderer } from './render.js';
 import { play as sfx, setMuted, isMuted } from './audio.js';
 import { load, save, saveNow } from './save.js';
@@ -25,9 +26,11 @@ try {
   registerStages(custom.map((st) => ({ ...st, level: st.level ?? 11, custom: true })));
 } catch { /* malformed custom stages are ignored, never fatal */ }
 
-const MAIN = STAGES.filter((s) => !s.hidden);
+const MAIN = STAGES.filter((s) => !s.hidden && !s.campaign);
 const MAIN_IDS = MAIN.map((s) => s.id);
+const CAMPAIGN_IDS = STAGES.filter((s) => s.campaign === 'accumulate').map((s) => s.id);
 const HIDDEN = STAGES.filter((s) => s.hidden);
+const LAW_BY_ID = Object.fromEntries(LAWS.map((l) => [l.id, l]));
 
 // ---------------------------------------------------------------- progress
 
@@ -35,6 +38,10 @@ function playable(id) {
   const st = stageById(id);
   if (!st) return false;
   if (st.hidden) return !!S.unlocked[id];
+  if (st.campaign === 'accumulate') {          // its own ladder, from A1 up
+    const c = CAMPAIGN_IDS.indexOf(id);
+    return c <= 0 ? true : !!S.cleared[CAMPAIGN_IDS[c - 1]];
+  }
   const i = MAIN_IDS.indexOf(id);
   if (i <= 0) return true;
   return !!S.cleared[MAIN_IDS[i - 1]];
@@ -157,6 +164,7 @@ function buildMap() {
     ['LEVEL 8  ステージ', (s) => s.level === 8],
     ['FINAL', (s) => s.level === 9],
     ['NULL', (s) => s.level === 10],
+    ['ACCUMULATE  積層 — 覚えた法則は消えない', (s) => s.campaign === 'accumulate'],
     ['CUSTOM', (s) => s.custom],
   ];
 
@@ -373,11 +381,26 @@ function buildNote() {
 
   const known = $('known-rules');
   known.innerHTML = '';
-  const laws = [...(stage.hidden_rules || []), ...(stage.laws || [])].filter((r) => r.answer);
-  const got = laws.filter((r) => S.discovered[r.id]);
-  if (got.length) {
-    known.appendChild(el('div', 'head', 'DISCOVERED'));
-    for (const r of got) known.appendChild(el('div', null, r.name));
+  if (stage.rulebook) {
+    // Accumulate campaign: show the whole standing rulebook, not just this
+    // stage's findings. Undiscovered laws keep their slot so the player can
+    // see how much of the world they have not named yet.
+    known.appendChild(el('div', 'head', `この世界の法則 (${stage.rulebook.length})`));
+    stage.rulebook.forEach((id, i) => {
+      const law = LAW_BY_ID[id];
+      const found = S.discovered[id];
+      const row = el('div', found ? '' : 'unknown',
+        `${String(i + 1).padStart(2, '0')}. ` + (found ? law.name : '??????'));
+      if (stage.introduces === id) row.appendChild(el('span', 'newlaw', ' NEW'));
+      known.appendChild(row);
+    });
+  } else {
+    const laws = [...(stage.hidden_rules || []), ...(stage.laws || [])].filter((r) => r.answer);
+    const got = laws.filter((r) => S.discovered[r.id]);
+    if (got.length) {
+      known.appendChild(el('div', 'head', 'DISCOVERED'));
+      for (const r of got) known.appendChild(el('div', null, r.name));
+    }
   }
 }
 
